@@ -1,0 +1,279 @@
+﻿import { DateTime } from "luxon";
+import { adminDb } from "@/lib/firebase/admin";
+import { calculateScore } from "@/lib/scoring";
+import {
+  AccountDoc,
+  PostDoc,
+  SettingsDoc,
+  ScoreOptions,
+  Platform,
+} from "@/lib/types";
+import { fetchRecentXPosts } from "@/lib/platforms/x";
+import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
+import { SyncPostPayload } from "@/lib/platforms/types";
+import {
+  getAccounts,
+  getSettings,
+  logEvent,
+  upsertPost,
+} from "./firestore.server";
+
+type SyncOptions = {
+  lookbackDays?: number;
+  maxPosts?: number;
+  projectId?: string;
+  accountIds?: string[];
+  ignoreCursor?: boolean;
+};
+
+type FetchPostsResult = {
+  posts: SyncPostPayload[];
+  debug: string[];
+};
+
+type SyncResult = {
+  accountId: string;
+  handle: string;
+  displayName?: string;
+  platform: Platform;
+  fetched: number;
+  stored: number;
+  error?: string;
+  debug: string[];
+};
+
+function parsePositiveNumber(value?: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getDefaults(): { lookbackDays?: number; maxPosts: number } {
+  const lookbackDays = parsePositiveNumber(
+    process.env.SYNC_INITIAL_LOOKBACK_DAYS?.trim() ?? null,
+  );
+  const maxPosts =
+    parsePositiveNumber(process.env.SYNC_MAX_POSTS?.trim() ?? null) ?? 1000;
+
+  return {
+    lookbackDays,
+    maxPosts,
+  };
+}
+
+function scorePost(
+  payload: SyncPostPayload,
+  settings: SettingsDoc["scoring"],
+  scoreOptions: Partial<ScoreOptions> = {},
+) {
+  return calculateScore(
+    {
+      metrics: {
+        impressions: payload.metrics.impressions,
+        likes: payload.metrics.likes,
+        replies: payload.metrics.replies,
+        reposts_or_rethreads: payload.metrics.reposts_or_rethreads,
+        link_clicks: payload.metrics.link_clicks ?? 0,
+      },
+    },
+    { settings, proxyValue: scoreOptions.proxyValue },
+  );
+}
+
+async function fetchPostsForAccount(
+  account: AccountDoc,
+  options: SyncOptions,
+): Promise<FetchPostsResult> {
+  const defaults = getDefaults();
+  const lookbackInput = options.lookbackDays ?? defaults.lookbackDays;
+  const lookbackDays =
+    typeof lookbackInput === "number" && lookbackInput > 0
+      ? lookbackInput
+      : undefined;
+  const maxPosts = options.maxPosts ?? defaults.maxPosts;
+
+  let startTime: string | undefined;
+  if (!options.ignoreCursor && account.sync_cursor) {
+    startTime = account.sync_cursor;
+  } else if (lookbackDays) {
+    startTime = DateTime.utc().minus({ days: lookbackDays }).toUTC().toISO();
+  }
+
+  if (account.platform === "x") {
+    return fetchRecentXPosts(account, {
+      startTime,
+      limit: maxPosts,
+    });
+  }
+
+  return fetchRecentThreadsPosts(account, {
+    since: startTime,
+    limit: maxPosts,
+  });
+}
+
+function toPostDocument(
+  account: AccountDoc,
+  payload: SyncPostPayload,
+  settings: SettingsDoc["scoring"],
+): PostDoc {
+  const score = scorePost(payload, settings);
+  const createdAtIso = DateTime.fromISO(payload.created_at).toUTC().toISO();
+
+  return {
+    id: `${account.platform}_${payload.platform_post_id}`,
+    account_id: account.id,
+    platform: account.platform,
+    platform_post_id: payload.platform_post_id,
+    text: payload.text,
+    created_at: createdAtIso,
+    media_type: payload.media_type,
+    has_url: payload.has_url,
+    metrics: payload.metrics,
+    score,
+    raw: payload.raw,
+    raw_gcs_url: payload.raw_gcs_url,
+    url: payload.url,
+    fetched_at: DateTime.utc().toISO(),
+  } as PostDoc;
+}
+
+async function updateAccountCursor(account: AccountDoc, cursor: string) {
+  await adminDb.collection("accounts").doc(account.id).set(
+    {
+      sync_cursor: cursor,
+      updated_at: DateTime.utc().toISO(),
+    },
+    { merge: true },
+  );
+}
+
+function fallbackSettings(): SettingsDoc {
+  return {
+    id: "fallback",
+    scoring: {
+      use_impression_proxy:
+        String(process.env.SCORE_USE_IMPRESSION_PROXY).toLowerCase() === "true",
+      proxy_strategy:
+        process.env.SCORE_IMPRESSION_PROXY_STRATEGY === "1" ? "1" : "median",
+    },
+    generation: {
+      max_hashtags: Number(process.env.MAX_HASHTAGS ?? 2) || 2,
+      preferred_length: [120, 140],
+    },
+    slots: {
+      x: [],
+      threads: [],
+    },
+  };
+}
+
+export async function syncPostsForAllAccounts(
+  options: SyncOptions = {},
+): Promise<SyncResult[]> {
+  const [accounts, settings] = await Promise.all([
+    getAccounts(),
+    getSettings(options.projectId),
+  ]);
+
+  const activeSettings = settings ?? fallbackSettings();
+  const filterSet =
+    options.accountIds && options.accountIds.length > 0
+      ? new Set(options.accountIds)
+      : null;
+
+  const targetAccounts = filterSet
+    ? accounts.filter((account) => filterSet.has(account.id))
+    : accounts;
+
+  if (targetAccounts.length === 0) {
+    return [];
+  }
+
+  const results: SyncResult[] = [];
+
+  for (const account of targetAccounts) {
+    try {
+      const { posts: payloads, debug } = await fetchPostsForAccount(
+        account,
+        options,
+      );
+      const posts = payloads.map((item) =>
+        toPostDocument(account, item, activeSettings.scoring),
+      );
+
+      for (const post of posts) {
+        await upsertPost(post);
+      }
+
+      if (!options.ignoreCursor && payloads.length > 0) {
+        const latest = payloads
+          .map((item) => item.created_at)
+          .sort()
+          .at(-1);
+        if (latest) {
+          await updateAccountCursor(account, latest);
+        }
+      }
+
+      results.push({
+        accountId: account.id,
+        handle: account.handle,
+        displayName: account.display_name,
+        platform: account.platform,
+        fetched: payloads.length,
+        stored: posts.length,
+        debug: [
+          options.ignoreCursor ? "Mode: backfill (cursor ignored)" : "Mode: incremental",
+          `Fetched payloads: ${payloads.length}`,
+          `Stored posts: ${posts.length}`,
+          ...debug,
+        ],
+      });
+
+      await logEvent({
+        kind: "sync",
+        platform: account.platform,
+        account_id: account.id,
+        detail: JSON.stringify({
+          fetched: payloads.length,
+          stored: posts.length,
+          synced_at: DateTime.utc().toISO(),
+        }),
+        created_at: DateTime.utc().toISO(),
+      });
+    } catch (error) {
+      await logEvent({
+        kind: "error",
+        platform: account.platform,
+        account_id: account.id,
+        detail: JSON.stringify({
+          message: (error as Error).message,
+          stack: (error as Error).stack,
+        }),
+        created_at: DateTime.utc().toISO(),
+      });
+      results.push({
+        accountId: account.id,
+        handle: account.handle,
+        displayName: account.display_name,
+        platform: account.platform,
+        fetched: 0,
+        stored: 0,
+        error: (error as Error).message,
+        debug:
+          error instanceof Error && "debug" in error && Array.isArray(error.debug)
+            ? (error.debug as string[])
+            : [],
+      });
+    }
+  }
+
+  return results;
+}
+
+
+
+
