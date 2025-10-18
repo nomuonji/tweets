@@ -39,13 +39,16 @@ type SmartTweetGeneratorProps = {
 export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("top");
+  const [postLimit, setPostLimit] = useState(15);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
   const [contextPosts, setContextPosts] = useState<ContextPost[]>([]);
-  const [existingDrafts, setExistingDrafts] = useState<ExistingDraftSummary[]>([]);
+  const [existingDrafts, setExistingDrafts] = useState<ExistingDraftSummary[]>(
+    [],
+  );
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const [lastAnalysisMode, setLastAnalysisMode] = useState<AnalysisMode>("top");
 
@@ -73,7 +76,11 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
       const response = await fetch("/api/gemini/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, analysisMode }),
+        body: JSON.stringify({
+          accountId,
+          analysisMode,
+          limit: postLimit,
+        }),
       });
 
       const data = await response.json();
@@ -186,6 +193,23 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
                 Latest posts
               </button>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="post-limit"
+              className="text-xs text-muted-foreground"
+            >
+              Posts
+            </label>
+            <input
+              id="post-limit"
+              type="number"
+              value={postLimit}
+              onChange={(e) => setPostLimit(Number(e.target.value))}
+              min="5"
+              max="50"
+              className="w-20 rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
           </div>
           <button
             type="button"

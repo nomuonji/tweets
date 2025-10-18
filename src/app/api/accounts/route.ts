@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     const now = DateTime.utc().toISO();
     const expiresAtIso =
       data.oauthVersion === "oauth2" && data.expiresAt
-        ? DateTime.fromISO(data.expiresAt).toUTC().toISO()
+        ? DateTime.fromISO(data.expiresAt).toUTC().toISO() ?? undefined
         : undefined;
 
     await upsertAccount({

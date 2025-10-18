@@ -3,7 +3,6 @@ import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firesto
 import { adminDb } from "@/lib/firebase/admin";
 import type { DraftDoc } from "@/lib/types";
 import { logEvent, getAccounts } from "./firestore.server";
-import { publishXPost } from "@/lib/platforms/x";
 import { publishThreadsPost } from "@/lib/platforms/threads";
 
 function buildPostText(draft: DraftDoc) {
@@ -24,7 +23,8 @@ async function publishDraft(draft: DraftDoc) {
   }
 
   if (draft.target_platform === "x") {
-    return publishXPost(account, { text: buildPostText(draft) });
+    // return publishXPost(account, { text: buildPostText(draft) });
+    throw new Error("Publishing to X is not yet implemented.");
   }
   return publishThreadsPost(account, { text: buildPostText(draft) });
 }

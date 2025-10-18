@@ -70,8 +70,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
               type="number"
               inputMode="numeric"
               min={1}
-              placeholder="Use default"
-              value={lookbackDays}
+              placeholder="デフォルト: 増分同期"
               onChange={(event) => setLookbackDays(event.target.value)}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
@@ -82,7 +81,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
               type="number"
               inputMode="numeric"
               min={1}
-              placeholder="Use default"
+              placeholder="デフォルト: 1000"
               value={maxPosts}
               onChange={(event) => setMaxPosts(event.target.value)}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm"
@@ -92,7 +91,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
         <SyncButton payload={payload} />
       </div>
       <p className="text-xs text-muted-foreground">
-        Backfill mode downloads every available post (ignoring the stored cursor) so you can import older history. Leave it unchecked for the usual incremental sync.
+        <strong>バックフィルモード</strong>: このオプションをオンにすると、過去のすべての投稿を最初から取得し直します。古い投稿をまとめてインポートしたい場合に使用します。オフのまま同期すると、前回同期した箇所から新しい投稿のみを取得します。
       </p>
 
       <div className="space-y-3">
@@ -144,7 +143,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
             checked={backfill}
             onChange={(event) => setBackfill(event.target.checked)}
           />
-          <span>Backfill older posts (ignore stored cursor)</span>
+          <span>過去の全投稿を取得し直す (バックフィルモード)</span>
         </label>
       </div>
     </div>

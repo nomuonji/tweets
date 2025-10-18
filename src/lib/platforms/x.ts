@@ -326,7 +326,7 @@ function mapSimpleTimelineEntry(
     likes: parseCount(entry.favorites),
     replies: parseCount(entry.replies),
     reposts_or_rethreads: parseCount(entry.retweets),
-    quotes: entry.quotes !== undefined ? parseCount(entry.quotes) : null,
+    quotes: entry.quotes !== undefined ? parseCount(entry.quotes) : undefined,
     link_clicks: null,
   };
 
@@ -344,7 +344,7 @@ function mapSimpleTimelineEntry(
     has_url: hasUrl,
     metrics,
     raw: entry as Record<string, unknown>,
-    raw_gcs_url: null,
+    raw_gcs_url: undefined,
     url: `https://twitter.com/${screenName}/status/${tweetId}`,
   };
 }
@@ -580,7 +580,7 @@ function transformResponseToTweets(
     debug.push(`Fallback results collected: ${filtered.length}`);
     if (filtered.length > 0) {
       const mapped = filtered
-        .map((result) => {
+        .map((result): SyncPostPayload | null => {
           const legacy = result.legacy ?? {};
           if (isLegacyRetweet(legacy)) {
             debug.push("Skipped retweet legacy fallback entry");
@@ -599,7 +599,7 @@ function transformResponseToTweets(
           const hasUrl = Boolean(legacy.entities?.urls?.length);
 
           return {
-            platform: "x" as const,
+            platform: "x",
             platform_post_id: id,
             text,
             created_at: created,
@@ -611,6 +611,7 @@ function transformResponseToTweets(
               legacy,
             },
             url: `https://twitter.com/${screenName}/status/${id}`,
+            raw_gcs_url: undefined,
           };
         })
         .filter((value): value is SyncPostPayload => value !== null);
@@ -626,7 +627,7 @@ function transformResponseToTweets(
   }
 
   const tweets = results
-    .map((result) => {
+    .map((result): SyncPostPayload | null => {
       const legacy = result.legacy ?? {};
       if (isLegacyRetweet(legacy)) {
         debug.push("Skipped retweet legacy entry");
@@ -645,7 +646,7 @@ function transformResponseToTweets(
       const hasUrl = Boolean(legacy.entities?.urls?.length);
 
       return {
-        platform: "x" as const,
+        platform: "x",
         platform_post_id: id,
         text,
         created_at: created,
@@ -657,6 +658,7 @@ function transformResponseToTweets(
           legacy,
         },
         url: `https://twitter.com/${screenName}/status/${id}`,
+        raw_gcs_url: undefined,
       };
     })
     .filter((value): value is SyncPostPayload => value !== null);
