@@ -23,7 +23,6 @@ type SyncOptions = {
   maxPosts?: number;
   projectId?: string;
   accountIds?: string[];
-  ignoreCursor?: boolean;
 };
 
 type FetchPostsResult = {
@@ -55,7 +54,7 @@ function getDefaults(): { lookbackDays?: number; maxPosts: number } {
     process.env.SYNC_INITIAL_LOOKBACK_DAYS?.trim() ?? null,
   );
   const maxPosts =
-    parsePositiveNumber(process.env.SYNC_MAX_POSTS?.trim() ?? null) ?? 1000;
+    parsePositiveNumber(process.env.SYNC_MAX_POSTS?.trim() ?? null) ?? 20;
 
   return {
     lookbackDays,
@@ -95,23 +94,35 @@ async function fetchPostsForAccount(
   const maxPosts = options.maxPosts ?? defaults.maxPosts;
 
   let startTime: string | undefined;
-  if (!options.ignoreCursor && account.sync_cursor) {
-    startTime = account.sync_cursor;
-  } else if (lookbackDays) {
+  if (lookbackDays) {
     startTime = DateTime.utc().minus({ days: lookbackDays }).toUTC().toISO();
   }
 
+  const debugLines = [
+    lookbackDays ? `Mode: lookback (${lookbackDays}d)` : "Mode: latest posts (default)",
+    `Fetch limit: ${maxPosts}`,
+  ];
+
   if (account.platform === "x") {
-    return fetchRecentXPosts(account, {
+    const result = await fetchRecentXPosts(account, {
       startTime,
       limit: maxPosts,
     });
+    return {
+      posts: result.posts,
+      debug: [...debugLines, ...result.debug],
+    };
   }
 
-  return fetchRecentThreadsPosts(account, {
+  const result = await fetchRecentThreadsPosts(account, {
     since: startTime,
     limit: maxPosts,
   });
+
+  return {
+    posts: result.posts,
+    debug: [...debugLines, ...result.debug],
+  };
 }
 
 function toPostDocument(
@@ -208,7 +219,7 @@ export async function syncPostsForAllAccounts(
         await upsertPost(post);
       }
 
-      if (!options.ignoreCursor && payloads.length > 0) {
+      if (payloads.length > 0) {
         const latest = payloads
           .map((item) => item.created_at)
           .sort()
@@ -226,10 +237,9 @@ export async function syncPostsForAllAccounts(
         fetched: payloads.length,
         stored: posts.length,
         debug: [
-          options.ignoreCursor ? "Mode: backfill (cursor ignored)" : "Mode: incremental",
+          ...debug,
           `Fetched payloads: ${payloads.length}`,
           `Stored posts: ${posts.length}`,
-          ...debug,
         ],
       });
 

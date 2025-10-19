@@ -25,9 +25,14 @@ export function calculateScore({ metrics }: ScoreInput, options: ScoreOptions) {
     metrics.replies +
     linkClicks * 2;
 
+  const effectiveImpressions = impressions > 0 ? impressions : 1;
+  const engagementRate = numerator / effectiveImpressions;
+  const reachFactor =
+    impressions > 0 ? 1 + Math.log10(effectiveImpressions + 1) * 0.1 : 1;
+
   if (impressions <= 0) {
-    return numerator;
+    return Number((numerator * reachFactor).toFixed(6));
   }
 
-  return Number((numerator / impressions).toFixed(6));
+  return Number((engagementRate * reachFactor).toFixed(6));
 }

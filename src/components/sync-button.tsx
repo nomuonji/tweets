@@ -6,7 +6,6 @@ export type SyncRequestPayload = {
   lookbackDays?: number;
   maxPosts?: number;
   accountIds?: string[];
-  ignoreCursor?: boolean;
 };
 
 type SyncButtonProps = {
@@ -49,10 +48,6 @@ export function SyncButton({ payload }: SyncButtonProps) {
 
     if (Array.isArray(payload?.accountIds) && payload.accountIds.length > 0) {
       next.accountIds = payload.accountIds;
-    }
-
-    if (typeof payload?.ignoreCursor === "boolean") {
-      next.ignoreCursor = payload.ignoreCursor;
     }
 
     return next;

@@ -23,12 +23,9 @@ type GeminiContent = { parts?: GeminiPart[] };
 type GeminiCandidate = { content?: GeminiContent };
 type GeminiResponse = { candidates?: GeminiCandidate[] };
 
-type AnalysisMode = "top" | "recent";
-
 type GenerateRequestBody = {
   accountId?: string;
   limit?: number;
-  analysisMode?: AnalysisMode;
 };
 
 function sanitizeCandidateText(text: string) {
@@ -219,13 +216,8 @@ async function fetchExistingDrafts(accountId: string, limit: number) {
   }
 }
 
-function buildPrompt(
-  posts: PostDoc[],
-  drafts: DraftDoc[],
-  extraAvoid: string[],
-  mode: AnalysisMode,
-) {
-  const summaryLines = posts.map((post, index) => {
+function formatPostSummary(posts: PostDoc[]) {
+  return posts.map((post, index) => {
     const created = DateTime.fromISO(post.created_at).toFormat("yyyy-LL-dd");
     const impressions = post.metrics.impressions ?? 0;
     return [
@@ -234,6 +226,21 @@ function buildPrompt(
       `   Metrics: impressions=${impressions}, likes=${post.metrics.likes}, reposts=${post.metrics.reposts_or_rethreads}, replies=${post.metrics.replies}, score=${post.score.toFixed(3)}`,
     ].join("\n");
   });
+}
+
+function buildPrompt(
+  topPosts: PostDoc[],
+  recentPosts: PostDoc[],
+  drafts: DraftDoc[],
+  extraAvoid: string[],
+) {
+  const topSummary = topPosts.length
+    ? `Top performing posts ranked by engagement:\n${formatPostSummary(topPosts).join("\n")}`
+    : "Top performing posts ranked by engagement:\n- No historical high performers available.";
+
+  const recentSummary = recentPosts.length
+    ? `Latest posts (newest first):\n${formatPostSummary(recentPosts).join("\n")}`
+    : "Latest posts (newest first):\n- No recent posts available.";
 
   const avoidList = Array.from(
     new Set(
@@ -252,17 +259,11 @@ function buildPrompt(
         )}\n`
       : "";
 
-  const datasetDescription =
-    mode === "recent"
-      ? "The following list shows the most recent posts (newest first)."
-      : "The following list shows top-performing posts ranked by engagement score.";
-
   return `
 You are an experienced social media strategist for short form posts on X (Twitter).
 
-You will receive a list of recent high performing posts including their engagement metrics.
-Identify the stylistic patterns, tone, and topics that deliver the best engagement.
-Then write a brand new post idea that stays consistent with the brand voice but introduces a fresh angle.
+You will receive two datasets: high performing posts that achieved strong engagement, and the most recent posts. Study both to understand winning themes while avoiding repetition with the latest content.
+Then write a brand new post idea that stays consistent with the brand voice but introduces a fresh angle that has not appeared in the recent posts.
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
@@ -272,11 +273,37 @@ Output requirements (strict):
 - Do not add any additional fields, markdown, or commentary.
 - Avoid repeating existing draft texts or their close variations.
 
-${datasetDescription}
 Here are the reference posts:
-${summaryLines.join("\n")}
+
+${topSummary}
+
+${recentSummary}
 ${avoidBlock}
 Respond only with JSON.`;
+}
+
+function dedupePostSets(topPosts: PostDoc[], recentPosts: PostDoc[]) {
+  const seen = new Set<string>();
+
+  const uniqueTop = topPosts.filter((post) => {
+    const key = post.id ?? `${post.platform}_${post.platform_post_id}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  const uniqueRecent = recentPosts.filter((post) => {
+    const key = post.id ?? `${post.platform}_${post.platform_post_id}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  return { uniqueTop, uniqueRecent };
 }
 
 async function requestGemini(prompt: string, apiKey: string) {
@@ -329,7 +356,6 @@ export async function POST(request: Request) {
     const body = (await request.json()) as GenerateRequestBody;
     const accountId = String(body.accountId ?? "").trim();
     const limit = Number.isFinite(body.limit) ? Number(body.limit) : 15;
-    const requestedMode = body.analysisMode === "recent" ? "recent" : "top";
 
     if (!accountId) {
       return NextResponse.json(
@@ -338,13 +364,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const fetchLimit = Math.min(Math.max(limit, 5), 50);
-    const posts =
-      requestedMode === "recent"
-        ? await fetchRecentPosts(accountId, fetchLimit)
-        : await fetchTopPosts(accountId, fetchLimit);
+    const normalizedLimit = Math.min(Math.max(limit, 6), 40);
+    const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
 
-    if (posts.length === 0) {
+    const rawTopPosts = await fetchTopPosts(accountId, perCategoryLimit);
+    const rawRecentPosts = await fetchRecentPosts(accountId, perCategoryLimit);
+    const { uniqueTop, uniqueRecent } = dedupePostSets(rawTopPosts, rawRecentPosts);
+
+    if (uniqueTop.length === 0 && uniqueRecent.length === 0) {
       return NextResponse.json(
         {
           ok: false,
@@ -353,6 +380,13 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    const referenceTop = uniqueTop.slice(0, perCategoryLimit);
+    const referenceRecent = uniqueRecent.slice(0, perCategoryLimit);
+    const referenceEntries = [
+      ...referenceTop.map((post) => ({ post, source: "top" as const })),
+      ...referenceRecent.map((post) => ({ post, source: "recent" as const })),
+    ];
 
     const drafts = await fetchExistingDrafts(accountId, 50);
     const normalizedDrafts = new Set(
@@ -365,7 +399,7 @@ export async function POST(request: Request) {
     let duplicate = false;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(posts, drafts, extraAvoid, requestedMode);
+      const prompt = buildPrompt(referenceTop, referenceRecent, drafts, extraAvoid);
       const raw = await requestGemini(prompt, geminiApiKey);
       suggestion = parseSuggestion(raw);
       const normalizedSuggestion = normalizeText(suggestion.tweet);
@@ -385,15 +419,33 @@ export async function POST(request: Request) {
       suggestion,
       duplicate,
       context: {
-        analysisMode: requestedMode,
-        usedPosts: posts.slice(0, 5).map((post) => ({
+        usedPosts: referenceEntries.slice(0, 10).map(({ post, source }) => ({
           id: post.id,
           text: post.text,
-          score: post.score,
-          impressions: post.metrics.impressions ?? 0,
-          likes: post.metrics.likes,
-          reposts: post.metrics.reposts_or_rethreads,
-          replies: post.metrics.replies,
+          score:
+            typeof post.score === "number" && Number.isFinite(post.score)
+              ? post.score
+              : 0,
+          impressions:
+            typeof post.metrics.impressions === "number" &&
+            Number.isFinite(post.metrics.impressions)
+              ? post.metrics.impressions
+              : 0,
+          likes:
+            typeof post.metrics.likes === "number" && Number.isFinite(post.metrics.likes)
+              ? post.metrics.likes
+              : 0,
+          reposts:
+            typeof post.metrics.reposts_or_rethreads === "number" &&
+            Number.isFinite(post.metrics.reposts_or_rethreads)
+              ? post.metrics.reposts_or_rethreads
+              : 0,
+          replies:
+            typeof post.metrics.replies === "number" &&
+            Number.isFinite(post.metrics.replies)
+              ? post.metrics.replies
+              : 0,
+          source,
         })),
         existingDrafts: drafts.slice(0, 8).map((draft) => ({
           id: draft.id,

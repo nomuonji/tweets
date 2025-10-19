@@ -24,6 +24,10 @@ type ThreadsItem = {
   reply_count?: number;
   repost_count?: number;
   insights?: { impressions?: number };
+  is_reply?: boolean | number | string;
+  reply_to_id?: string;
+  parent_id?: string;
+  replying_to?: string;
 };
 
 type ThreadsResponse = {
@@ -45,6 +49,18 @@ type FetchThreadsResult = {
   posts: SyncPostPayload[];
   debug: string[];
 };
+
+function isThreadsReply(item: ThreadsItem): boolean {
+  const candidates = [
+    item.reply_to_id,
+    item.parent_id,
+    item.replying_to,
+  ];
+  if (item.is_reply === true || item.is_reply === 1 || item.is_reply === "1") {
+    return true;
+  }
+  return candidates.some((value) => typeof value === "string" && value.trim().length > 0);
+}
 
 export async function fetchRecentThreadsPosts(
   account: AccountDoc,
@@ -102,7 +118,16 @@ export async function fetchRecentThreadsPosts(
   const items = response.data?.data ?? [];
   debug.push(`Threads items returned: ${items.length}`);
 
-  const filtered = items.filter((item) => {
+  const nonReplyItems = items.filter((item) => {
+    const isReply = isThreadsReply(item);
+    if (isReply) {
+      debug.push(`Skipped reply item ${item.id}`);
+    }
+    return !isReply;
+  });
+  debug.push(`Items after reply filter: ${nonReplyItems.length}`);
+
+  const filtered = nonReplyItems.filter((item) => {
     if (!options.since) {
       return true;
     }

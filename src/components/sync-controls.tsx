@@ -19,7 +19,6 @@ export function SyncControls({ accounts }: SyncControlsProps) {
   const [lookbackDays, setLookbackDays] = useState("");
   const [maxPosts, setMaxPosts] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
-  const [backfill, setBackfill] = useState(false);
 
   const payload = useMemo<SyncRequestPayload>(() => {
     const next: SyncRequestPayload = {};
@@ -38,12 +37,8 @@ export function SyncControls({ accounts }: SyncControlsProps) {
       next.accountIds = selectedAccounts;
     }
 
-    if (backfill) {
-      next.ignoreCursor = true;
-    }
-
     return next;
-  }, [lookbackDays, maxPosts, selectedAccounts, backfill]);
+  }, [lookbackDays, maxPosts, selectedAccounts]);
 
   const toggleAccount = (accountId: string) => {
     setSelectedAccounts((previous) =>
@@ -65,23 +60,23 @@ export function SyncControls({ accounts }: SyncControlsProps) {
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="grid gap-3 md:grid-cols-2 md:gap-4">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Lookback days</span>
+            <span className="text-muted-foreground">Lookback days (optional)</span>
             <input
               type="number"
               inputMode="numeric"
               min={1}
-              placeholder="デフォルト: 増分同期"
+              placeholder="未指定: 最新投稿20件"
               onChange={(event) => setLookbackDays(event.target.value)}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Max posts per account</span>
+            <span className="text-muted-foreground">Max posts per account (optional)</span>
             <input
               type="number"
               inputMode="numeric"
               min={1}
-              placeholder="デフォルト: 1000"
+              placeholder="未指定: 20"
               value={maxPosts}
               onChange={(event) => setMaxPosts(event.target.value)}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm"
@@ -91,7 +86,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
         <SyncButton payload={payload} />
       </div>
       <p className="text-xs text-muted-foreground">
-        <strong>バックフィルモード</strong>: このオプションをオンにすると、過去のすべての投稿を最初から取得し直します。古い投稿をまとめてインポートしたい場合に使用します。オフのまま同期すると、前回同期した箇所から新しい投稿のみを取得します。
+        標準設定では、各アカウントの最新投稿を20件まで（期間制限なし）取得します。Lookback daysやMax postsは例外的なケースでのみ入力してください。
       </p>
 
       <div className="space-y-3">
@@ -135,16 +130,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
             })}
           </div>
         )}
-
         <p className="text-xs text-muted-foreground">{selectionSummary}</p>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={backfill}
-            onChange={(event) => setBackfill(event.target.checked)}
-          />
-          <span>過去の全投稿を取得し直す (バックフィルモード)</span>
-        </label>
       </div>
     </div>
   );

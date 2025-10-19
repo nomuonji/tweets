@@ -28,6 +28,11 @@ type RapidApiTweetLegacy = {
   views?: { count?: number };
   retweeted_status_id_str?: string;
   retweeted_status_result?: unknown;
+  in_reply_to_status_id_str?: string;
+  in_reply_to_status_id?: string | number | null;
+  in_reply_to_screen_name?: string | null;
+  in_reply_to_user_id_str?: string;
+  in_reply_to_user_id?: string | number | null;
   extended_entities?: {
     media?: Array<{ type?: string }>;
   };
@@ -246,6 +251,62 @@ function isSimpleEntryRetweet(entry: UnknownRecord | null): boolean {
   return false;
 }
 
+function isLegacyReply(legacy?: RapidApiTweetLegacy): boolean {
+  if (!legacy) {
+    return false;
+  }
+  const replyTargets = [
+    legacy.in_reply_to_status_id_str,
+    legacy.in_reply_to_status_id,
+    legacy.in_reply_to_user_id,
+    legacy.in_reply_to_user_id_str,
+    legacy.in_reply_to_screen_name,
+  ];
+  return replyTargets.some((value) => {
+    if (typeof value === "number") {
+      return value > 0;
+    }
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return false;
+  });
+}
+
+function isSimpleEntryReply(entry: UnknownRecord | null): boolean {
+  if (!entry) {
+    return false;
+  }
+  const flag = entry.is_reply;
+  if (flag === true || flag === 1 || flag === "1") {
+    return true;
+  }
+  const replyKeys = [
+    "in_reply_to_status_id",
+    "in_reply_to_status_id_str",
+    "in_reply_to_user_id",
+    "in_reply_to_user_id_str",
+    "in_reply_to_screen_name",
+    "reply_to_tweet_id",
+    "reply_to_user_id",
+    "replying_to",
+  ];
+  for (const key of replyKeys) {
+    const value = entry[key];
+    if (typeof value === "number" && value > 0) {
+      return true;
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      return true;
+    }
+  }
+  const objectKeys = ["in_reply_to", "reply_to"];
+  return objectKeys.some((key) => {
+    const value = entry[key];
+    return value !== null && typeof value === "object";
+  });
+}
+
 function extractSimpleTimeline(
   data: unknown,
   screenName: string,
@@ -284,6 +345,10 @@ function mapSimpleTimelineEntry(
 ): SyncPostPayload | null {
   if (isSimpleEntryRetweet(entry)) {
     debug.push("Skipped retweet entry from simple timeline");
+    return null;
+  }
+  if (isSimpleEntryReply(entry)) {
+    debug.push("Skipped reply entry from simple timeline");
     return null;
   }
   if (!entry) {
@@ -586,6 +651,10 @@ function transformResponseToTweets(
             debug.push("Skipped retweet legacy fallback entry");
             return null;
           }
+          if (isLegacyReply(legacy)) {
+            debug.push("Skipped reply legacy fallback entry");
+            return null;
+          }
           const id = result.rest_id ?? legacy.id_str;
           const created = resolveCreatedAt(legacy.created_at);
 
@@ -631,6 +700,10 @@ function transformResponseToTweets(
       const legacy = result.legacy ?? {};
       if (isLegacyRetweet(legacy)) {
         debug.push("Skipped retweet legacy entry");
+        return null;
+      }
+      if (isLegacyReply(legacy)) {
+        debug.push("Skipped reply legacy entry");
         return null;
       }
       const id = result.rest_id ?? legacy.id_str;

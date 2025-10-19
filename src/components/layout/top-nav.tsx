@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/dashboard", label: "ダッシュボード" },
   { href: "/ranking", label: "ランキング" },
-  { href: "/generator", label: "生成・予約" },
+  { href: "/accounts", label: "アカウント" },
 ];
 
 export function TopNav() {

@@ -10,7 +10,6 @@ export async function POST(request: Request) {
       accountIds: Array.isArray(body.accountIds)
         ? (body.accountIds as string[]).filter((id) => typeof id === "string")
         : undefined,
-      ignoreCursor: body.ignoreCursor === true,
     });
     return NextResponse.json({ ok: true, result });
   } catch (error) {

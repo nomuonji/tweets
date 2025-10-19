@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useAccountContext } from "@/components/account/account-provider";
 
 type AccountOption = {
   id: string;
@@ -22,6 +23,7 @@ type ContextPost = {
   likes: number;
   reposts: number;
   replies: number;
+  source: "top" | "recent";
 };
 
 type ExistingDraftSummary = {
@@ -30,15 +32,13 @@ type ExistingDraftSummary = {
   updatedAt?: string;
 };
 
-type AnalysisMode = "top" | "recent";
-
 type SmartTweetGeneratorProps = {
   accounts: AccountOption[];
 };
 
 export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
+  const { selectedAccountId, setSelectedAccountId } = useAccountContext();
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("top");
   const [postLimit, setPostLimit] = useState(15);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -50,7 +50,21 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
     [],
   );
   const [duplicateWarning, setDuplicateWarning] = useState(false);
-  const [lastAnalysisMode, setLastAnalysisMode] = useState<AnalysisMode>("top");
+
+  useEffect(() => {
+    if (!selectedAccountId) {
+      return;
+    }
+    if (selectedAccountId !== accountId) {
+      setAccountId(selectedAccountId);
+    }
+  }, [selectedAccountId, accountId]);
+
+  useEffect(() => {
+    if (!selectedAccountId && accountId) {
+      setSelectedAccountId(accountId);
+    }
+  }, [accountId, selectedAccountId, setSelectedAccountId]);
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === accountId),
@@ -70,15 +84,12 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
     setDuplicateWarning(false);
     setContextPosts([]);
     setExistingDrafts([]);
-    setLastAnalysisMode(analysisMode);
-
     try {
       const response = await fetch("/api/gemini/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountId,
-          analysisMode,
           limit: postLimit,
         }),
       });
@@ -92,9 +103,6 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
       setContextPosts((data.context?.usedPosts ?? []) as ContextPost[]);
       setExistingDrafts((data.context?.existingDrafts ?? []) as ExistingDraftSummary[]);
       setDuplicateWarning(Boolean(data.duplicate));
-      if (data.context?.analysisMode === "top" || data.context?.analysisMode === "recent") {
-        setLastAnalysisMode(data.context.analysisMode);
-      }
     } catch (generateError) {
       setError((generateError as Error).message);
     } finally {
@@ -158,7 +166,10 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <select
             value={accountId}
-            onChange={(event) => setAccountId(event.target.value)}
+            onChange={(event) => {
+              setAccountId(event.target.value);
+              setSelectedAccountId(event.target.value);
+            }}
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm md:w-auto"
           >
             {accounts.map((account) => (
@@ -168,49 +179,25 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
             ))}
           </select>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Reference data</span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setAnalysisMode("top")}
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  analysisMode === "top"
-                    ? "border-primary bg-surface-active text-primary"
-                    : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground"
-                }`}
-              >
-                Top performers
-              </button>
-              <button
-                type="button"
-                onClick={() => setAnalysisMode("recent")}
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  analysisMode === "recent"
-                    ? "border-primary bg-surface-active text-primary"
-                    : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground"
-                }`}
-              >
-                Latest posts
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
             <label
               htmlFor="post-limit"
               className="text-xs text-muted-foreground"
             >
-              Posts
+              Reference posts
             </label>
             <input
               id="post-limit"
               type="number"
               value={postLimit}
               onChange={(e) => setPostLimit(Number(e.target.value))}
-              min="5"
-              max="50"
+              min="6"
+              max="40"
               className="w-20 rounded-md border border-border bg-background px-2 py-1 text-sm"
             />
           </div>
+          <span className="text-xs text-muted-foreground md:w-40">
+            Uses top performers and latest posts (roughly half each).
+          </span>
           <button
             type="button"
             onClick={handleGenerate}
@@ -272,24 +259,52 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
       {contextPosts.length > 0 && (
         <div className="space-y-2 rounded-lg border border-border bg-background p-4">
           <p className="text-xs font-medium uppercase text-muted-foreground">
-            {lastAnalysisMode === "recent" ? "Recent posts referenced" : "Top posts referenced"}
+            Reference posts used
           </p>
           <ul className="space-y-2 text-xs text-muted-foreground">
-            {contextPosts.map((post) => (
-              <li
-                key={post.id}
-                className="rounded-md border border-border/50 bg-surface px-3 py-2"
-              >
-                <p className="line-clamp-2">{post.text}</p>
-                <div className="mt-1 flex flex-wrap gap-3 text-[10px] uppercase tracking-wide">
-                  <span>Score {post.score.toFixed(3)}</span>
-                  <span>Impr {post.impressions}</span>
-                  <span>Likes {post.likes}</span>
-                  <span>Reposts {post.reposts}</span>
-                  <span>Replies {post.replies}</span>
-                </div>
-              </li>
-            ))}
+            {contextPosts.map((post) => {
+              const sourceLabel = post.source === "top" ? "Top performer" : "Latest post";
+              const scoreValue =
+                typeof post.score === "number" && Number.isFinite(post.score)
+                  ? post.score
+                  : 0;
+              const impressionsValue =
+                typeof post.impressions === "number" && Number.isFinite(post.impressions)
+                  ? post.impressions
+                  : 0;
+              const likesValue =
+                typeof post.likes === "number" && Number.isFinite(post.likes)
+                  ? post.likes
+                  : 0;
+              const repostsValue =
+                typeof post.reposts === "number" && Number.isFinite(post.reposts)
+                  ? post.reposts
+                  : 0;
+              const repliesValue =
+                typeof post.replies === "number" && Number.isFinite(post.replies)
+                  ? post.replies
+                  : 0;
+              return (
+                <li
+                  key={post.id}
+                  className="rounded-md border border-border/50 bg-surface px-3 py-2"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide">
+                    <span className="rounded-full border border-border px-2 py-[2px] text-[10px] font-semibold">
+                      {sourceLabel}
+                    </span>
+                    <span>Score {scoreValue.toFixed(3)}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2">{post.text}</p>
+                  <div className="mt-1 flex flex-wrap gap-3 text-[10px] uppercase tracking-wide">
+                    <span>Impr {impressionsValue}</span>
+                    <span>Likes {likesValue}</span>
+                    <span>Reposts {repostsValue}</span>
+                    <span>Replies {repliesValue}</span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
