@@ -214,6 +214,7 @@ async function handleThreadsCallback(code: string, state: string, requestUrl: UR
       accessToken: tokenData.access_token,
       refreshToken: undefined,
       expiresAt,
+      userId: profile.id,
     },
     extra: {
       threads_user_id: profile.id,

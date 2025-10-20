@@ -21,12 +21,38 @@ const AccountContext = createContext<AccountContextValue | undefined>(undefined)
 
 type AccountProviderProps = {
   accounts: AccountDoc[];
+  initialSelectedAccountId?: string | null;
   children: React.ReactNode;
 };
 
 const STORAGE_KEY = "selected-account-id";
+const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
-export function AccountProvider({ accounts, children }: AccountProviderProps) {
+function readCookieValue(name: string): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const pattern = new RegExp(`(?:^|; )${name}=([^;]*)`);
+  const match = document.cookie.match(pattern);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function writeCookieValue(name: string, value: string | null) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (value) {
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}; sameSite=Lax`;
+  } else {
+    document.cookie = `${name}=; path=/; max-age=0; sameSite=Lax`;
+  }
+}
+
+export function AccountProvider({
+  accounts,
+  initialSelectedAccountId,
+  children,
+}: AccountProviderProps) {
   const sanitizedAccounts = useMemo(
     () =>
       accounts
@@ -37,16 +63,25 @@ export function AccountProvider({ accounts, children }: AccountProviderProps) {
 
   const firstAccountId = sanitizedAccounts[0]?.id ?? null;
 
-  const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return firstAccountId;
-    }
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored && sanitizedAccounts.some((account) => account.id === stored)) {
-      return stored;
-    }
-    return firstAccountId;
-  });
+  const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(
+    () => {
+      if (typeof window === "undefined") {
+        return initialSelectedAccountId ?? firstAccountId;
+      }
+
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored && sanitizedAccounts.some((account) => account.id === stored)) {
+        return stored;
+      }
+
+      const cookieValue = readCookieValue(STORAGE_KEY);
+      if (cookieValue && sanitizedAccounts.some((account) => account.id === cookieValue)) {
+        return cookieValue;
+      }
+
+      return initialSelectedAccountId ?? firstAccountId;
+    },
+  );
 
   useEffect(() => {
     if (!selectedAccountId && firstAccountId) {
@@ -66,8 +101,10 @@ export function AccountProvider({ accounts, children }: AccountProviderProps) {
     }
     if (selectedAccountId) {
       window.localStorage.setItem(STORAGE_KEY, selectedAccountId);
+      writeCookieValue(STORAGE_KEY, selectedAccountId);
     } else {
       window.localStorage.removeItem(STORAGE_KEY);
+      writeCookieValue(STORAGE_KEY, null);
     }
   }, [selectedAccountId]);
 

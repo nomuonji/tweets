@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 import { SyncButton, SyncRequestPayload } from "./sync-button";
+
+const SYNC_SCOPE_STORAGE_KEY = "sync-scope-account-ids";
 
 type AccountOption = {
   id: string;
@@ -13,12 +15,59 @@ type AccountOption = {
 
 type SyncControlsProps = {
   accounts: AccountOption[];
+  selectedAccountId: string | null;
 };
 
-export function SyncControls({ accounts }: SyncControlsProps) {
+export function SyncControls({ accounts, selectedAccountId }: SyncControlsProps) {
   const [lookbackDays, setLookbackDays] = useState("");
   const [maxPosts, setMaxPosts] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+
+  const currentAccount = useMemo(
+    () => accounts.find((acc) => acc.id === selectedAccountId),
+    [accounts, selectedAccountId],
+  );
+
+  const defaultPostCount = currentAccount?.platform === "threads" ? 100 : 20;
+  const lookbackPlaceholder = "期間制限なし";
+  const maxPostsPlaceholder = `未指定: ${defaultPostCount}`;
+
+  useEffect(() => {
+    let cookieValue: string[] | null = null;
+    try {
+      const item = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith(`${SYNC_SCOPE_STORAGE_KEY}=`));
+      if (item) {
+        const parsed = JSON.parse(decodeURIComponent(item.split("=")[1]));
+        if (Array.isArray(parsed)) {
+          cookieValue = parsed;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to parse sync scope from cookie", error);
+    }
+
+    if (cookieValue && cookieValue.length > 0) {
+      setSelectedAccounts(cookieValue);
+    } else if (selectedAccountId) {
+      setSelectedAccounts([selectedAccountId]);
+    }
+  }, [selectedAccountId]);
+
+  useEffect(() => {
+    try {
+      const value = JSON.stringify(selectedAccounts);
+      const expires = new Date(
+        Date.now() + 30 * 24 * 60 * 60 * 1000,
+      ).toUTCString();
+      document.cookie = `${SYNC_SCOPE_STORAGE_KEY}=${encodeURIComponent(
+        value,
+      )}; expires=${expires}; path=/; SameSite=Lax`;
+    } catch (error) {
+      console.error("Failed to save sync scope to cookie", error);
+    }
+  }, [selectedAccounts]);
 
   const payload = useMemo<SyncRequestPayload>(() => {
     const next: SyncRequestPayload = {};
@@ -35,10 +84,12 @@ export function SyncControls({ accounts }: SyncControlsProps) {
 
     if (selectedAccounts.length > 0) {
       next.accountIds = selectedAccounts;
+    } else if (selectedAccountId) {
+      next.accountIds = [selectedAccountId];
     }
 
     return next;
-  }, [lookbackDays, maxPosts, selectedAccounts]);
+  }, [lookbackDays, maxPosts, selectedAccounts, selectedAccountId]);
 
   const toggleAccount = (accountId: string) => {
     setSelectedAccounts((previous) =>
@@ -53,7 +104,9 @@ export function SyncControls({ accounts }: SyncControlsProps) {
   const selectionSummary =
     selectedAccounts.length > 0
       ? `${selectedAccounts.length} of ${accounts.length} selected`
-      : `All ${accounts.length} accounts`;
+      : selectedAccountId
+        ? "1 account (default)"
+        : `All ${accounts.length} accounts`;
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-surface p-4">
@@ -65,7 +118,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
               type="number"
               inputMode="numeric"
               min={1}
-              placeholder="未指定: 最新投稿20件"
+              placeholder={lookbackPlaceholder}
               onChange={(event) => setLookbackDays(event.target.value)}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
@@ -76,7 +129,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
               type="number"
               inputMode="numeric"
               min={1}
-              placeholder="未指定: 20"
+              placeholder={maxPostsPlaceholder}
               value={maxPosts}
               onChange={(event) => setMaxPosts(event.target.value)}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm"

@@ -11,12 +11,7 @@ import {
 import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
-import {
-  getAccounts,
-  getSettings,
-  logEvent,
-  upsertPost,
-} from "./firestore.server";
+import { getAccounts, getSettings, upsertPost } from "./firestore.server";
 
 type SyncOptions = {
   lookbackDays?: number;
@@ -49,16 +44,17 @@ function parsePositiveNumber(value?: string | null): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function getDefaults(): { lookbackDays?: number; maxPosts: number } {
+function getDefaults(): { lookbackDays?: number; maxPostsCap?: number } {
   const lookbackDays = parsePositiveNumber(
     process.env.SYNC_INITIAL_LOOKBACK_DAYS?.trim() ?? null,
   );
-  const maxPosts =
-    parsePositiveNumber(process.env.SYNC_MAX_POSTS?.trim() ?? null) ?? 20;
+  const maxPostsCap = parsePositiveNumber(
+    process.env.SYNC_MAX_POSTS?.trim() ?? null,
+  );
 
   return {
     lookbackDays,
-    maxPosts,
+    maxPostsCap,
   };
 }
 
@@ -91,7 +87,18 @@ async function fetchPostsForAccount(
     typeof lookbackInput === "number" && lookbackInput > 0
       ? lookbackInput
       : undefined;
-  const maxPosts = options.maxPosts ?? defaults.maxPosts;
+
+  const platformDefault = account.platform === "threads" ? 100 : 20;
+  const requestedMax = options.maxPosts;
+  let maxPosts =
+    typeof requestedMax === "number" && requestedMax > 0
+      ? requestedMax
+      : platformDefault;
+
+  if (defaults.maxPostsCap) {
+    maxPosts = Math.min(maxPosts, defaults.maxPostsCap);
+  }
+  maxPosts = Math.max(1, Math.floor(maxPosts));
 
   let startTime: string | undefined;
   if (lookbackDays) {
@@ -145,8 +152,8 @@ function toPostDocument(
     metrics: payload.metrics,
     score,
     raw: payload.raw,
-    raw_gcs_url: payload.raw_gcs_url,
-    url: payload.url,
+    raw_gcs_url: payload.raw_gcs_url ?? null,
+    url: payload.url ?? null,
     fetched_at: DateTime.utc().toISO(),
   } as PostDoc;
 }
@@ -243,28 +250,8 @@ export async function syncPostsForAllAccounts(
         ],
       });
 
-      await logEvent({
-        kind: "sync",
-        platform: account.platform,
-        account_id: account.id,
-        detail: JSON.stringify({
-          fetched: payloads.length,
-          stored: posts.length,
-          synced_at: DateTime.utc().toISO(),
-        }),
-        created_at: DateTime.utc().toISO(),
-      });
     } catch (error) {
-      await logEvent({
-        kind: "error",
-        platform: account.platform,
-        account_id: account.id,
-        detail: JSON.stringify({
-          message: (error as Error).message,
-          stack: (error as Error).stack,
-        }),
-        created_at: DateTime.utc().toISO(),
-      });
+      console.error("[Sync] Failed to sync account", account.id, error);
       results.push({
         accountId: account.id,
         handle: account.handle,

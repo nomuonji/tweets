@@ -1,7 +1,6 @@
 export type Platform = "x" | "threads";
 export type MediaType = "text" | "image" | "video";
 export type DraftStatus = "draft" | "scheduled" | "published";
-export type LogKind = "sync" | "post" | "error";
 
 export interface AccountDoc {
   id: string;
@@ -93,19 +92,11 @@ export interface SettingsDoc {
   timezone?: string;
 }
 
-export interface LogDoc {
-  id: string;
-  kind: LogKind;
-  platform: Platform;
-  account_id: string;
-  detail: string;
-  created_at: string;
-}
-
 export interface RankingFilter {
   platform: Platform | "all";
   media_type: MediaType | "all";
-  period_days: 7 | 30 | 90;
+  period_days: 7 | 30 | 90 | "all";
+  accountId?: string;
 }
 
 export interface ScoreOptions {

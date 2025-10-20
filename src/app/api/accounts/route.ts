@@ -7,6 +7,7 @@ const payloadSchema = z.object({
   platform: z.enum(["x", "threads"]),
   handle: z.string().min(1),
   displayName: z.string().optional(),
+  userId: z.string().optional(),
   oauthVersion: z.enum(["oauth2", "oauth1"]),
   accessToken: z.string().min(1),
   refreshToken: z.string().optional(),
@@ -37,6 +38,16 @@ export async function POST(request: Request) {
       }
     }
 
+    if (data.platform === "threads" && !data.userId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Provide the Threads user ID when registering manually.",
+        },
+        { status: 400 },
+      );
+    }
+
     const now = DateTime.utc().toISO();
     const expiresAtIso =
       data.oauthVersion === "oauth2" && data.expiresAt
@@ -61,6 +72,7 @@ export async function POST(request: Request) {
         oauthVersion: data.oauthVersion,
         apiKey: data.rapidApiKey,
         apiHost: data.rapidApiHost,
+        userId: data.userId,
       },
       extra: {
         created_at: now,

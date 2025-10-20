@@ -8,6 +8,7 @@ type FormState = {
   platform: "x" | "threads";
   handle: string;
   displayName: string;
+  userId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
@@ -30,6 +31,7 @@ const initialState: FormState = {
   platform: "x",
   handle: "",
   displayName: "",
+  userId: "",
   accessToken: "",
   refreshToken: "",
   expiresAt: "",
@@ -46,6 +48,7 @@ export function ManualAccountForm() {
   const [oauthVersion, setOauthVersion] = useState<OAuthVersion>("oauth2");
   const [message, setMessage] = useState<MessageState>(null);
   const [loading, setLoading] = useState(false);
+  const isThreads = form.platform === "threads";
 
   const handleChange = (field: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -104,6 +107,18 @@ export function ManualAccountForm() {
           </select>
         </label>
 
+        {isThreads ? (
+          <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="font-medium text-foreground">Threads credential tips</p>
+            <p>
+              Provide the Threads numeric user ID alongside the access token. You can reuse the values from Meta&apos;s dashboard (example: <code>31573770612207145</code>).
+            </p>
+            <p>
+              Environment fallbacks (`THREADS_ACCESS_TOKEN` / `THREADS_USER_ID`) remain available for quick testing, but saving account-specific tokens here is recommended in production.
+            </p>
+          </div>
+        ) : null}
+
         <fieldset className="space-y-2 text-sm">
           <legend className="font-medium text-foreground">Token type</legend>
           <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3">
@@ -140,6 +155,19 @@ export function ManualAccountForm() {
             required
           />
         </label>
+
+        {isThreads ? (
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-foreground">Threads user ID</span>
+            <input
+              value={form.userId}
+              onChange={(event) => handleChange("userId", event.target.value)}
+              placeholder="31573770612207145"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              required
+            />
+          </label>
+        ) : null}
 
         <label className="space-y-1 text-sm">
           <span className="font-medium text-foreground">Display name (optional)</span>
@@ -313,12 +341,21 @@ function buildPayload(form: FormState, oauthVersion: OAuthVersion): PayloadResul
   }
 
   const displayName = form.displayName.trim();
+  const userId = form.userId.trim();
+  if (form.platform === "threads" && !userId) {
+    return { ok: false, error: "Enter a Threads user ID." };
+  }
+
   const base = {
     platform: form.platform,
     handle,
     displayName: displayName || undefined,
     oauthVersion,
   } as Record<string, unknown>;
+
+  if (userId && form.platform === "threads") {
+    base.userId = userId;
+  }
 
   if (oauthVersion === "oauth1") {
     const consumerKey = form.consumerKey.trim();

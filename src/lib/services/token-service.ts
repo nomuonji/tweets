@@ -1,7 +1,7 @@
 import axios from "axios";
 import { DateTime } from "luxon";
 import { AccountDoc } from "@/lib/types";
-import { getAccounts, logEvent } from "./firestore.server";
+import { getAccounts } from "./firestore.server";
 import { adminDb } from "@/lib/firebase/admin";
 
 const X_TOKEN_ENDPOINT = "https://api.twitter.com/2/oauth2/token";
@@ -104,24 +104,8 @@ export async function refreshExpiringTokens() {
         { merge: true },
       );
 
-      await logEvent({
-        kind: "sync",
-        platform: account.platform,
-        account_id: account.id,
-        detail: JSON.stringify({ refreshed_at: updatedAt }),
-        created_at: updatedAt,
-      });
     } catch (error) {
-      await logEvent({
-        kind: "error",
-        platform: account.platform,
-        account_id: account.id,
-        detail: JSON.stringify({
-          stage: "refresh_token",
-          message: (error as Error).message,
-        }),
-        created_at: DateTime.utc().toISO(),
-      });
+      console.error("[Tokens] Failed to refresh account token", account.id, error);
     }
   }
 }

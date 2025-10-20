@@ -12,6 +12,7 @@ type TokenParams = {
   oauthVersion?: "oauth2" | "oauth1";
   apiKey?: string;
   apiHost?: string;
+  userId?: string;
 };
 
 type UpsertAccountParams = {
@@ -53,6 +54,9 @@ export async function upsertAccount(params: UpsertAccountParams) {
   }
   if (params.token.apiHost) {
     tokenMeta.api_host = params.token.apiHost;
+  }
+  if (params.token.userId) {
+    tokenMeta.user_id = params.token.userId;
   }
 
   await adminDb.collection("accounts").doc(docId).set(

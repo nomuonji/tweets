@@ -8,7 +8,6 @@ import { adminDb } from "@/lib/firebase/admin";
 import {
   AccountDoc,
   DraftDoc,
-  LogDoc,
   Platform,
   PostDoc,
   RankingFilter,
@@ -41,8 +40,20 @@ export async function getSettings(
 }
 
 export async function getAccounts(): Promise<AccountDoc[]> {
-  const snapshot = await adminDb.collection("accounts").get();
-  return snapshot.docs.map((doc) => mapWithId<AccountDoc>(doc));
+  try {
+    const snapshot = await adminDb.collection("accounts").get();
+    return snapshot.docs.map((doc) => mapWithId<AccountDoc>(doc));
+  } catch (error) {
+    if (isFirestoreQuotaError(error)) {
+      const quotaError = new Error("Firestore quota exhausted while loading accounts", {
+        cause: error instanceof Error ? error : undefined,
+      }) as Error & { code?: string };
+      quotaError.name = "FirestoreQuotaError";
+      quotaError.code = "firestore/quota-exceeded";
+      throw quotaError;
+    }
+    throw error;
+  }
 }
 
 export async function getDashboardSummary() {
@@ -105,51 +116,166 @@ export async function getDashboardSummary() {
   return result;
 }
 
+type AccountDashboardOptions = {
+  recentLimit?: number;
+};
+
+type AccountDashboardData = {
+  stats: {
+    postCount: number;
+    bestPost: PostDoc | null;
+  };
+  recentPosts: PostDoc[];
+};
+
+export async function getAccountDashboardData(
+  accountId: string,
+  options: AccountDashboardOptions = {},
+): Promise<AccountDashboardData> {
+  const recentLimit = Math.max(1, options.recentLimit ?? 5);
+  const baseQuery = adminDb.collection("posts").where("account_id", "==", accountId);
+
+  let postCount = 0;
+  try {
+    const aggregateSnapshot = await baseQuery.count().get();
+    const aggregateData = aggregateSnapshot.data();
+    postCount =
+      typeof aggregateData.count === "number" ? aggregateData.count : postCount;
+  } catch (error) {
+    if (isFirestoreQuotaError(error)) {
+      const quotaError = new Error(
+        `Firestore quota exhausted while counting posts for account ${accountId}`,
+        { cause: error instanceof Error ? error : undefined },
+      ) as Error & { code?: string };
+      quotaError.name = "FirestoreQuotaError";
+      quotaError.code = "firestore/quota-exceeded";
+      throw quotaError;
+    }
+    throw error as Error;
+  }
+
+  let bestPost: PostDoc | null = null;
+  if (postCount > 0) {
+    try {
+      const bestSnapshot = await baseQuery
+        .orderBy("score", "desc")
+        .orderBy("created_at", "desc")
+        .limit(1)
+        .get();
+      const [doc] = bestSnapshot.docs;
+      if (doc) {
+        bestPost = mapWithId<PostDoc>(doc);
+      }
+    } catch (error) {
+      if (isFirestoreQuotaError(error)) {
+        const quotaError = new Error(
+          `Firestore quota exhausted while loading best post for account ${accountId}`,
+          { cause: error instanceof Error ? error : undefined },
+        ) as Error & { code?: string };
+        quotaError.name = "FirestoreQuotaError";
+        quotaError.code = "firestore/quota-exceeded";
+        throw quotaError;
+      }
+      const message = (error as Error).message ?? "";
+      if (message.includes("requires an index")) {
+        const indexError = new Error(
+          "Firestore index required: posts(account_id asc, score desc, created_at desc).",
+          { cause: error instanceof Error ? error : undefined },
+        ) as Error & { code?: string };
+        indexError.name = "FirestoreIndexError";
+        indexError.code = "firestore/index-required";
+        throw indexError;
+      }
+      throw error as Error;
+    }
+  }
+
+  let recentPosts: PostDoc[] = [];
+  try {
+    const recentSnapshot = await baseQuery
+      .orderBy("created_at", "desc")
+      .limit(recentLimit)
+      .get();
+    recentPosts = recentSnapshot.docs.map((doc) => mapWithId<PostDoc>(doc));
+  } catch (error) {
+    if (isFirestoreQuotaError(error)) {
+      const quotaError = new Error(
+        `Firestore quota exhausted while loading recent posts for account ${accountId}`,
+        { cause: error instanceof Error ? error : undefined },
+      ) as Error & { code?: string };
+      quotaError.name = "FirestoreQuotaError";
+      quotaError.code = "firestore/quota-exceeded";
+      throw quotaError;
+    }
+    const message = (error as Error).message ?? "";
+    if (message.includes("requires an index")) {
+      const indexError = new Error(
+        "Firestore index required: posts(account_id asc, created_at desc).",
+        { cause: error instanceof Error ? error : undefined },
+      ) as Error & { code?: string };
+      indexError.name = "FirestoreIndexError";
+      indexError.code = "firestore/index-required";
+      throw indexError;
+    }
+    throw error as Error;
+  }
+
+  return {
+    stats: {
+      postCount,
+      bestPost,
+    },
+    recentPosts,
+  };
+}
+
 type RankingOptions = {
   sort?: "top" | "latest";
   limit?: number;
+  page?: number;
 };
 
 export async function getTopPosts(
   filter: RankingFilter,
   options: RankingOptions = {},
-): Promise<PostDoc[]> {
+): Promise<{ posts: PostDoc[]; hasNext: boolean }> {
   let queryRef: Query<DocumentData> = adminDb.collection("posts");
 
   if (filter.platform !== "all") {
     queryRef = queryRef.where("platform", "==", filter.platform);
   }
+  if (filter.accountId && filter.accountId !== "all") {
+    queryRef = queryRef.where("account_id", "==", filter.accountId);
+  }
   if (filter.media_type !== "all") {
     queryRef = queryRef.where("media_type", "==", filter.media_type);
   }
 
-  const since = DateTime.utc().minus({ days: filter.period_days }).toISO();
-  queryRef = queryRef.where("created_at", ">=", since);
-
-  const sortMode = options.sort === "latest" ? "latest" : "top";
-  const limit = options.limit ?? 200;
-
-  if (sortMode === "latest") {
-    const snapshot = await queryRef.orderBy("created_at", "desc").limit(limit).get();
-    return snapshot.docs.map((doc) => mapWithId<PostDoc>(doc));
+  if (filter.period_days !== "all") {
+    const since = DateTime.utc().minus({ days: filter.period_days }).toISO();
+    queryRef = queryRef.where("created_at", ">=", since);
   }
 
-  const fetchLimit = Math.max(limit, 200);
-  const snapshot = await queryRef.limit(fetchLimit).get();
+  const sortMode = options.sort === "latest" ? "latest" : "top";
+  const limit = Math.max(1, Math.min(options.limit ?? 50, 50));
+  const page = Math.max(1, Math.floor(options.page ?? 1));
+  const offset = (page - 1) * limit;
 
-  const posts = snapshot.docs
-    .map((doc) => mapWithId<PostDoc>(doc))
-    .sort((a, b) => {
-      if (b.score !== a.score) {
-        return b.score - a.score;
-      }
-      const impressionsA = a.metrics.impressions ?? 0;
-      const impressionsB = b.metrics.impressions ?? 0;
-      return impressionsB - impressionsA;
-    })
-    .slice(0, limit);
+  if (sortMode === "latest") {
+    queryRef = queryRef.orderBy("created_at", "desc");
+  } else {
+    queryRef = queryRef.orderBy("score", "desc").orderBy("created_at", "desc");
+  }
 
-  return posts;
+  const snapshot = await queryRef.offset(offset).limit(limit + 1).get();
+  const docs = snapshot.docs;
+  const hasNext = docs.length > limit;
+  const visibleDocs = hasNext ? docs.slice(0, limit) : docs;
+
+  return {
+    posts: visibleDocs.map((doc) => mapWithId<PostDoc>(doc)),
+    hasNext,
+  };
 }
 
 export async function upsertPost(post: PostDoc) {
@@ -167,6 +293,8 @@ export async function saveDraft(draft: DraftDoc) {
 export async function listDrafts(params?: {
   status?: DraftDoc["status"];
   platform?: Platform;
+  accountId?: string;
+  limit?: number;
 }) {
   let queryRef: Query<DocumentData> = adminDb.collection("drafts");
   if (params?.status) {
@@ -175,13 +303,18 @@ export async function listDrafts(params?: {
   if (params?.platform) {
     queryRef = queryRef.where("target_platform", "==", params.platform);
   }
+  if (params?.accountId) {
+    queryRef = queryRef.where("target_account_id", "==", params.accountId);
+  }
+
+  const limitValue =
+    typeof params?.limit === "number" && params.limit > 0 ? params.limit : undefined;
+  if (limitValue) {
+    queryRef = queryRef.limit(limitValue);
+  }
 
   const snapshot = await queryRef.get();
   return snapshot.docs.map((doc) => mapWithId<DraftDoc>(doc));
-}
-
-export async function logEvent(log: Omit<LogDoc, "id">) {
-  await adminDb.collection("logs").add(log);
 }
 
 export async function updatePostScores(
@@ -244,28 +377,75 @@ export async function getRecentPostsByAccount(
       return { ...data, id: doc.id };
     });
   } catch (error) {
+    if (isFirestoreQuotaError(error)) {
+      const quotaError = new Error(
+        `Firestore quota exhausted while loading posts for account ${accountId}`,
+        { cause: error instanceof Error ? error : undefined },
+      ) as Error & { code?: string };
+      quotaError.name = "FirestoreQuotaError";
+      quotaError.code = "firestore/quota-exceeded";
+      throw quotaError;
+    }
+
     const message = (error as Error).message ?? "";
     if (!message.includes("requires an index")) {
       throw error;
     }
 
-    const fallbackSnapshot = await adminDb
-      .collection("posts")
-      .where("account_id", "==", accountId)
-      .get();
+    try {
+      const fallbackSnapshot = await adminDb
+        .collection("posts")
+        .where("account_id", "==", accountId)
+        .get();
 
-    const posts = fallbackSnapshot.docs.map((doc) => {
-      const data = doc.data() as PostDoc;
-      return { ...data, id: doc.id };
-    });
+      const posts = fallbackSnapshot.docs.map((doc) => {
+        const data = doc.data() as PostDoc;
+        return { ...data, id: doc.id };
+      });
 
-    return posts
-      .sort(
-        (a, b) =>
-          DateTime.fromISO(b.created_at).toMillis() -
-          DateTime.fromISO(a.created_at).toMillis(),
-      )
-      .slice(0, limit);
+      return posts
+        .sort(
+          (a, b) =>
+            DateTime.fromISO(b.created_at).toMillis() -
+            DateTime.fromISO(a.created_at).toMillis(),
+        )
+        .slice(0, limit);
+    } catch (fallbackError) {
+      if (isFirestoreQuotaError(fallbackError)) {
+        const quotaError = new Error(
+          `Firestore quota exhausted while loading posts for account ${accountId}`,
+          { cause: fallbackError instanceof Error ? fallbackError : undefined },
+        ) as Error & { code?: string };
+        quotaError.name = "FirestoreQuotaError";
+        quotaError.code = "firestore/quota-exceeded";
+        throw quotaError;
+      }
+      throw fallbackError;
+    }
   }
 }
+
+function isFirestoreQuotaError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string" && code.toLowerCase().includes("resource_exhausted")) {
+    return true;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  if (status === 8) {
+    return true;
+  }
+
+  const message = (error as { message?: unknown }).message;
+  if (typeof message === "string" && message.includes("RESOURCE_EXHAUSTED")) {
+    return true;
+  }
+
+  return false;
+}
+
 

@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import type { DraftDoc } from "@/lib/types";
-import { logEvent, getAccounts } from "./firestore.server";
+import { getAccounts } from "./firestore.server";
 import { publishThreadsPost } from "@/lib/platforms/threads";
 
 function buildPostText(draft: DraftDoc) {
@@ -53,29 +53,8 @@ export async function executeDueSchedules(now = DateTime.utc().toISO()) {
         { merge: true },
       );
 
-      await logEvent({
-        kind: "post",
-        platform: draft.target_platform,
-        account_id: draft.target_account_id ?? "unknown",
-        detail: JSON.stringify({
-          draft_id: draft.id,
-          post_id: result.platform_post_id,
-          url: result.url,
-        }),
-        created_at: DateTime.utc().toISO(),
-      });
     } catch (error) {
-      await logEvent({
-        kind: "error",
-        platform: draft.target_platform,
-        account_id: draft.target_account_id ?? "unknown",
-        detail: JSON.stringify({
-          draft_id: draft.id,
-          message: (error as Error).message,
-          stack: (error as Error).stack,
-        }),
-        created_at: DateTime.utc().toISO(),
-      });
+      console.error("[Scheduler] Failed to publish draft", draft.id, error);
     }
   }
 

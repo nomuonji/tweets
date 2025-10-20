@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import type { Metadata } from "next";
-import {
-  getAccounts,
-  getDashboardSummary,
-} from "@/lib/services/firestore.server";
+import { getAccounts } from "@/lib/services/firestore.server";
+import type { AccountDoc } from "@/lib/types";
 import { toTitleCase } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -12,14 +10,26 @@ export const metadata: Metadata = {
 };
 
 export default async function AccountsIndexPage() {
-  const [accounts, overview] = await Promise.all([
-    getAccounts(),
-    getDashboardSummary().catch(() => []),
-  ]);
+  let accounts: AccountDoc[] = [];
+  let quotaWarning = false;
+  let loadError = false;
 
-  const statsByAccountId = new Map(
-    overview.map(({ account, stats }) => [account.id, stats]),
-  );
+  try {
+    accounts = await getAccounts();
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    const message = (error as Error).message ?? "";
+    const isQuota =
+      code === "firestore/quota-exceeded" ||
+      (typeof code === "string" && code.toLowerCase().includes("resource")) ||
+      message.includes("quota");
+    if (isQuota) {
+      quotaWarning = true;
+    } else {
+      loadError = true;
+      console.error("[Accounts] Failed to load accounts", error);
+    }
+  }
 
   const sortedAccounts = accounts
     .slice()
@@ -31,7 +41,7 @@ export default async function AccountsIndexPage() {
         <div>
           <h1 className="text-2xl font-semibold">アカウント一覧</h1>
           <p className="text-sm text-muted-foreground">
-            接続済みアカウントの同期状況やメトリクスを確認し、必要に応じて連携を追加してください。
+            接続済みアカウントの接続状況やトークン情報を確認できます。メトリクスはダッシュボードで参照してください。
           </p>
         </div>
         <Link
@@ -42,6 +52,18 @@ export default async function AccountsIndexPage() {
         </Link>
       </header>
 
+      {quotaWarning && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+          Firestore のクォータに到達したため、アカウント情報の一部を読み込めませんでした。しばらく待ってから再度お試しください。
+        </div>
+      )}
+
+      {loadError && (
+        <div className="rounded-xl border border-destructive bg-destructive/10 p-4 text-sm text-destructive">
+          アカウント情報の取得に失敗しました。Firestore のログや認証情報を確認してください。
+        </div>
+      )}
+
       {sortedAccounts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-surface p-6 text-sm text-muted-foreground">
           接続済みのアカウントがまだありません。<Link href="/accounts/connect" className="text-primary underline">アカウント連携ページ</Link>から追加してください。
@@ -49,7 +71,6 @@ export default async function AccountsIndexPage() {
       ) : (
         <div className="space-y-4">
           {sortedAccounts.map((account) => {
-            const stats = statsByAccountId.get(account.id);
             const updatedAt = DateTime.fromISO(account.updated_at ?? "").toLocal();
             const syncCursor = account.sync_cursor
               ? DateTime.fromISO(account.sync_cursor).toLocal()
@@ -83,7 +104,7 @@ export default async function AccountsIndexPage() {
                       {account.connected ? "Connected" : "Disconnected"}
                     </span>
                     <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 font-medium text-muted-foreground">
-                      スコープ: {account.scopes?.length ?? 0}
+                      スコープ {account.scopes?.length ?? 0}
                     </span>
                     {account.token_meta?.api_key && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-700">
@@ -101,18 +122,6 @@ export default async function AccountsIndexPage() {
 
                 <div className="mt-4 grid gap-4 md:grid-cols-4">
                   <div className="rounded-lg bg-muted p-4 text-center">
-                    <p className="text-xs text-muted-foreground">投稿数</p>
-                    <p className="text-lg font-semibold">
-                      {stats?.postCount ?? "-"}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-muted p-4 text-center">
-                    <p className="text-xs text-muted-foreground">平均スコア</p>
-                    <p className="text-lg font-semibold">
-                      {stats ? `${(stats.averageEngagement * 100).toFixed(2)}%` : "-"}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-muted p-4 text-center">
                     <p className="text-xs text-muted-foreground">最終更新</p>
                     <p className="text-lg font-semibold">
                       {updatedAt.isValid ? updatedAt.toFormat("yyyy/LL/dd HH:mm") : "-"}
@@ -124,6 +133,12 @@ export default async function AccountsIndexPage() {
                       {syncCursor?.isValid
                         ? syncCursor.toFormat("yyyy/LL/dd HH:mm")
                         : "未設定"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-muted p-4 text-center md:col-span-2">
+                    <p className="text-xs text-muted-foreground">メトリクス</p>
+                    <p className="text-sm text-muted-foreground">
+                      詳細な統計はダッシュボードで確認できます。
                     </p>
                   </div>
                 </div>

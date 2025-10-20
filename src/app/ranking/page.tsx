@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { RankingFilters } from "@/components/ranking-filters";
-import { getTopPosts } from "@/lib/services/firestore.server";
-import { RankingFilter } from "@/lib/types";
+import { getTopPosts, getAccounts } from "@/lib/services/firestore.server";
+import type { RankingFilter } from "@/lib/types";
 import { toTitleCase } from "@/lib/utils";
 
 type RankingPageProps = {
@@ -10,18 +11,37 @@ type RankingPageProps = {
 
 type ParsedRankingFilter = RankingFilter & { sort: "top" | "latest" };
 
+const STORAGE_KEY = "selected-account-id";
+
 const DEFAULT_FILTER: ParsedRankingFilter = {
   platform: "all",
   media_type: "all",
-  period_days: 30,
+  period_days: "all",
   sort: "top",
+  accountId: "all",
 };
 
-function parseParams(searchParams: RankingPageProps["searchParams"]): ParsedRankingFilter {
-  const platformParam = typeof searchParams.platform === "string" ? searchParams.platform : DEFAULT_FILTER.platform;
-  const mediaParam = typeof searchParams.media === "string" ? searchParams.media : DEFAULT_FILTER.media_type;
-  const periodParam = typeof searchParams.period === "string" ? Number(searchParams.period) : DEFAULT_FILTER.period_days;
-  const sortParam = typeof searchParams.sort === "string" ? searchParams.sort : DEFAULT_FILTER.sort;
+function parseParams(
+  searchParams: RankingPageProps["searchParams"],
+): ParsedRankingFilter {
+  const platformParam =
+    typeof searchParams.platform === "string"
+      ? searchParams.platform
+      : DEFAULT_FILTER.platform;
+  const mediaParam =
+    typeof searchParams.media === "string"
+      ? searchParams.media
+      : DEFAULT_FILTER.media_type;
+  const periodParam =
+    typeof searchParams.period === "string"
+      ? searchParams.period
+      : DEFAULT_FILTER.period_days;
+  const sortParam =
+    typeof searchParams.sort === "string" ? searchParams.sort : DEFAULT_FILTER.sort;
+  const accountIdParam =
+    typeof searchParams.accountId === "string"
+      ? searchParams.accountId
+      : undefined;
 
   const platform = ["all", "x", "threads"].includes(platformParam)
     ? (platformParam as RankingFilter["platform"])
@@ -29,8 +49,10 @@ function parseParams(searchParams: RankingPageProps["searchParams"]): ParsedRank
   const mediaType = ["all", "text", "image", "video"].includes(mediaParam)
     ? (mediaParam as RankingFilter["media_type"])
     : DEFAULT_FILTER.media_type;
-  const periodDays = [7, 30, 90].includes(periodParam)
-    ? (periodParam as RankingFilter["period_days"])
+  const periodDays = ["all", 7, 30, 90].includes(
+    periodParam === "all" ? "all" : Number(periodParam),
+  )
+    ? (periodParam === "all" ? "all" : (Number(periodParam) as 7 | 30 | 90))
     : DEFAULT_FILTER.period_days;
   const sort = sortParam === "latest" ? "latest" : "top";
 
@@ -39,19 +61,71 @@ function parseParams(searchParams: RankingPageProps["searchParams"]): ParsedRank
     media_type: mediaType,
     period_days: periodDays,
     sort,
+    accountId: accountIdParam,
   };
 }
 
+function parsePage(searchParams: RankingPageProps["searchParams"]): number {
+  const raw = typeof searchParams.page === "string" ? Number(searchParams.page) : 1;
+  if (!Number.isFinite(raw) || raw < 1) {
+    return 1;
+  }
+  return Math.floor(raw);
+}
+
+function buildPageLink(filter: ParsedRankingFilter, page: number) {
+  const params = new URLSearchParams();
+  params.set("platform", filter.platform);
+  params.set("media", filter.media_type);
+  params.set("period", String(filter.period_days));
+  params.set("sort", filter.sort);
+  if (filter.accountId && filter.accountId !== "all") {
+    params.set("accountId", filter.accountId);
+  }
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+  return `/ranking?${params.toString()}`;
+}
+
 export default async function RankingPage({ searchParams }: RankingPageProps) {
-  const filter = parseParams(searchParams);
-  let posts = [] as Awaited<ReturnType<typeof getTopPosts>>;
+  const cookieStore = cookies();
+  const storedAccountId = cookieStore.get(STORAGE_KEY)?.value;
+
+  const initialFilter = parseParams(searchParams);
+
+  // Determine the final accountId by prioritizing URL param, then cookie, then all
+  const accountId = initialFilter.accountId ?? storedAccountId ?? "all";
+
+  // Construct the final filter object
+  const filter: ParsedRankingFilter = {
+    ...initialFilter,
+    accountId,
+  };
+
+  const [accounts, page] = await Promise.all([
+    getAccounts(),
+    Promise.resolve(parsePage(searchParams)),
+  ]);
+
+  let rankingResult: Awaited<ReturnType<typeof getTopPosts>> = {
+    posts: [],
+    hasNext: false,
+  };
   let hasError = false;
   try {
-    posts = await getTopPosts(filter, { sort: filter.sort, limit: 200 });
-  } catch {
+    rankingResult = await getTopPosts(filter, {
+      sort: filter.sort,
+      limit: 50,
+      page,
+    });
+  } catch (error) {
     hasError = true;
+    console.error("[Ranking] Failed to load posts", error);
   }
 
+  const { posts, hasNext } = rankingResult;
+  const hasPrevious = page > 1;
   const isLatest = filter.sort === "latest";
 
   return (
@@ -59,7 +133,8 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
       <div>
         <h1 className="text-2xl font-semibold">Ranking</h1>
         <p className="text-sm text-muted-foreground">
-          Filter top performing posts by platform, media type, lookback period, and sort order.
+          Filter top performing posts by platform, media type, lookback period, and
+          sort order.
         </p>
       </div>
 
@@ -68,13 +143,17 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
         media={filter.media_type}
         period={String(filter.period_days)}
         sort={filter.sort}
+        accountId={filter.accountId}
+        accounts={accounts}
       />
 
       <p className="text-xs text-muted-foreground">
         Sorting by {isLatest ? "newest posts" : "highest engagement score"}.
       </p>
       <p className="text-xs text-muted-foreground">
-        Score = engagement rate × (1 + log10(impressions + 1) × 0.1). Engagement rate = (likes × 2 + reposts × 3 + replies + link clicks × 2) ÷ impressions.
+        Score = engagement rate * (1 + log10(impressions + 1) * 0.1).
+        Engagement rate = (likes * 2 + reposts * 3 + replies + link clicks * 2) ÷
+        impressions.
       </p>
 
       {hasError && (
@@ -99,72 +178,46 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border text-sm">
-            {posts.map((post) => {
-              const scoreTone =
-                post.score >= 0.5
-                  ? "bg-emerald-100 text-emerald-700"
-                  : post.score >= 0.2
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-muted text-muted-foreground";
-              return (
-                <tr key={post.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-4">
-                    <div className="space-y-2">
-                      <p className="line-clamp-3 text-muted-foreground">
-                        {post.text}
-                      </p>
-                      <Link
-                        href={post.url ?? "#"}
-                        target="_blank"
-                        className="inline-flex items-center text-xs text-primary hover:underline"
-                      >
-                        Open post
-                      </Link>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className="rounded-full bg-surface-active px-3 py-1 text-xs font-semibold text-primary">
-                      {toTitleCase(post.platform)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 capitalize">{post.media_type}</td>
-                  <td className="px-4 py-4 text-sm text-muted-foreground">
-                    {new Date(post.created_at).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${scoreTone}`}
+            {posts.map((post) => (
+              <tr key={post.id} className="hover:bg-surface-hover">
+                <td className="px-4 py-4">
+                  <div className="space-y-2">
+                    <p className="line-clamp-3 text-muted-foreground">{post.text}</p>
+                    <Link
+                      href={post.url ?? "#"}
+                      target="_blank"
+                      className="inline-flex items-center text-xs text-primary hover:underline"
                     >
-                      ⭐ {post.score.toFixed(3)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                      📈 {post.metrics.impressions ?? "n/a"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
-                      👍 {post.metrics.likes}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                      🔁 {post.metrics.reposts_or_rethreads}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                      💬 {post.metrics.replies}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
+                      Open post
+                    </Link>
+                  </div>
+                </td>
+                <td className="px-4 py-4">
+                  <span className="rounded-full bg-surface-active px-3 py-1 text-xs font-semibold text-primary">
+                    {toTitleCase(post.platform)}
+                  </span>
+                </td>
+                <td className="px-4 py-4 capitalize">{post.media_type}</td>
+                <td className="px-4 py-4 text-sm text-muted-foreground">
+                  {new Date(post.created_at).toLocaleString()}
+                </td>
+                <td className="px-4 py-4 text-right">
+                  {post.score.toFixed(3)}
+                </td>
+                <td className="px-4 py-4 text-right">
+                  {post.metrics.impressions ?? "n/a"}
+                </td>
+                <td className="px-4 py-4 text-right">{post.metrics.likes}</td>
+                <td className="px-4 py-4 text-right">
+                  {post.metrics.reposts_or_rethreads}
+                </td>
+                <td className="px-4 py-4 text-right">{post.metrics.replies}</td>
+              </tr>
+            ))}
             {posts.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-4 py-6 text-center text-sm text-muted-foreground"
                 >
                   No posts found for the selected filters.
@@ -173,6 +226,36 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-xs text-muted-foreground">Page {page}</span>
+        <div className="flex gap-2">
+          {hasPrevious ? (
+            <Link
+              href={buildPageLink(filter, page - 1)}
+              className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-primary"
+            >
+              Previous
+            </Link>
+          ) : (
+            <span className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-60">
+              Previous
+            </span>
+          )}
+          {hasNext ? (
+            <Link
+              href={buildPageLink(filter, page + 1)}
+              className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-primary"
+            >
+              Next
+            </Link>
+          ) : (
+            <span className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-60">
+              Next
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
