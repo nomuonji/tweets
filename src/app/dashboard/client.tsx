@@ -118,11 +118,12 @@ export function DashboardClient({
             </div>
           </div>
 
-          {selectedAccount && <AccountTipsControl account={selectedAccount} allTips={allTips} onTipsUpdate={handleTipsUpdate} />}
-
           <SmartTweetGenerator accounts={accountOptions} />
 
-          <ExemplaryPostManager selectedAccountId={selectedAccount?.id ?? null} />
+          <div className="grid gap-6 md:grid-cols-2">
+            {selectedAccount && <AccountTipsControl account={selectedAccount} allTips={allTips} onTipsUpdate={handleTipsUpdate} />}
+            <ExemplaryPostManager selectedAccountId={selectedAccount?.id ?? null} />
+          </div>
 
           {errors.quotaExceeded && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
