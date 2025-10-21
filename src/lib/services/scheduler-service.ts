@@ -83,22 +83,44 @@ export async function executeDueSchedules(nowIso = DateTime.now().setZone('Asia/
 
     try {
       const result = await publishDraft(draft);
-      await adminDb.collection("drafts").doc(draft.id).set(
-        { 
-          status: "published", 
-          published_at: now.toISO(), 
-          updated_at: now.toISO(),
-          platform_post_id: result.platform_post_id, 
-          url: result.url 
+      const nowStr = now.toISO();
+
+      const newPost: PostDoc = {
+        id: result.platform_post_id,
+        account_id: accountId,
+        platform: draft.target_platform,
+        platform_post_id: result.platform_post_id,
+        text: buildPostText(draft),
+        created_at: nowStr, // This should ideally be from the platform, but using server time for now.
+        media_type: "text", // Assuming text for now
+        has_url: buildPostText(draft).includes("http"),
+        metrics: {
+          impressions: 0,
+          likes: 0,
+          replies: 0,
+          reposts_or_rethreads: 0,
+          quotes: 0,
+          link_clicks: 0,
         },
-        { merge: true },
-      );
-      
+        score: 0,
+        raw: result.raw,
+        url: result.url,
+        fetched_at: nowStr,
+      };
+
+      const batch = adminDb.batch();
+      const postRef = adminDb.collection("posts").doc(result.platform_post_id);
+      const draftRef = adminDb.collection("drafts").doc(draft.id);
+
+      batch.set(postRef, newPost);
+      batch.delete(draftRef);
+
+      await batch.commit();
+
       publishedCount++;
-      console.log(`[Scheduler] Published draft ${draft.id} for account ${accountId}.`);
+      console.log(`[Scheduler] Published draft ${draft.id} and moved to posts as ${result.platform_post_id}.`);
     } catch (error) {
       console.error(`[Scheduler] Failed to process draft ${draft.id} for account ${accountId}.`, error);
-      await adminDb.collection("drafts").doc(draft.id).set({ status: "error", updated_at: now.toISO() }, { merge: true });
     }
   }
 

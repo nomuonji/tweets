@@ -346,27 +346,41 @@ export async function publishThreadsPost(
     throw new Error("Threads user ID is not configured");
   }
 
-  const postResponse = await axios.post<Record<string, unknown>>(
+  // Step 1: Create a media container
+  const containerResponse = await axios.post<{ id: string }>(
     `${THREADS_API_BASE}/${userId}/threads`,
     {
-      media_type: 'TEXT',
+      media_type: "TEXT",
       text: payload.text,
       access_token: accessToken,
     },
   );
 
-  const publishIdValue = postResponse.data?.["id"];
-  if (typeof publishIdValue !== "string") {
-    throw new Error("Failed to publish Threads post");
+  const creationId = containerResponse.data?.id;
+  if (typeof creationId !== "string") {
+    throw new Error("Failed to create Threads media container: creation_id not found");
   }
 
-  const permalinkValue = postResponse.data?.["permalink"];
-  const permalink =
-    typeof permalinkValue === "string" ? permalinkValue : undefined;
+  // Step 2: Publish the media container
+  const publishResponse = await axios.post<{ id: string }>(
+    `${THREADS_API_BASE}/${userId}/threads_publish`,
+    {
+      creation_id: creationId,
+      access_token: accessToken,
+    },
+  );
+
+  const publishedPostId = publishResponse.data?.id;
+  if (typeof publishedPostId !== "string") {
+    throw new Error("Failed to publish Threads container: final post ID not found");
+  }
+
+  const handle = account.handle.startsWith("@") ? account.handle.slice(1) : account.handle;
+  const permalink = `https://www.threads.net/@${handle}/post/${publishedPostId}`;
 
   return {
-    platform_post_id: publishIdValue,
-    raw: postResponse.data,
+    platform_post_id: publishedPostId,
+    raw: publishResponse.data,
     url: permalink,
   };
 }

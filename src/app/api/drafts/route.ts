@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       base_post_id: null,
       text,
       hashtags: [],
-      status: "draft",
+      status: "scheduled",
       schedule_time: null,
       published_at: null,
       created_by: body.createdBy ?? "gemini",
