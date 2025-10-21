@@ -253,10 +253,15 @@ export async function fetchRecentThreadsPosts(
     for (const item of items) {
       debug.push(`Processing item ${item.id}: ${JSON.stringify(item)}`);
 
-      // if (isThreadsReply(item)) {
-      //   debug.push(`Skipped reply item ${item.id}`);
-      //   continue;
-      // }
+      if (isThreadsReply(item)) {
+        debug.push(`Skipped reply item ${item.id}`);
+        continue;
+      }
+
+      if (item.media_type === "REPOST_FACADE") {
+        debug.push(`Skipped repost_facade item ${item.id}`);
+        continue;
+      }
 
       if (hasSinceFilter && sinceDate) {
         const created = DateTime.fromISO(item.timestamp).toUTC();

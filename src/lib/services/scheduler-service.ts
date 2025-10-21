@@ -85,8 +85,10 @@ export async function executeDueSchedules(nowIso = DateTime.now().setZone('Asia/
       const result = await publishDraft(draft);
       const nowStr = now.toISO();
 
+      const prefixedId = `${draft.target_platform}_${result.platform_post_id}`;
+
       const newPost: PostDoc = {
-        id: result.platform_post_id,
+        id: prefixedId,
         account_id: accountId,
         platform: draft.target_platform,
         platform_post_id: result.platform_post_id,
@@ -109,7 +111,7 @@ export async function executeDueSchedules(nowIso = DateTime.now().setZone('Asia/
       };
 
       const batch = adminDb.batch();
-      const postRef = adminDb.collection("posts").doc(result.platform_post_id);
+      const postRef = adminDb.collection("posts").doc(prefixedId);
       const draftRef = adminDb.collection("drafts").doc(draft.id);
 
       batch.set(postRef, newPost);

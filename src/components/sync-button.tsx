@@ -90,9 +90,6 @@ export function SyncButton({ payload }: SyncButtonProps) {
             item.handle ||
             (item.platform ? `${item.platform}:${item.accountId}` : item.accountId);
           lines.push(`✖ ${label}: ${item.error ?? "Unknown error"}`);
-          if (item.debug && item.debug.length > 0) {
-            item.debug.forEach((log) => lines.push(`  • ${log}`));
-          }
         });
       }
 
@@ -112,9 +109,6 @@ export function SyncButton({ payload }: SyncButtonProps) {
           lines.push(
             `✔ ${label}: fetched ${item.fetched ?? 0}, stored ${item.stored ?? 0}`,
           );
-          if (item.debug && item.debug.length > 0) {
-            item.debug.forEach((log) => lines.push(`  • ${log}`));
-          }
         });
       }
 

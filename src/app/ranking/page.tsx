@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { RankingClient } from "./client";
 import { RankingFilters } from "@/components/ranking-filters";
 import { getTopPosts, getAccounts } from "@/lib/services/firestore.server";
 import type { RankingFilter } from "@/lib/types";
@@ -162,71 +163,9 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
         </p>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-border bg-surface">
-        <table className="min-w-full divide-y divide-border">
-          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3">Post</th>
-              <th className="px-4 py-3">Platform</th>
-              <th className="px-4 py-3">Media</th>
-              <th className="px-4 py-3">Created</th>
-              <th className="px-4 py-3 text-right">Score</th>
-              <th className="px-4 py-3 text-right">Impressions</th>
-              <th className="px-4 py-3 text-right">Likes</th>
-              <th className="px-4 py-3 text-right">Reposts</th>
-              <th className="px-4 py-3 text-right">Replies</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border text-sm">
-            {posts.map((post) => (
-              <tr key={post.id} className="hover:bg-surface-hover">
-                <td className="px-4 py-4">
-                  <div className="space-y-2">
-                    <p className="line-clamp-3 text-muted-foreground">{post.text}</p>
-                    <Link
-                      href={post.url ?? "#"}
-                      target="_blank"
-                      className="inline-flex items-center text-xs text-primary hover:underline"
-                    >
-                      Open post
-                    </Link>
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <span className="rounded-full bg-surface-active px-3 py-1 text-xs font-semibold text-primary">
-                    {toTitleCase(post.platform)}
-                  </span>
-                </td>
-                <td className="px-4 py-4 capitalize">{post.media_type}</td>
-                <td className="px-4 py-4 text-sm text-muted-foreground">
-                  {new Date(post.created_at).toLocaleString()}
-                </td>
-                <td className="px-4 py-4 text-right">
-                  {post.score.toFixed(3)}
-                </td>
-                <td className="px-4 py-4 text-right">
-                  {post.metrics.impressions ?? "n/a"}
-                </td>
-                <td className="px-4 py-4 text-right">{post.metrics.likes}</td>
-                <td className="px-4 py-4 text-right">
-                  {post.metrics.reposts_or_rethreads}
-                </td>
-                <td className="px-4 py-4 text-right">{post.metrics.replies}</td>
-              </tr>
-            ))}
-            {posts.length === 0 && (
-              <tr>
-                <td
-                  colSpan={9}
-                  className="px-4 py-6 text-center text-sm text-muted-foreground"
-                >
-                  No posts found for the selected filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+import { RankingClient } from "./client";
+
+      <RankingClient initialPosts={posts} />
 
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs text-muted-foreground">Page {page}</span>
