@@ -73,3 +73,23 @@ export async function upsertAccount(params: UpsertAccountParams) {
     { merge: true },
   );
 }
+
+type UpdateAccountParams = Partial<{
+  concept: string;
+  autoPostEnabled: boolean;
+  postSchedule: string[];
+  selectedTipIds: string[];
+}>;
+
+export async function updateAccount(
+  accountId: string,
+  params: UpdateAccountParams,
+) {
+  const now = DateTime.utc().toISO();
+  const updateData: Record<string, unknown> = {
+    ...params,
+    updated_at: now,
+  };
+
+  await adminDb.collection("accounts").doc(accountId).update(updateData);
+}

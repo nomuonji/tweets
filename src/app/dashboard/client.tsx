@@ -10,6 +10,7 @@ import { SyncControls } from '@/components/sync-controls';
 import { SmartTweetGenerator } from '@/components/smart-tweet-generator';
 import { ExemplaryPostManager } from '@/components/exemplary-post-manager';
 import { AccountTipsControl } from '@/components/account-tips-control';
+import { AccountSettingsControl } from '@/components/account-settings-control';
 import { cn } from "@/lib/utils";
 
 type DashboardClientProps = {
@@ -46,6 +47,14 @@ export function DashboardClient({
     setAccounts(prev =>
       prev.map(acc =>
         acc.id === accountId ? { ...acc, selectedTipIds: updatedTipIds } : acc
+      )
+    );
+  };
+
+  const handleAccountUpdate = (accountId: string, updatedData: Partial<AccountDoc>) => {
+    setAccounts(prev =>
+      prev.map(acc =>
+        acc.id === accountId ? { ...acc, ...updatedData } : acc
       )
     );
   };
@@ -107,6 +116,8 @@ export function DashboardClient({
         </p>
       ) : (
         <>
+          {selectedAccount && <AccountSettingsControl account={selectedAccount} onAccountUpdate={handleAccountUpdate} />}
+
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">RapidAPI Twitter usage</p>

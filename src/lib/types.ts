@@ -17,6 +17,9 @@ export interface AccountDoc {
   display_name: string;
   connected: boolean;
   scopes: string[];
+  concept?: string;
+  autoPostEnabled?: boolean;
+  postSchedule?: string[];
   selectedTipIds?: string[];
   token_meta?: {
     access_token?: string;
