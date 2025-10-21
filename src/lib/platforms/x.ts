@@ -4,6 +4,8 @@ import { DateTime } from "luxon";
 import type { AccountDoc, MediaType, PostMetrics } from "@/lib/types";
 import type { SyncPostPayload } from "./types";
 import { incrementApiUsage } from "@/lib/services/usage-service";
+import { TwitterApi } from "twitter-api-v2";
+import type { PublishResult } from "./types";
 
 type FetchOptions = {
   startTime?: string;
@@ -850,4 +852,59 @@ export async function fetchRecentXPosts(
   );
 
   return { posts: finalPosts, debug };
+}
+
+export async function publishXPost(
+  account: AccountDoc,
+  payload: { text: string },
+): Promise<PublishResult> {
+  const { token_meta } = account;
+  if (!token_meta) {
+    throw new Error("X account token metadata is missing.");
+  }
+
+  // OAuth 2.0 (for user context)
+  if (token_meta.oauth_version === "oauth2" && token_meta.access_token) {
+    const client = new TwitterApi(token_meta.access_token);
+    const { data: createdTweet } = await client.v2.tweet(payload.text);
+
+    if (!createdTweet) {
+      throw new Error("Failed to create tweet using v2 API.");
+    }
+
+    return {
+      platform_post_id: createdTweet.id,
+      url: `https://twitter.com/${account.handle}/status/${createdTweet.id}`,
+      raw: createdTweet as unknown as Record<string, unknown>,
+    };
+  }
+
+  // OAuth 1.0a (legacy)
+  if (
+    token_meta.oauth_version === "oauth1" &&
+    token_meta.consumer_key &&
+    token_meta.consumer_secret &&
+    token_meta.access_token &&
+    token_meta.access_token_secret
+  ) {
+    const client = new TwitterApi({
+      appKey: token_meta.consumer_key,
+      appSecret: token_meta.consumer_secret,
+      accessToken: token_meta.access_token,
+      accessSecret: token_meta.access_token_secret,
+    });
+    const { data: createdTweet } = await client.v1.tweet(payload.text);
+
+    if (!createdTweet) {
+      throw new Error("Failed to create tweet using v1 API.");
+    }
+
+    return {
+      platform_post_id: createdTweet.id_str,
+      url: `https://twitter.com/${createdTweet.user.screen_name}/status/${createdTweet.id_str}`,
+      raw: createdTweet as unknown as Record<string, unknown>,
+    };
+  }
+
+  throw new Error("No valid X credentials found for posting.");
 }

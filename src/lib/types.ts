@@ -20,6 +20,7 @@ export interface AccountDoc {
   concept?: string;
   autoPostEnabled?: boolean;
   postSchedule?: string[];
+  lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
     access_token?: string;

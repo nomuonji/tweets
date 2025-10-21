@@ -132,7 +132,36 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
   };
 
   const handleSave = async () => {
-    // ... (handleSave function is unchanged)
+    if (!suggestion || !selectedAccount) return;
+    setSaving(true);
+    setError(null);
+    setSaveMessage(null);
+    try {
+      const response = await fetch("/api/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: suggestion.tweet,
+          accountId: selectedAccount.id,
+          platform: selectedAccount.platform,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message ?? "Failed to save the draft.");
+      }
+      setSaveMessage("Draft saved successfully!");
+      // Refresh existing drafts list
+      setExistingDrafts(prev => [
+        { id: data.draftId, text: suggestion.tweet, updatedAt: new Date().toISOString() },
+        ...prev
+      ]);
+      setSuggestion(null); // Hide the suggestion form
+    } catch (saveError) {
+      setError((saveError as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

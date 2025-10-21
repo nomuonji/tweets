@@ -349,9 +349,8 @@ export async function publishThreadsPost(
   const postResponse = await axios.post<Record<string, unknown>>(
     `${THREADS_API_BASE}/${userId}/threads`,
     {
+      media_type: 'TEXT',
       text: payload.text,
-      media: payload.mediaUrls,
-      url: payload.url,
       access_token: accessToken,
     },
   );
