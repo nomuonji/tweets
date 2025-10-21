@@ -1,7 +1,7 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import type { DraftDoc, PostDoc } from "@/lib/types";
+import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip } from "@/lib/types";
 
 const MODEL = "models/gemini-flash-latest";
 const GENERATION_CONFIG = {
@@ -11,6 +11,8 @@ const GENERATION_CONFIG = {
   maxOutputTokens: 4096,
   responseMimeType: "application/json",
 };
+
+// (Existing type definitions: GeminiSuggestion, etc. - unchanged)
 
 type GeminiSuggestion = {
   tweet: string;
@@ -28,6 +30,8 @@ type GenerateRequestBody = {
   limit?: number;
 };
 
+
+// (Existing utility functions: sanitizeCandidateText, normalizeText, parseSuggestion - unchanged)
 function sanitizeCandidateText(text: string) {
   return text
     .replace(/```json\s*/gi, "")
@@ -46,7 +50,7 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
 
   const { candidates } = raw as GeminiResponse;
   const candidateParts = candidates?.[0]?.content?.parts ?? [];
-  const text =
+  const text = 
     candidateParts
       .map((part) => part?.text ?? "")
       .join("")
@@ -86,8 +90,8 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
     // fall back to heuristic parsing
   }
 
-  const tweetMatch = cleaned.match(/"tweet"\s*:\s*"([^\"]+)"/i);
-  const explanationMatch = cleaned.match(/"explanation"\s*:\s*"([^\"]+)"/i);
+  const tweetMatch = cleaned.match(/"tweet"\s*:\s*"([^"]+)"/i);
+  const explanationMatch = cleaned.match(/"explanation"\s*:\s*"([^"]+)"/i);
 
   if (tweetMatch && explanationMatch) {
     return {
@@ -105,6 +109,7 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
   };
 }
 
+// (Existing fetch functions: fetchTopPosts, fetchRecentPosts, fetchExistingDrafts - unchanged)
 async function fetchTopPosts(accountId: string, limit: number) {
   try {
     const snapshot = await adminDb
@@ -216,6 +221,25 @@ async function fetchExistingDrafts(accountId: string, limit: number) {
   }
 }
 
+// New fetch functions
+async function fetchAccount(accountId: string): Promise<AccountDoc | null> {
+    const doc = await adminDb.collection("accounts").doc(accountId).get();
+    if (!doc.exists) return null;
+    return { id: doc.id, ...doc.data() } as AccountDoc;
+}
+
+async function fetchSelectedTips(tipIds: string[]): Promise<Tip[]> {
+    if (tipIds.length === 0) return [];
+    const snapshot = await adminDb.collection("tips").where("__name__", "in", tipIds).get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Tip[];
+}
+
+async function fetchExemplaryPosts(accountId: string): Promise<ExemplaryPost[]> {
+    const snapshot = await adminDb.collection("accounts").doc(accountId).collection("exemplary_posts").orderBy("created_at", "desc").limit(10).get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ExemplaryPost[];
+}
+
+
 function formatPostSummary(posts: PostDoc[]) {
   return posts.map((post, index) => {
     const created = DateTime.fromISO(post.created_at).toFormat("yyyy-LL-dd");
@@ -228,11 +252,14 @@ function formatPostSummary(posts: PostDoc[]) {
   });
 }
 
+// Updated buildPrompt function
 function buildPrompt(
   topPosts: PostDoc[],
   recentPosts: PostDoc[],
   drafts: DraftDoc[],
   extraAvoid: string[],
+  tips: Tip[],
+  exemplaryPosts: ExemplaryPost[]
 ) {
   const topSummary = topPosts.length
     ? `Top performing posts ranked by engagement:\n${formatPostSummary(topPosts).join("\n")}`
@@ -241,6 +268,14 @@ function buildPrompt(
   const recentSummary = recentPosts.length
     ? `Latest posts (newest first):\n${formatPostSummary(recentPosts).join("\n")}`
     : "Latest posts (newest first):\n- No recent posts available.";
+
+  const tipsBlock = tips.length > 0
+    ? `\nGeneral guidance and tips for writing effective posts:\n${tips.map(tip => `- ${tip.content}`).join("\n")}\n`
+    : "";
+
+  const exemplaryBlock = exemplaryPosts.length > 0
+    ? `\nStudy these exemplary posts for style and tone:\n${exemplaryPosts.map(p => `Post: ${p.text}\nReasoning: ${p.explanation}`).join("\n\n")}\n`
+    : "";
 
   const avoidList = Array.from(
     new Set(
@@ -252,7 +287,7 @@ function buildPrompt(
     .slice(0, 20)
     .map((text) => `- ${text.replace(/\s+/g, " ").slice(0, 120)}`);
 
-  const avoidBlock =
+  const avoidBlock = 
     avoidList.length > 0
       ? `\nAvoid repeating these existing drafts or suggesting something semantically identical:\n${avoidList.join(
           "\n",
@@ -262,19 +297,25 @@ function buildPrompt(
   return `
 You are an experienced social media strategist for short form posts on X (Twitter).
 
-You will receive two datasets: high performing posts that achieved strong engagement, and the most recent posts. Study both to understand winning themes while avoiding repetition with the latest content.
-Then write a brand new post idea that stays consistent with the brand voice but introduces a fresh angle that has not appeared in the recent posts.
+You will receive several datasets to inform your writing. Use all of them to create the best possible post.
+1. General Tips: These are universal principles for creating engaging content. Internalize them.
+2. Exemplary Posts: These are specific examples of the desired style and tone for this account. Emulate them.
+3. High-Performing Posts: These are past successes. Analyze them to understand what works for this audience.
+4. Recent Posts: This is what has been posted lately. Do not repeat these topics.
+
+Your task is to write a brand new post idea that is consistent with the brand voice and exemplary posts, incorporates the general tips, learns from the high-performing posts, and introduces a fresh angle not seen in the recent posts.
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
 - "tweet": the new post text (<= 260 characters, no surrounding quotes).
-- "explanation": concise reasoning in Japanese (<= 200 characters) referencing observed metrics or stylistic cues.
+- "explanation": concise reasoning in Japanese (<= 200 characters) referencing observed metrics, stylistic cues, or tips.
 - Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
 - Do not add any additional fields, markdown, or commentary.
 - Avoid repeating existing draft texts or their close variations.
 
-Here are the reference posts:
-
+Here is your data:
+${tipsBlock}
+${exemplaryBlock}
 ${topSummary}
 
 ${recentSummary}
@@ -282,6 +323,7 @@ ${avoidBlock}
 Respond only with JSON.`;
 }
 
+// (dedupePostSets and requestGemini functions are unchanged)
 function dedupePostSets(topPosts: PostDoc[], recentPosts: PostDoc[]) {
   const seen = new Set<string>();
 
@@ -339,16 +381,14 @@ async function requestGemini(prompt: string, apiKey: string) {
   return data;
 }
 
+
+// Updated POST handler
 export async function POST(request: Request) {
   try {
     const geminiApiKey = process.env.GEMINI_API_KEY;
     if (!geminiApiKey) {
       return NextResponse.json(
-        {
-          ok: false,
-          message:
-            "GEMINI_API_KEY is not configured. Set it in your environment before using this feature.",
-        },
+        { ok: false, message: "GEMINI_API_KEY is not configured." },
         { status: 500 },
       );
     }
@@ -364,31 +404,35 @@ export async function POST(request: Request) {
       );
     }
 
+    // Fetch all data in parallel
+    const account = await fetchAccount(accountId);
+    if (!account) {
+        return NextResponse.json({ ok: false, message: "Account not found." }, { status: 404 });
+    }
+
     const normalizedLimit = Math.min(Math.max(limit, 6), 40);
     const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
 
-    const rawTopPosts = await fetchTopPosts(accountId, perCategoryLimit);
-    const rawRecentPosts = await fetchRecentPosts(accountId, perCategoryLimit);
+    const [rawTopPosts, rawRecentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
+        fetchTopPosts(accountId, perCategoryLimit),
+        fetchRecentPosts(accountId, perCategoryLimit),
+        fetchExistingDrafts(accountId, 50),
+        fetchSelectedTips(account.selectedTipIds || []),
+        fetchExemplaryPosts(accountId),
+    ]);
+
     const { uniqueTop, uniqueRecent } = dedupePostSets(rawTopPosts, rawRecentPosts);
 
     if (uniqueTop.length === 0 && uniqueRecent.length === 0) {
       return NextResponse.json(
-        {
-          ok: false,
-          message: "No posts found for this account yet. Run a sync first.",
-        },
+        { ok: false, message: "No posts found for this account yet. Run a sync first." },
         { status: 400 },
       );
     }
 
     const referenceTop = uniqueTop.slice(0, perCategoryLimit);
     const referenceRecent = uniqueRecent.slice(0, perCategoryLimit);
-    const referenceEntries = [
-      ...referenceTop.map((post) => ({ post, source: "top" as const })),
-      ...referenceRecent.map((post) => ({ post, source: "recent" as const })),
-    ];
 
-    const drafts = await fetchExistingDrafts(accountId, 50);
     const normalizedDrafts = new Set(
       drafts.map((draft) => normalizeText(draft.text ?? "")),
     );
@@ -397,9 +441,11 @@ export async function POST(request: Request) {
     const extraAvoid: string[] = [];
     let suggestion: GeminiSuggestion | null = null;
     let duplicate = false;
+    let finalPrompt = ""; // Variable to hold the prompt
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(referenceTop, referenceRecent, drafts, extraAvoid);
+      const prompt = buildPrompt(referenceTop, referenceRecent, drafts, extraAvoid, tips, exemplaryPosts);
+      finalPrompt = prompt; // Capture the prompt
       const raw = await requestGemini(prompt, geminiApiKey);
       suggestion = parseSuggestion(raw);
       const normalizedSuggestion = normalizeText(suggestion.tweet);
@@ -414,45 +460,12 @@ export async function POST(request: Request) {
       throw new Error("Failed to generate suggestion.");
     }
 
+    // (Return response is largely unchanged)
     return NextResponse.json({
       ok: true,
       suggestion,
       duplicate,
-      context: {
-        usedPosts: referenceEntries.slice(0, 10).map(({ post, source }) => ({
-          id: post.id,
-          text: post.text,
-          score:
-            typeof post.score === "number" && Number.isFinite(post.score)
-              ? post.score
-              : 0,
-          impressions:
-            typeof post.metrics.impressions === "number" &&
-            Number.isFinite(post.metrics.impressions)
-              ? post.metrics.impressions
-              : 0,
-          likes:
-            typeof post.metrics.likes === "number" && Number.isFinite(post.metrics.likes)
-              ? post.metrics.likes
-              : 0,
-          reposts:
-            typeof post.metrics.reposts_or_rethreads === "number" &&
-            Number.isFinite(post.metrics.reposts_or_rethreads)
-              ? post.metrics.reposts_or_rethreads
-              : 0,
-          replies:
-            typeof post.metrics.replies === "number" &&
-            Number.isFinite(post.metrics.replies)
-              ? post.metrics.replies
-              : 0,
-          source,
-        })),
-        existingDrafts: drafts.slice(0, 8).map((draft) => ({
-          id: draft.id,
-          text: draft.text,
-          updatedAt: draft.updated_at,
-        })),
-      },
+      prompt: finalPrompt, // Add the prompt to the response
     });
   } catch (error) {
     return NextResponse.json(

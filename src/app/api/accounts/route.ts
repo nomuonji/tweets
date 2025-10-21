@@ -20,6 +20,20 @@ const payloadSchema = z.object({
   rapidApiHost: z.string().optional(),
 });
 
+import { getAccounts } from "@/lib/services/firestore.server";
+
+export async function GET() {
+  try {
+    const accounts = await getAccounts();
+    return NextResponse.json({ ok: true, accounts });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, message: (error as Error).message },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const json = await request.json();

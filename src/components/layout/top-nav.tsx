@@ -8,6 +8,7 @@ const navItems = [
   { href: "/dashboard", label: "ダッシュボード" },
   { href: "/ranking", label: "ランキング" },
   { href: "/accounts", label: "アカウント" },
+  { href: "/tips", label: "Tips" },
 ];
 
 export function TopNav() {

@@ -5,7 +5,7 @@ Internal tool for analysing X (Twitter) and Threads posts, generating AI-assiste
 ### Highlights
 - Manual or scripted sync (`npm run sync:posts`) for linked accounts. Scoring uses the weighted formula plus impression fallbacks.
 - Ranking view with period / media-type / platform filters and links back to the source post.
-- Draft generation powered by OpenAI with similarity warnings and optional scheduling slots (today / tomorrow / next week ÁEmorning, noon, night).
+- Draft generation powered by Gemini with similarity warnings, guided by configurable "Tips" and account-specific "Exemplary Posts". A prompt preview is available within the generator.
 - OAuth 2.0 PKCE flow for X and Threads, plus a manual registration form for pasting tokens.
 - GitHub Actions workflows for post sync, schedule execution, and token refresh.
 
@@ -67,6 +67,8 @@ scripts/               # Node entry points for GitHub Actions / local runs
 - `/accounts`  Eplatform metadata, OAuth tokens (including OAuth1 fields), sync cursors, error states.
 - `/posts`  Enormalised post data with metrics, score, raw payload or GCS URL.
 - `/drafts`  Egenerated drafts with status (`draft`/`scheduled`/`published`) and schedule slot.
+- `/tips`  EGlobal knowledge base of tips for writing effective posts. Managed at `/tips`.
+- `/accounts/{accountId}/exemplary_posts`  EAccount-specific posts to guide the AI on style and tone. Managed on the dashboard.
 - `/settings/default`  Escoring configuration, generation preferences, slot templates, timezone.
 
 ### Recommended Follow-up

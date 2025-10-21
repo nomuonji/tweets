@@ -2,6 +2,14 @@ export type Platform = "x" | "threads";
 export type MediaType = "text" | "image" | "video";
 export type DraftStatus = "draft" | "scheduled" | "published";
 
+export interface Tip {
+  id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AccountDoc {
   id: string;
   platform: Platform;
@@ -9,6 +17,7 @@ export interface AccountDoc {
   display_name: string;
   connected: boolean;
   scopes: string[];
+  selectedTipIds?: string[];
   token_meta?: {
     access_token?: string;
     expires_at?: string;
@@ -102,4 +111,12 @@ export interface RankingFilter {
 export interface ScoreOptions {
   settings: SettingsDoc["scoring"];
   proxyValue?: number;
+}
+
+export interface ExemplaryPost {
+  id: string;
+  text: string;
+  explanation: string;
+  created_at: string;
+  updated_at: string;
 }

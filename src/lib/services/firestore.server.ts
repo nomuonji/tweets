@@ -12,6 +12,7 @@ import {
   PostDoc,
   RankingFilter,
   SettingsDoc,
+  Tip,
 } from "@/lib/types";
 import { calculateScore } from "@/lib/scoring";
 import { getMonthlyUsage } from "@/lib/services/usage-service";
@@ -46,6 +47,23 @@ export async function getAccounts(): Promise<AccountDoc[]> {
   } catch (error) {
     if (isFirestoreQuotaError(error)) {
       const quotaError = new Error("Firestore quota exhausted while loading accounts", {
+        cause: error instanceof Error ? error : undefined,
+      }) as Error & { code?: string };
+      quotaError.name = "FirestoreQuotaError";
+      quotaError.code = "firestore/quota-exceeded";
+      throw quotaError;
+    }
+    throw error;
+  }
+}
+
+export async function getAllTips(): Promise<Tip[]> {
+  try {
+    const snapshot = await adminDb.collection("tips").orderBy("created_at", "desc").get();
+    return snapshot.docs.map((doc) => mapWithId<Tip>(doc));
+  } catch (error) {
+    if (isFirestoreQuotaError(error)) {
+      const quotaError = new Error("Firestore quota exhausted while loading tips", {
         cause: error instanceof Error ? error : undefined,
       }) as Error & { code?: string };
       quotaError.name = "FirestoreQuotaError";
