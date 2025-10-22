@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { DateTime } from 'luxon';
-import type { AccountDoc, Tip } from '@/lib/types';
+import Link from "next/link";
+import type { AccountDoc, Tip } from "@/lib/types";
 import { toTitleCase } from '@/lib/utils';
 import { TipsSelectionModal } from '@/components/tips-selection-modal';
 

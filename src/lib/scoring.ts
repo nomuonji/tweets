@@ -1,4 +1,4 @@
-import { ScoreOptions } from "./types";
+
 
 type ScoreInput = {
   metrics: {
@@ -10,7 +10,7 @@ type ScoreInput = {
   };
 };
 
-export function calculateScore({ metrics }: ScoreInput, options: ScoreOptions) {
+export function calculateScore({ metrics }: ScoreInput) {
   const impressions = metrics.impressions ?? 0;
   const likes = metrics.likes ?? 0;
   const reposts = metrics.reposts_or_rethreads ?? 0;

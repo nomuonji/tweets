@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
-import type { DraftDoc, AccountDoc } from "@/lib/types";
+import type { DraftDoc, AccountDoc, PostDoc } from "@/lib/types";
 import { getAccounts } from "./firestore.server";
 import { publishThreadsPost } from "@/lib/platforms/threads";
 import { publishXPost } from "@/lib/platforms/x";
@@ -29,8 +29,8 @@ async function publishDraft(draft: DraftDoc) {
   return publishThreadsPost(account, { text: buildPostText(draft) });
 }
 
-export async function executeDueSchedules(nowIso = DateTime.now().setZone('Asia/Tokyo').toISO()) {
-  const now = DateTime.fromISO(nowIso).setZone('Asia/Tokyo');
+export async function executeDueSchedules(nowIso: string | null = DateTime.utc().toISO()) {
+  const now = DateTime.fromISO(nowIso ?? DateTime.utc().toISO()!).setZone('Asia/Tokyo');
   const windowStart = now.minus({ minutes: 59 });
   let publishedCount = 0;
 
@@ -83,7 +83,7 @@ export async function executeDueSchedules(nowIso = DateTime.now().setZone('Asia/
 
     try {
       const result = await publishDraft(draft);
-      const nowStr = now.toISO();
+      const nowStr = now.toISO() ?? DateTime.utc().toISO()!;
 
       const prefixedId = `${draft.target_platform}_${result.platform_post_id}`;
 

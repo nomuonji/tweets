@@ -58,7 +58,7 @@ export function AccountTipsControl({ account, allTips, onTipsUpdate }: AccountTi
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">No tips selected. Click 'Edit' to apply generation tips.</p>
+          <p className="text-sm text-muted-foreground">No tips selected. Use the Edit button to apply generation tips.</p>
         )}
       </div>
     </div>

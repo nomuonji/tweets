@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { Tip } from "@/lib/types";
 
 // Tipを更新
 export async function PUT(request: Request, { params }: { params: { id: string } }) {

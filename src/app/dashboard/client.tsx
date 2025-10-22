@@ -11,7 +11,6 @@ import { SmartTweetGenerator } from '@/components/smart-tweet-generator';
 import { ExemplaryPostManager } from '@/components/exemplary-post-manager';
 import { AccountTipsControl } from '@/components/account-tips-control';
 import { AccountSettingsControl } from '@/components/account-settings-control';
-import { cn } from "@/lib/utils";
 
 type DashboardClientProps = {
   initialAccounts: AccountDoc[];
@@ -434,7 +433,7 @@ export function DashboardClient({
 
                                 value={draft.status}
 
-                                onChange={(e) => handleStatusChange(draft.id, e.target.value as any)}
+                                onChange={(e) => handleStatusChange(draft.id, e.target.value as DraftDoc["status"])}
 
                                 className="rounded-md border-border bg-background text-xs"
 

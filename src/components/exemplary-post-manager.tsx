@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, FormEvent, useCallback } from 'react';
 import type { ExemplaryPost } from '@/lib/types';
 
 type ExemplaryPostManagerProps = {
@@ -14,8 +14,10 @@ export function ExemplaryPostManager({ selectedAccountId }: ExemplaryPostManager
   const [isEditing, setIsEditing] = useState(false);
   const [currentPost, setCurrentPost] = useState<Partial<ExemplaryPost> | null>(null);
 
-  const fetchPosts = async () => {
-    if (!selectedAccountId) return;
+  const fetchPosts = useCallback(async () => {
+    if (!selectedAccountId) {
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -31,13 +33,15 @@ export function ExemplaryPostManager({ selectedAccountId }: ExemplaryPostManager
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedAccountId]);
 
   useEffect(() => {
     if (selectedAccountId) {
       fetchPosts();
+    } else {
+      setPosts([]);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, fetchPosts]);
 
   const handleEdit = (post: ExemplaryPost) => {
     setCurrentPost(post);

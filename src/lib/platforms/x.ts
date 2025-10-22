@@ -712,6 +712,8 @@ function transformResponseToTweets(
         debug.push("Skipped reply legacy entry");
         return null;
       }
+      const id = result.rest_id ?? legacy.id_str;
+      const created = resolveCreatedAt(legacy.created_at);
       if (!id || !created) {
         return null;
       }

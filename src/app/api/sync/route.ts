@@ -12,15 +12,21 @@ export async function POST(request: Request) {
         : undefined,
     });
 
-    // Log debug info on the server and remove it from the response
+    // Log debug info on the server and prepare a clean result for the client
     if (Array.isArray(result)) {
       result.forEach(item => {
         if (item.debug && Array.isArray(item.debug)) {
           console.log(`[Sync Debug - ${item.handle || item.accountId}]:`);
           item.debug.forEach(log => console.log(`  -> ${log}`));
         }
-        delete item.debug;
       });
+      // Create a new result without the debug property for the client
+      const clientResult = result.map((item) => {
+        const { debug, ...rest } = item;
+        void debug;
+        return rest;
+      });
+      return NextResponse.json({ ok: true, result: clientResult });
     }
 
     return NextResponse.json({ ok: true, result });

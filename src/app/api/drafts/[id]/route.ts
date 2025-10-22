@@ -18,7 +18,7 @@ export async function PUT(
     const body = await request.json();
     const { text, status } = body;
 
-    const updateData: { [key: string]: any } = {
+    const updateData: { [key: string]: string | null } = {
       updated_at: DateTime.utc().toISO(),
     };
 

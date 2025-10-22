@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { RankingClient } from "./client";
 import { RankingFilters } from "@/components/ranking-filters";
 import { getTopPosts, getAccounts } from "@/lib/services/firestore.server";
 import type { RankingFilter } from "@/lib/types";
-import { toTitleCase } from "@/lib/utils";
+import { RankingClient } from "./client";
 
 type RankingPageProps = {
   searchParams: Record<string, string | string[] | undefined>;
@@ -95,10 +94,8 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
 
   const initialFilter = parseParams(searchParams);
 
-  // Determine the final accountId by prioritizing URL param, then cookie, then all
   const accountId = initialFilter.accountId ?? storedAccountId ?? "all";
 
-  // Construct the final filter object
   const filter: ParsedRankingFilter = {
     ...initialFilter,
     accountId,
@@ -127,7 +124,6 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
 
   const { posts, hasNext } = rankingResult;
   const hasPrevious = page > 1;
-  const isLatest = filter.sort === "latest";
 
   return (
     <div className="space-y-8">
@@ -144,7 +140,7 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
         media={filter.media_type}
         period={String(filter.period_days)}
         sort={filter.sort}
-        accountId={filter.accountId}
+        accountId={filter.accountId ?? "all"}
         accounts={accounts}
       />
 
@@ -157,8 +153,6 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
           Failed to load ranking data. Confirm Firebase credentials.
         </p>
       )}
-
-import { RankingClient } from "./client";
 
       <RankingClient initialPosts={posts} />
 

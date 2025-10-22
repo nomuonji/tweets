@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { publishXPost } from "@/lib/platforms/x";
 import { publishThreadsPost } from "@/lib/platforms/threads";
-import type { DraftDoc, AccountDoc, PostDoc } from "@/lib/types";
+import type { DraftDoc, PostDoc } from "@/lib/types";
 import { getAccounts } from "@/lib/services/firestore.server";
 
 // This function is duplicated from scheduler-service.ts

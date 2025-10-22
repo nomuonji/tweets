@@ -47,7 +47,7 @@ type ThreadsItem = {
   id: string;
   text?: string;
   timestamp: string;
-  media_type?: "VIDEO" | "IMAGE" | "TEXT";
+  media_type?: "VIDEO" | "IMAGE" | "TEXT" | "REPOST_FACADE" | "TEXT_POST";
   permalink?: string;
   like_count?: number;
   reply_count?: number;
@@ -98,8 +98,8 @@ function mapMetrics(item: ThreadsItem): PostMetrics {
     likes: likes ?? item.like_count ?? 0,
     replies: replies ?? item.reply_count ?? 0,
     reposts_or_rethreads: reposts ?? item.repost_count ?? 0,
-    quotes: null,
-    link_clicks: null,
+    quotes: undefined,
+    link_clicks: undefined,
   };
 }
 

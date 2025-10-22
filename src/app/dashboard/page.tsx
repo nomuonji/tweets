@@ -7,7 +7,6 @@ import {
   getAllTips, // Add this import
 } from "@/lib/services/firestore.server";
 import { DashboardClient } from "./client"; // Import the new client component
-import type { AccountDoc, Tip } from "@/lib/types";
 
 const STORAGE_KEY = "selected-account-id";
 

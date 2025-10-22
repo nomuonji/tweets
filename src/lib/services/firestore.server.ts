@@ -343,27 +343,18 @@ export async function getDraftsByAccountId(accountId: string): Promise<DraftDoc[
   return snapshot.docs.map((doc) => mapWithId<DraftDoc>(doc));
 }
 
-export async function updatePostScores(
-  posts: PostDoc[],
-  options: { impressionsProxy?: number; settings: SettingsDoc["scoring"] },
-) {
+export async function updatePostScores(posts: PostDoc[]) {
   const batch = adminDb.batch();
   posts.forEach((post) => {
-    const score = calculateScore(
-      {
-        metrics: {
-          impressions: post.metrics.impressions,
-          likes: post.metrics.likes,
-          replies: post.metrics.replies,
-          reposts_or_rethreads: post.metrics.reposts_or_rethreads,
-          link_clicks: post.metrics.link_clicks ?? 0,
-        },
+    const score = calculateScore({
+      metrics: {
+        impressions: post.metrics.impressions,
+        likes: post.metrics.likes,
+        replies: post.metrics.replies,
+        reposts_or_rethreads: post.metrics.reposts_or_rethreads,
+        link_clicks: post.metrics.link_clicks ?? 0,
       },
-      {
-        settings: options.settings,
-        proxyValue: options.impressionsProxy,
-      },
-    );
+    });
     const ref = adminDb.collection("posts").doc(post.id);
     batch.update(ref, { score });
   });

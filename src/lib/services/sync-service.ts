@@ -1,17 +1,11 @@
 ﻿import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { calculateScore } from "@/lib/scoring";
-import {
-  AccountDoc,
-  PostDoc,
-  SettingsDoc,
-  ScoreOptions,
-  Platform,
-} from "@/lib/types";
+import { AccountDoc, PostDoc, Platform } from "@/lib/types";
 import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
-import { getAccounts, getSettings, upsertPost } from "./firestore.server";
+import { getAccounts, upsertPost } from "./firestore.server";
 
 type SyncOptions = {
   lookbackDays?: number;
@@ -58,23 +52,16 @@ function getDefaults(): { lookbackDays?: number; maxPostsCap?: number } {
   };
 }
 
-function scorePost(
-  payload: SyncPostPayload,
-  settings: SettingsDoc["scoring"],
-  scoreOptions: Partial<ScoreOptions> = {},
-) {
-  return calculateScore(
-    {
-      metrics: {
-        impressions: payload.metrics.impressions,
-        likes: payload.metrics.likes,
-        replies: payload.metrics.replies,
-        reposts_or_rethreads: payload.metrics.reposts_or_rethreads,
-        link_clicks: payload.metrics.link_clicks ?? 0,
-      },
+function scorePost(payload: SyncPostPayload) {
+  return calculateScore({
+    metrics: {
+      impressions: payload.metrics.impressions ?? 0,
+      likes: payload.metrics.likes ?? 0,
+      replies: payload.metrics.replies ?? 0,
+      reposts_or_rethreads: payload.metrics.reposts_or_rethreads ?? 0,
+      link_clicks: payload.metrics.link_clicks ?? 0,
     },
-    { settings, proxyValue: scoreOptions.proxyValue },
-  );
+  });
 }
 
 async function fetchPostsForAccount(
@@ -132,12 +119,8 @@ async function fetchPostsForAccount(
   };
 }
 
-function toPostDocument(
-  account: AccountDoc,
-  payload: SyncPostPayload,
-  settings: SettingsDoc["scoring"],
-): PostDoc {
-  const score = scorePost(payload, settings);
+function toPostDocument(account: AccountDoc, payload: SyncPostPayload): PostDoc {
+  const score = scorePost(payload);
   const createdAtIso = DateTime.fromISO(payload.created_at).toUTC().toISO();
 
   return {
@@ -168,35 +151,10 @@ async function updateAccountCursor(account: AccountDoc, cursor: string) {
   );
 }
 
-function fallbackSettings(): SettingsDoc {
-  return {
-    id: "fallback",
-    scoring: {
-      use_impression_proxy:
-        String(process.env.SCORE_USE_IMPRESSION_PROXY).toLowerCase() === "true",
-      proxy_strategy:
-        process.env.SCORE_IMPRESSION_PROXY_STRATEGY === "1" ? "1" : "median",
-    },
-    generation: {
-      max_hashtags: Number(process.env.MAX_HASHTAGS ?? 2) || 2,
-      preferred_length: [120, 140],
-    },
-    slots: {
-      x: [],
-      threads: [],
-    },
-  };
-}
-
 export async function syncPostsForAllAccounts(
   options: SyncOptions = {},
 ): Promise<SyncResult[]> {
-  const [accounts, settings] = await Promise.all([
-    getAccounts(),
-    getSettings(options.projectId),
-  ]);
-
-  const activeSettings = settings ?? fallbackSettings();
+  const accounts = await getAccounts();
   const filterSet =
     options.accountIds && options.accountIds.length > 0
       ? new Set(options.accountIds)
@@ -218,9 +176,7 @@ export async function syncPostsForAllAccounts(
         account,
         options,
       );
-      const posts = payloads.map((item) =>
-        toPostDocument(account, item, activeSettings.scoring),
-      );
+      const posts = payloads.map((item) => toPostDocument(account, item));
 
       for (const post of posts) {
         await upsertPost(post);
