@@ -660,15 +660,19 @@ function transformResponseToTweets(
           const id = result.rest_id ?? legacy.id_str;
           const created = resolveCreatedAt(legacy.created_at);
 
-          if (!id || !created) {
-            return null;
-          }
-
-          const text = legacy.full_text ?? legacy.text ?? "";
-          const metrics = toMetrics(legacy);
-          const mediaType = toMediaType(legacy);
-          const hasUrl = Boolean(legacy.entities?.urls?.length);
-
+                if (!id || !created) {
+                  return null;
+                }
+          
+                const mediaType = toMediaType(legacy);
+                if (mediaType !== "text") {
+                  debug.push(`Skipped non-text post (${mediaType})`);
+                  return null;
+                }
+          
+                const text = legacy.full_text ?? legacy.text ?? "";
+                const metrics = toMetrics(legacy);
+                const hasUrl = Boolean(legacy.entities?.urls?.length);
           return {
             platform: "x",
             platform_post_id: id,
@@ -708,16 +712,18 @@ function transformResponseToTweets(
         debug.push("Skipped reply legacy entry");
         return null;
       }
-      const id = result.rest_id ?? legacy.id_str;
-      const created = resolveCreatedAt(legacy.created_at);
-
       if (!id || !created) {
+        return null;
+      }
+
+      const mediaType = toMediaType(legacy);
+      if (mediaType !== "text") {
+        debug.push(`Skipped non-text post (${mediaType})`);
         return null;
       }
 
       const text = legacy.full_text ?? legacy.text ?? "";
       const metrics = toMetrics(legacy);
-      const mediaType = toMediaType(legacy);
       const hasUrl = Boolean(legacy.entities?.urls?.length);
 
       return {

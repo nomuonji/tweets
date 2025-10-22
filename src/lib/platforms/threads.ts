@@ -263,6 +263,11 @@ export async function fetchRecentThreadsPosts(
         continue;
       }
 
+      if (item.media_type && item.media_type !== "TEXT_POST") {
+        debug.push(`Skipped non-text post (${item.media_type})`);
+        continue;
+      }
+
       if (hasSinceFilter && sinceDate) {
         const created = DateTime.fromISO(item.timestamp).toUTC();
         if (created <= sinceDate) {

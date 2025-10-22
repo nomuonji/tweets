@@ -9,7 +9,9 @@
     "lint": "next lint",
     "sync:posts": "tsx scripts/sync.ts",
     "sync:schedules": "tsx scripts/execute-scheduled.ts",
-    "sync:refresh-tokens": "tsx scripts/refresh-tokens.ts"
+    "sync:refresh-tokens": "tsx scripts/refresh-tokens.ts",
+    "auto:sync": "tsx scripts/auto-sync.ts",
+    "auto:generate": "tsx scripts/auto-generate-drafts.ts"
   },
   "dependencies": {
     "axios": "^1.12.2",

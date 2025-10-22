@@ -149,12 +149,7 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
       />
 
       <p className="text-xs text-muted-foreground">
-        Sorting by {isLatest ? "newest posts" : "highest engagement score"}.
-      </p>
-      <p className="text-xs text-muted-foreground">
-        Score = engagement rate * (1 + log10(impressions + 1) * 0.1).
-        Engagement rate = (likes * 2 + reposts * 3 + replies + link clicks * 2) ÷
-        impressions.
+        Score = (Impressions * 0.1) + (40 * Likes) + (80 * Reposts) + (70 * Replies) + (60 * Clicks)
       </p>
 
       {hasError && (

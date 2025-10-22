@@ -335,6 +335,14 @@ export async function listDrafts(params?: {
   return snapshot.docs.map((doc) => mapWithId<DraftDoc>(doc));
 }
 
+export async function getDraftsByAccountId(accountId: string): Promise<DraftDoc[]> {
+  const snapshot = await adminDb
+    .collection("drafts")
+    .where("target_account_id", "==", accountId)
+    .get();
+  return snapshot.docs.map((doc) => mapWithId<DraftDoc>(doc));
+}
+
 export async function updatePostScores(
   posts: PostDoc[],
   options: { impressionsProxy?: number; settings: SettingsDoc["scoring"] },
