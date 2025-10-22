@@ -1,7 +1,7 @@
 ﻿import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { calculateScore } from "@/lib/scoring";
-import { AccountDoc, PostDoc, Platform } from "@/lib/types";
+import { AccountDoc, PostDoc, Platform, PostMetrics } from "@/lib/types";
 import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
@@ -52,16 +52,15 @@ function getDefaults(): { lookbackDays?: number; maxPostsCap?: number } {
   };
 }
 
-function scorePost(payload: SyncPostPayload) {
-  return calculateScore({
-    metrics: {
-      impressions: payload.metrics.impressions ?? 0,
-      likes: payload.metrics.likes ?? 0,
-      replies: payload.metrics.replies ?? 0,
-      reposts_or_rethreads: payload.metrics.reposts_or_rethreads ?? 0,
-      link_clicks: payload.metrics.link_clicks ?? 0,
-    },
-  });
+function normalizeMetrics(metrics: PostMetrics): PostMetrics {
+  return {
+    impressions: metrics.impressions ?? null,
+    likes: metrics.likes ?? 0,
+    replies: metrics.replies ?? 0,
+    reposts_or_rethreads: metrics.reposts_or_rethreads ?? 0,
+    quotes: metrics.quotes ?? 0,
+    link_clicks: metrics.link_clicks ?? null,
+  };
 }
 
 async function fetchPostsForAccount(
@@ -120,7 +119,8 @@ async function fetchPostsForAccount(
 }
 
 function toPostDocument(account: AccountDoc, payload: SyncPostPayload): PostDoc {
-  const score = scorePost(payload);
+  const normalizedMetrics = normalizeMetrics(payload.metrics);
+  const score = calculateScore({ metrics: normalizedMetrics });
   const createdAtIso = DateTime.fromISO(payload.created_at).toUTC().toISO();
 
   return {
@@ -132,7 +132,7 @@ function toPostDocument(account: AccountDoc, payload: SyncPostPayload): PostDoc 
     created_at: createdAtIso,
     media_type: payload.media_type,
     has_url: payload.has_url,
-    metrics: payload.metrics,
+    metrics: normalizedMetrics,
     score,
     raw: payload.raw,
     raw_gcs_url: payload.raw_gcs_url ?? null,
