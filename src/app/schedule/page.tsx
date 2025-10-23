@@ -122,7 +122,7 @@ export default function SchedulePage() {
           ) : (
             <div className="text-muted-foreground border border-dashed rounded-lg p-6 text-center">
               <p>No posts scheduled.</p>
-              <p className="text-xs mt-1">Drafts with status 'scheduled' will appear here.</p>
+              <p className="text-xs mt-1">Drafts with status &apos;scheduled&apos; will appear here.</p>
             </div>
           )}
         </div>

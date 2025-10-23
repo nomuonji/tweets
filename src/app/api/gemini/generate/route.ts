@@ -110,39 +110,6 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
 }
 
 // (Existing fetch functions: fetchTopPosts, fetchRecentPosts, fetchExistingDrafts - unchanged)
-async function fetchTopPosts(accountId: string, limit: number) {
-  try {
-    const snapshot = await adminDb
-      .collection("posts")
-      .where("account_id", "==", accountId)
-      .orderBy("score", "desc")
-      .limit(limit)
-      .get();
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data() as PostDoc;
-      return { ...data, id: doc.id };
-    });
-  } catch (error) {
-    const message = (error as Error).message ?? "";
-    if (!message.includes("requires an index")) {
-      throw error;
-    }
-
-    const fallbackSnapshot = await adminDb
-      .collection("posts")
-      .where("account_id", "==", accountId)
-      .get();
-
-    const posts = fallbackSnapshot.docs.map((doc) => {
-      const data = doc.data() as PostDoc;
-      return { ...data, id: doc.id };
-    });
-
-    return posts.sort((a, b) => b.score - a.score).slice(0, limit);
-  }
-}
-
 async function fetchRecentPosts(accountId: string, limit: number) {
   try {
     const snapshot = await adminDb

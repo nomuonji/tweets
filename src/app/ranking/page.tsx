@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { RankingFilters } from "@/components/ranking-filters";
-import { getTopPosts, getAccounts } from "@/lib/services/firestore.server";
-import type { RankingFilter } from "@/lib/types";
+import { getAccounts } from "@/lib/services/firestore.server";
+import type { RankingFilter, PostDoc } from "@/lib/types";
 import { RankingClient } from "./client";
 
 type RankingPageProps = {

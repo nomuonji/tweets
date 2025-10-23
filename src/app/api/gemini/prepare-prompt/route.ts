@@ -75,7 +75,7 @@ function buildPrompt(
     : "Latest posts (newest first):\n- No recent posts available.";
 
   const tipsBlock = tips.length > 0
-    ? `\nGeneral guidance and tips for writing effective posts:\n${tips.map(tip => `- ${tip.content}`).join("\n")}\n`
+    ? `\nGeneral guidance and tips for writing effective posts:\n${tips.map(tip => `- ${tip.text}`).join("\n")}\n`
     : "";
 
   const exemplaryBlock = exemplaryPosts.length > 0

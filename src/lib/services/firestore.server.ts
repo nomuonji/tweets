@@ -8,7 +8,19 @@ export async function getAccounts(): Promise<AccountDoc[]> {
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccountDoc));
 }
 
+export async function getAccount(id: string): Promise<AccountDoc | null> {
+    const doc = await adminDb.collection("accounts").doc(id).get();
+    if (!doc.exists) {
+        return null;
+    }
+    return { id: doc.id, ...doc.data() } as AccountDoc;
+}
+
 // --- Post & Ranking Functions ---
+export async function upsertPost(post: PostDoc): Promise<void> {
+    await adminDb.collection("posts").doc(post.id).set(post, { merge: true });
+}
+
 export async function getTopPosts(
   filter: RankingFilter,
   options: { sort: "top" | "latest"; limit: number; page: number },
@@ -50,7 +62,7 @@ export async function getTopPosts(
 
   const hasNext = posts.length > limit;
   if (hasNext) {
-    posts.pop(); // Remove the extra item used to check for next page
+    posts.pop();
   }
 
   return { posts, hasNext };
@@ -83,6 +95,18 @@ export async function fetchRecentPosts(accountId: string, limit: number): Promis
 }
 
 // --- Draft Functions ---
+export async function saveDraft(draft: Omit<DraftDoc, 'id'> & { id?: string }): Promise<DraftDoc> {
+    const docRef = draft.id ? adminDb.collection("drafts").doc(draft.id) : adminDb.collection("drafts").doc();
+    const finalDraft = { ...draft, id: docRef.id };
+    await docRef.set(finalDraft, { merge: true });
+    return finalDraft;
+}
+
+export async function getDraftsByAccountId(accountId: string): Promise<DraftDoc[]> {
+    const snapshot = await adminDb.collection("drafts").where("target_account_id", "==", accountId).get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DraftDoc));
+}
+
 export async function listDrafts(accountId?: string): Promise<DraftDoc[]> {
     let query = adminDb.collection("drafts").orderBy("updated_at", "desc");
     if (accountId) {

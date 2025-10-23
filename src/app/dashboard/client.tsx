@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { DateTime } from 'luxon';
 import { toTitleCase } from '@/lib/utils';
-import type { AccountDoc, Tip, PostDoc, DraftDoc } from '@/lib/types';
+import type { AccountDoc, PostDoc, DraftDoc } from '@/lib/types';
 import { AddAccountButton } from '@/components/add-account-button';
 import { SyncControls } from '@/components/sync-controls';
 import { SmartTweetGenerator } from '@/components/smart-tweet-generator';
@@ -20,7 +20,6 @@ type DashboardClientProps = {
     stats: { postCount: number; bestPost: PostDoc | null };
     recentPosts: PostDoc[];
   } | null;
-  allTips: Tip[];
   errors: {
     accountsError: boolean;
     draftsError: boolean;
@@ -34,7 +33,6 @@ export function DashboardClient({
   initialApiUsage,
   initialDrafts,
   initialAccountData,
-  allTips,
   errors,
 }: DashboardClientProps) {
   const { selectedAccount } = useAccountContext();

@@ -1,99 +1,78 @@
 import { cookies } from "next/headers";
-import { DateTime } from "luxon";
 import { DashboardClient } from "./client";
 import {
   getRapidApiUsage,
   getAccounts,
-  getAllTips,
   listDrafts,
   getAccountDashboardData,
 } from "@/lib/services/firestore.server";
-import type { AccountDoc, DraftDoc, PostDoc, Tip } from "@/lib/types";
+import type { AccountDoc, DraftDoc } from "@/lib/types";
 
 const STORAGE_KEY = "selected-account-id";
-
-export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const cookieStore = cookies();
 
-  // Fetch all data in parallel
-  const [apiUsageResult, accountsResult, allTipsResult] = await Promise.allSettled([
+  const errors = {
+    accountsError: false,
+    draftsError: false,
+    accountDataError: false,
+    quotaExceeded: false,
+  };
+
+  // Fetch global data first
+  const [apiUsageResult, accountsResult] = await Promise.allSettled([
     getRapidApiUsage(),
     getAccounts(),
-    getAllTips(),
   ]);
 
-  const apiUsage = apiUsageResult.status === 'fulfilled' ? apiUsageResult.value : { month: "", count: 0 };
-  const accounts = accountsResult.status === 'fulfilled' ? accountsResult.value : [];
-  const allTips = allTipsResult.status === 'fulfilled' ? allTipsResult.value : [];
-  const accountsError = accountsResult.status === 'rejected';
+  const apiUsage = apiUsageResult.status === "fulfilled" ? apiUsageResult.value : { month: "", count: 0 };
+  
+  const accounts: AccountDoc[] = accountsResult.status === "fulfilled" ? accountsResult.value : [];
+  if (accountsResult.status === "rejected") {
+    console.error("Failed to fetch accounts", accountsResult.reason);
+    errors.accountsError = true;
+  }
 
+  // Determine the initially selected account
   const storedAccountId = cookieStore.get(STORAGE_KEY)?.value ?? null;
-  const selectedAccount =
-    accounts.find((account) => account.id === storedAccountId) ??
-    accounts[0] ??
-    null;
+  const selectedAccount = accounts.find(acc => acc.id === storedAccountId) ?? accounts[0] ?? null;
 
-  let drafts: Awaited<ReturnType<typeof listDrafts>> = [];
-  let draftsError = false;
-  let accountData: Awaited<ReturnType<typeof getAccountDashboardData>> | null = null;
-  let quotaExceeded = false;
-  let accountDataError = false;
+  // Fetch data specific to the selected account
+  let initialDrafts: DraftDoc[] = [];
+  let initialAccountData = null;
 
   if (selectedAccount) {
-    try {
-      // These depend on selectedAccount, so fetch them sequentially
-      const [draftsResult, accountDataResult] = await Promise.allSettled([
-        listDrafts({ accountId: selectedAccount.id, limit: 20 }),
-        getAccountDashboardData(selectedAccount.id, { recentLimit: 5 }),
-      ]);
+    const [draftsResult, accountDataResult] = await Promise.allSettled([
+      listDrafts(selectedAccount.id),
+      getAccountDashboardData(selectedAccount.id),
+    ]);
 
-      if (draftsResult.status === 'fulfilled') {
-        drafts = draftsResult.value;
-      } else {
-        draftsError = true;
-        console.error("[Dashboard] Failed to load drafts", draftsResult.reason);
-      }
+    if (draftsResult.status === "fulfilled") {
+      initialDrafts = draftsResult.value;
+    } else {
+      console.error("Failed to fetch initial drafts", draftsResult.reason);
+      errors.draftsError = true;
+    }
 
-      if (accountDataResult.status === 'fulfilled') {
-        accountData = accountDataResult.value;
-      } else {
-        accountDataError = true;
-        const error = accountDataResult.reason;
-        const code = (error as { code?: string }).code;
-        const message = (error as Error).message ?? "";
-        const isQuota =
-          code === "firestore/quota-exceeded" ||
-          (typeof code === "string" && code.toLowerCase().includes("resource")) ||
-          message.includes("quota");
-        if (isQuota) {
-          quotaExceeded = true;
-        } else {
-          console.error("[Dashboard] Failed to load account data", error);
-        }
+    if (accountDataResult.status === "fulfilled") {
+      initialAccountData = accountDataResult.value;
+    } else {
+      console.error("Failed to fetch initial account data", accountDataResult.reason);
+      errors.accountDataError = true;
+      if ((accountDataResult.reason as { code?: string }).code === "resource-exhausted") {
+        errors.quotaExceeded = true;
       }
-    } catch (error) {
-        // Catch any unexpected error from the sequential fetches
-        accountDataError = true;
-        console.error("[Dashboard] Unexpected error fetching account details", error);
     }
   }
 
   return (
     <DashboardClient
       initialAccounts={accounts}
-      initialSelectedAccountId={selectedAccount?.id ?? null}
       initialApiUsage={apiUsage}
-      initialDrafts={drafts}
-      initialAccountData={accountData}
-      allTips={allTips}
-      errors={{
-        accountsError,
-        draftsError,
-        accountDataError,
-        quotaExceeded,
-      }}
+      initialDrafts={initialDrafts}
+      initialAccountData={initialAccountData}
+      errors={errors}
     />
   );
 }

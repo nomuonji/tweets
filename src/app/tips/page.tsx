@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, FormEvent } from 'react';
-import { Tip, AccountDoc, Platform } from '@/lib/types';
+import { Tip, AccountDoc } from '@/lib/types';
 
 export default function TipsPage() {
   const [tips, setTips] = useState<Tip[]>([]);
