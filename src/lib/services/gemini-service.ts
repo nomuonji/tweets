@@ -140,16 +140,28 @@ function buildPrompt(referencePosts: Tip[], recentPosts: PostDoc[], drafts: Draf
   const exemplaryBlock = exemplaryPosts.length > 0 ? `\nStudy these exemplary posts for style and tone:\n${exemplaryPosts.map(p => `Post: ${p.text}\nReasoning: ${p.explanation}`).join("\n\n")}\n` : "";
   const avoidList = Array.from(new Set([...drafts.map((draft) => draft.text), ...extraAvoid].filter(Boolean).map((text) => text.trim()))).slice(0, 20).map((text) => `- ${text.replace(/\s+/g, " ").slice(0, 120)}`);
   const avoidBlock = avoidList.length > 0 ? `\nAvoid repeating these existing drafts or suggesting something semantically identical:\n${avoidList.join("\n")}\n` : "";
-  return `
-You are an experienced social media strategist for short form posts on X (Twitter).
+  const targetLength = Math.floor(Math.random() * (260 - 80 + 1)) + 80;
 
-Your main goal is to create a completely new and original post. You will be given reference posts, past posts, and general tips.
-Your task is to synthesize insights from all the provided data, but you must avoid creating a post that is similar in content or structure to any of the examples provided. Be creative and generate a fresh perspective.
+  return `
+You are a persona analyst and a creative social media strategist for X (Twitter), skilled at emulating a realistic human voice.
+
+Your first task is to analyze the provided past posts to build a detailed persona of the speaker. Understand their tone, interests, and style.
+
+Your second task is to identify recurring themes, topics, and specific keywords that are frequently used in the past posts. Make a mental list of these patterns to actively avoid.
+
+Your third task is to generate a completely new post that the persona would plausibly say next, while **deliberately avoiding the overused themes and keywords you identified**. The goal is to break the pattern and show a new side of the persona. The post should feel fresh and unpredictable, yet still authentic.
+
+To create this human-like realism, you should:
+1.  **Embrace Variety:** The new post can be a fresh take on their usual themes, OR it can be something completely different—a random thought, a simple observation, or a reaction to an unseen daily event.
+2.  **Simulate Spontaneity:** Occasionally, generate a more casual, "content-less" tweet. Not every post needs to be a masterpiece of insight.
+3.  **Think "What's Next?":** Based on the persona, imagine what they are thinking or doing *right now*, and generate a natural, spontaneous post from that mindset.
+
+The goal is a tweet that feels authentic and continues to build a multifaceted, believable character.
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
-- "tweet": the new post text (<= 260 characters, no surrounding quotes).
-- "explanation": concise reasoning in Japanese (<= 200 characters) explaining why this new post is effective and original.
+- "tweet": the new post text (target length: around ${targetLength} characters, max 260, no surrounding quotes).
+- "explanation": concise reasoning in Japanese (<= 200 characters) explaining how this post fits the persona while avoiding past patterns (e.g., "ペルソナに沿いつつ、頻出する〇〇の話題を避け、新たな一面を見せることで人間味を演出").
 - Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
 - Do not add any additional fields, markdown, or commentary.
 - Do not copy the reference posts.
