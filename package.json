@@ -14,10 +14,10 @@
     "auto:generate": "tsx scripts/auto-generate-drafts.ts"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^141.0.0",
     "@types/cheerio": "^0.22.35",
     "axios": "^1.12.2",
     "cheerio": "^1.1.2",
-    "chrome-aws-lambda": "^10.1.0",
     "cosine-similarity": "^1.0.1",
     "firebase": "^12.4.0",
     "firebase-admin": "^13.5.0",

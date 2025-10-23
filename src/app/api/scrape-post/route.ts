@@ -1,21 +1,13 @@
 import { NextResponse } from 'next/server';
 import puppeteer from 'puppeteer-core';
-import chromium from 'chrome-aws-lambda';
+import chromium from '@sparticuz/chromium';
 
 async function getBrowser() {
-  if (process.env.NODE_ENV === 'development') {
-    // 開発環境ではローカルのChromeを使用
-    return puppeteer.launch({
-      executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', // ご自身のChromeのパスに適宜変更してください
-      headless: true,
-    });
-  }
   // Vercelなどの本番環境
-  return chromium.puppeteer.launch({
+  return puppeteer.launch({
     args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
-    executablePath: await chromium.executablePath,
-    headless: chromium.headless,
+    executablePath: await chromium.executablePath(),
+    headless: true,
   });
 }
 
@@ -43,14 +35,12 @@ export async function POST(request: Request) {
       platform = 'x';
       author_handle = url.split('/')[3] || 'unknown';
       
-      // tweetTextのセレクタを待つ
       await page.waitForSelector('[data-testid="tweetText"]', { timeout: 5000 });
       text = await page.$eval('[data-testid="tweetText"]', (el) => el.textContent?.trim() || '');
 
     } else if (url.includes('threads.net')) {
       platform = 'threads';
       author_handle = url.split('/')[2]?.substring(1) || 'unknown';
-      // Threadsのセレクタ (要検証)
       await page.waitForSelector('p', { timeout: 5000 });
       text = await page.$eval('p', (el) => el.textContent?.trim() || '');
     } else {
