@@ -14,13 +14,17 @@
     "auto:generate": "tsx scripts/auto-generate-drafts.ts"
   },
   "dependencies": {
+    "@types/cheerio": "^0.22.35",
     "axios": "^1.12.2",
+    "cheerio": "^1.1.2",
+    "chrome-aws-lambda": "^10.1.0",
     "cosine-similarity": "^1.0.1",
     "firebase": "^12.4.0",
     "firebase-admin": "^13.5.0",
     "luxon": "^3.7.2",
     "next": "14.2.33",
     "openai": "^6.5.0",
+    "puppeteer-core": "^24.26.1",
     "react": "^18",
     "react-dom": "^18",
     "twitter-api-v2": "^1.27.0",

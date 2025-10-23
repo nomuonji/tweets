@@ -239,6 +239,23 @@ async function fetchExemplaryPosts(accountId: string): Promise<ExemplaryPost[]> 
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ExemplaryPost[];
 }
 
+async function fetchReferencePosts(accountId: string, limit: number): Promise<Tip[]> {
+    const snapshot = await adminDb
+      .collection("tips")
+      .where("account_ids", "array-contains", accountId)
+      .get();
+
+    const tips = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Tip[];
+
+    // Fisher-Yates shuffle
+    for (let i = tips.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [tips[i], tips[j]] = [tips[j], tips[i]];
+    }
+
+    return tips.slice(0, limit);
+}
+
 
 function formatPostSummary(posts: PostDoc[]) {
   return posts.map((post, index) => {
@@ -252,18 +269,27 @@ function formatPostSummary(posts: PostDoc[]) {
   });
 }
 
+function formatReferencePosts(posts: Tip[]) {
+  return posts.map((post, index) => {
+    return [
+      `${index + 1}. @${post.author_handle} on ${post.platform}`,
+      `   Text: ${post.text}`,
+    ].join("\n");
+  });
+}
+
 // Updated buildPrompt function
 function buildPrompt(
-  topPosts: PostDoc[],
+  referencePosts: Tip[],
   recentPosts: PostDoc[],
   drafts: DraftDoc[],
   extraAvoid: string[],
   tips: Tip[],
   exemplaryPosts: ExemplaryPost[]
 ) {
-  const topSummary = topPosts.length
-    ? `Top performing posts ranked by engagement:\n${formatPostSummary(topPosts).join("\n")}`
-    : "Top performing posts ranked by engagement:\n- No historical high performers available.";
+  const referenceSummary = referencePosts.length
+    ? `Here are some reference posts for inspiration. Do not copy them, but learn from their style and topics:\n${formatReferencePosts(referencePosts).join("\n")}`
+    : "No reference posts provided.";
 
   const recentSummary = recentPosts.length
     ? `Latest posts (newest first):\n${formatPostSummary(recentPosts).join("\n")}`
@@ -297,26 +323,22 @@ function buildPrompt(
   return `
 You are an experienced social media strategist for short form posts on X (Twitter).
 
-You will receive several datasets to inform your writing. Use all of them to create the best possible post.
-1. General Tips: These are universal principles for creating engaging content. Internalize them.
-2. Exemplary Posts: These are specific examples of the desired style and tone for this account. Emulate them.
-3. High-Performing Posts: These are past successes. Analyze them to understand what works for this audience.
-4. Recent Posts: This is what has been posted lately. Do not repeat these topics.
-
-Your task is to write a brand new post idea that is consistent with the brand voice and exemplary posts, incorporates the general tips, learns from the high-performing posts, and introduces a fresh angle not seen in the recent posts.
+Your main goal is to create a completely new and original post. You will be given reference posts, past posts, and general tips.
+Your task is to synthesize insights from all the provided data, but you must avoid creating a post that is similar in content or structure to any of the examples provided. Be creative and generate a fresh perspective.
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
 - "tweet": the new post text (<= 260 characters, no surrounding quotes).
-- "explanation": concise reasoning in Japanese (<= 200 characters) referencing observed metrics, stylistic cues, or tips.
+- "explanation": concise reasoning in Japanese (<= 200 characters) explaining why this new post is effective and original.
 - Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
 - Do not add any additional fields, markdown, or commentary.
-- Avoid repeating existing draft texts or their close variations.
+- Do not copy the reference posts.
+- Do not repeat topics from recent posts.
 
 Here is your data:
 ${tipsBlock}
 ${exemplaryBlock}
-${topSummary}
+${referenceSummary}
 
 ${recentSummary}
 ${avoidBlock}
@@ -324,30 +346,6 @@ Respond only with JSON.`;
 }
 
 // (dedupePostSets and requestGemini functions are unchanged)
-function dedupePostSets(topPosts: PostDoc[], recentPosts: PostDoc[]) {
-  const seen = new Set<string>();
-
-  const uniqueTop = topPosts.filter((post) => {
-    const key = post.id ?? `${post.platform}_${post.platform_post_id}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-
-  const uniqueRecent = recentPosts.filter((post) => {
-    const key = post.id ?? `${post.platform}_${post.platform_post_id}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-
-  return { uniqueTop, uniqueRecent };
-}
-
 async function requestGemini(prompt: string, apiKey: string) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(
@@ -413,25 +411,20 @@ export async function POST(request: Request) {
     const normalizedLimit = Math.min(Math.max(limit, 6), 40);
     const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
 
-    const [rawTopPosts, rawRecentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
-        fetchTopPosts(accountId, perCategoryLimit),
+    const [referencePosts, recentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
+        fetchReferencePosts(accountId, 3),
         fetchRecentPosts(accountId, perCategoryLimit),
         fetchExistingDrafts(accountId, 50),
         fetchSelectedTips(account.selectedTipIds || []),
         fetchExemplaryPosts(accountId),
     ]);
 
-    const { uniqueTop, uniqueRecent } = dedupePostSets(rawTopPosts, rawRecentPosts);
-
-    if (uniqueTop.length === 0 && uniqueRecent.length === 0) {
+    if (recentPosts.length === 0) {
       return NextResponse.json(
         { ok: false, message: "No posts found for this account yet. Run a sync first." },
         { status: 400 },
       );
     }
-
-    const referenceTop = uniqueTop.slice(0, perCategoryLimit);
-    const referenceRecent = uniqueRecent.slice(0, perCategoryLimit);
 
     const normalizedDrafts = new Set(
       drafts.map((draft) => normalizeText(draft.text ?? "")),
@@ -444,7 +437,7 @@ export async function POST(request: Request) {
     let finalPrompt = ""; // Variable to hold the prompt
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(referenceTop, referenceRecent, drafts, extraAvoid, tips, exemplaryPosts);
+      const prompt = buildPrompt(referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts);
       finalPrompt = prompt; // Capture the prompt
       const raw = await requestGemini(prompt, geminiApiKey);
       suggestion = parseSuggestion(raw);

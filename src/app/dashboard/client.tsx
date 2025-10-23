@@ -9,7 +9,6 @@ import { AddAccountButton } from '@/components/add-account-button';
 import { SyncControls } from '@/components/sync-controls';
 import { SmartTweetGenerator } from '@/components/smart-tweet-generator';
 import { ExemplaryPostManager } from '@/components/exemplary-post-manager';
-import { AccountTipsControl } from '@/components/account-tips-control';
 import { AccountSettingsControl } from '@/components/account-settings-control';
 
 type DashboardClientProps = {
@@ -21,7 +20,6 @@ type DashboardClientProps = {
     stats: { postCount: number; bestPost: PostDoc | null };
     recentPosts: PostDoc[];
   } | null;
-  allTips: Tip[];
   errors: {
     accountsError: boolean;
     draftsError: boolean;
@@ -36,7 +34,6 @@ export function DashboardClient({
   initialApiUsage,
   initialDrafts,
   initialAccountData,
-  allTips,
   errors,
 }: DashboardClientProps) {
   const [accounts, setAccounts] = useState(initialAccounts);
@@ -44,14 +41,6 @@ export function DashboardClient({
   const [editingDraft, setEditingDraft] = useState<DraftDoc | null>(null);
   const [editedText, setEditedText] = useState('');
   const selectedAccount = accounts.find(acc => acc.id === initialSelectedAccountId) || accounts[0] || null;
-
-  const handleTipsUpdate = (accountId: string, updatedTipIds: string[]) => {
-    setAccounts(prev =>
-      prev.map(acc =>
-        acc.id === accountId ? { ...acc, selectedTipIds: updatedTipIds } : acc
-      )
-    );
-  };
 
   const handleAccountUpdate = (accountId: string, updatedData: Partial<AccountDoc>) => {
     setAccounts(prev =>
@@ -344,11 +333,7 @@ export function DashboardClient({
   
 
               <div className="grid gap-6 md:grid-cols-2">
-
-                {selectedAccount && <AccountTipsControl account={selectedAccount} allTips={allTips} onTipsUpdate={handleTipsUpdate} />}
-
                 <ExemplaryPostManager selectedAccountId={selectedAccount?.id ?? null} />
-
               </div>
 
   

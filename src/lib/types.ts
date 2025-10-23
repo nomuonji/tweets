@@ -5,7 +5,11 @@ export type DraftStatus = "draft" | "scheduled" | "published";
 export interface Tip {
   id: string;
   title: string;
-  content: string;
+  text: string;
+  platform: Platform;
+  url: string;
+  author_handle: string;
+  account_ids?: string[];
   created_at: string;
   updated_at: string;
 }
