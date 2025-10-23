@@ -1,62 +1,88 @@
 import { NextResponse } from "next/server";
-import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import { getSettings } from "@/lib/services/firestore.server";
-import { slotToIso } from "@/lib/services/slot-service";
+import { DraftDoc, PostDoc, AccountDoc } from "@/lib/types";
+import { DateTime } from "luxon";
 
-export async function POST(request: Request) {
+export async function GET() {
   try {
-    const body = await request.json();
-    const draftId = body.draftId as string;
-    const slotKey = body.slotKey as string;
-    const platform = body.platform as "x" | "threads";
-    const accountId = body.accountId as string | undefined;
-
-    if (!draftId || !slotKey || !platform) {
-      return NextResponse.json(
-        { ok: false, message: "draftId, slotKey, and platform are required" },
-        { status: 400 },
-      );
+    const twentyFourHoursAgo = DateTime.now().minus({ hours: 24 }).toISO();
+    if (!twentyFourHoursAgo) {
+      throw new Error("Could not calculate the time 24 hours ago.");
     }
 
-    const settings = await getSettings();
-    if (!settings) {
-      return NextResponse.json(
-        { ok: false, message: "Settings not found" },
-        { status: 400 },
-      );
+    const [draftsSnap, postsSnap, accountsSnap] = await Promise.all([
+      adminDb
+        .collection("drafts")
+        .where('status', '==', 'scheduled')
+        .orderBy("created_at", "asc")
+        .get(),
+      adminDb
+        .collection("posts")
+        .where("created_at", ">=", twentyFourHoursAgo)
+        .orderBy("created_at", "desc")
+        .get(),
+      adminDb.collection("accounts").get(),
+    ]);
+
+    const allDrafts = draftsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as DraftDoc[];
+    const recentPosts = postsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as PostDoc[];
+    const accounts = accountsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AccountDoc[];
+
+    const projectedSchedule: DraftDoc[] = [];
+    const now = DateTime.local();
+
+    const draftsByAccount = allDrafts.reduce((acc, draft) => {
+      const accountId = draft.target_account_id;
+      if (accountId) {
+        if (!acc[accountId]) {
+          acc[accountId] = [];
+        }
+        acc[accountId].push(draft);
+      }
+      return acc;
+    }, {} as Record<string, DraftDoc[]>);
+
+    for (const account of accounts) {
+      const accountDrafts = draftsByAccount[account.id];
+      if (!accountDrafts || accountDrafts.length === 0 || !account.postSchedule || account.postSchedule.length === 0) {
+        continue;
+      }
+
+      let draftIndex = 0;
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        for (const slot of account.postSchedule) {
+          const [hour, minute] = slot.split(':').map(Number);
+          const slotTime = now.plus({ days: dayOffset }).set({ hour, minute, second: 0, millisecond: 0 });
+
+          if (slotTime > now) {
+            if (draftIndex < accountDrafts.length) {
+              const draftToSchedule = accountDrafts[draftIndex];
+              projectedSchedule.push({
+                ...draftToSchedule,
+                schedule_time: slotTime.toISO(),
+              });
+              draftIndex++;
+            } else {
+              break;
+            }
+          }
+        }
+        if (draftIndex >= accountDrafts.length) {
+          break;
+        }
+      }
     }
 
-    const timezone = settings.timezone ?? process.env.TIMEZONE ?? "Asia/Tokyo";
-    const scheduleTime = slotToIso(slotKey, timezone);
+    projectedSchedule.sort((a, b) => {
+        const timeA = a.schedule_time ? DateTime.fromISO(a.schedule_time).toMillis() : 0;
+        const timeB = b.schedule_time ? DateTime.fromISO(b.schedule_time).toMillis() : 0;
+        return timeA - timeB;
+    });
 
-    const collisionSnapshot = await adminDb
-      .collection("drafts")
-      .where("target_platform", "==", platform)
-      .where("status", "==", "scheduled")
-      .where("schedule_time", "==", scheduleTime)
-      .get();
+    return NextResponse.json({ ok: true, scheduledDrafts: projectedSchedule, recentPosts, accounts });
 
-    if (!collisionSnapshot.empty) {
-      return NextResponse.json(
-        { ok: false, message: "Slot already reserved" },
-        { status: 409 },
-      );
-    }
-
-    await adminDb.collection("drafts").doc(draftId).set(
-      {
-        target_platform: platform,
-        target_account_id: accountId,
-        status: "scheduled",
-        schedule_time: scheduleTime,
-        updated_at: DateTime.utc().toISO(),
-      },
-      { merge: true },
-    );
-
-    return NextResponse.json({ ok: true, schedule_time: scheduleTime });
   } catch (error) {
+    console.error("Failed to fetch schedule data:", error);
     return NextResponse.json(
       { ok: false, message: (error as Error).message },
       { status: 500 },

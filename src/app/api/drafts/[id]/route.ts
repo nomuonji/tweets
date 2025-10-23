@@ -18,7 +18,7 @@ export async function PUT(
     const body = await request.json();
     const { text, status } = body;
 
-    const updateData: { [key: string]: string | null } = {
+    const updateData: { [key: string]: any } = {
       updated_at: DateTime.utc().toISO(),
     };
 
@@ -73,6 +73,30 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       .set(updates, { merge: true });
 
     return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, message: (error as Error).message },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const id = params.id;
+    if (!id) {
+      return NextResponse.json(
+        { ok: false, message: "ID is required" },
+        { status: 400 },
+      );
+    }
+
+    await adminDb.collection("drafts").doc(id).delete();
+
+    return NextResponse.json({ ok: true, message: "Draft deleted successfully" });
   } catch (error) {
     return NextResponse.json(
       { ok: false, message: (error as Error).message },

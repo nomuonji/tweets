@@ -89,102 +89,159 @@ function buildPageLink(filter: ParsedRankingFilter, page: number) {
 }
 
 export default async function RankingPage({ searchParams }: RankingPageProps) {
+
   const cookieStore = cookies();
+
   const storedAccountId = cookieStore.get(STORAGE_KEY)?.value;
+
+
 
   const initialFilter = parseParams(searchParams);
 
+
+
   const accountId = initialFilter.accountId ?? storedAccountId ?? "all";
 
+
+
   const filter: ParsedRankingFilter = {
+
     ...initialFilter,
+
     accountId,
+
   };
 
-  const [accounts, page] = await Promise.all([
-    getAccounts(),
-    Promise.resolve(parsePage(searchParams)),
-  ]);
 
-  let rankingResult: Awaited<ReturnType<typeof getTopPosts>> = {
-    posts: [],
-    hasNext: false,
-  };
-  let hasError = false;
-  try {
-    rankingResult = await getTopPosts(filter, {
-      sort: filter.sort,
-      limit: 50,
-      page,
-    });
-  } catch (error) {
-    hasError = true;
-    console.error("[Ranking] Failed to load posts", error);
-  }
 
-  const { posts, hasNext } = rankingResult;
+  const accounts = await getAccounts();
+
+  const page = parsePage(searchParams);
+
+
+
+  // Data fetching is now handled by the client component
+
+  const posts: PostDoc[] = []; 
+
+
+
+  const hasNext = false; // Pagination logic might need adjustment or be handled client-side
+
   const hasPrevious = page > 1;
 
+
+
   return (
+
     <div className="space-y-8">
+
       <div>
+
         <h1 className="text-2xl font-semibold">Ranking</h1>
+
         <p className="text-sm text-muted-foreground">
+
           Filter top performing posts by platform, media type, lookback period, and
+
           sort order.
+
         </p>
+
       </div>
+
+
 
       <RankingFilters
+
         platform={filter.platform}
+
         media={filter.media_type}
+
         period={String(filter.period_days)}
+
         sort={filter.sort}
+
         accountId={filter.accountId ?? "all"}
+
         accounts={accounts}
+
       />
 
+
+
       <p className="text-xs text-muted-foreground">
+
         Score = (Impressions * 0.1) + (40 * Likes) + (80 * Reposts) + (70 * Replies) + (60 * Clicks)
+
       </p>
 
-      {hasError && (
-        <p className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-          Failed to load ranking data. Confirm Firebase credentials.
-        </p>
-      )}
 
-      <RankingClient initialPosts={posts} />
+
+      <RankingClient initialPosts={posts} filters={filter} />
+
+
 
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+
         <span className="text-xs text-muted-foreground">Page {page}</span>
+
         <div className="flex gap-2">
+
           {hasPrevious ? (
+
             <Link
+
               href={buildPageLink(filter, page - 1)}
+
               className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-primary"
+
             >
+
               Previous
+
             </Link>
+
           ) : (
+
             <span className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-60">
+
               Previous
+
             </span>
+
           )}
+
           {hasNext ? (
+
             <Link
+
               href={buildPageLink(filter, page + 1)}
+
               className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-primary"
+
             >
+
               Next
+
             </Link>
+
           ) : (
+
             <span className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-60">
+
               Next
+
             </span>
+
           )}
+
         </div>
+
       </div>
+
     </div>
+
   );
+
 }

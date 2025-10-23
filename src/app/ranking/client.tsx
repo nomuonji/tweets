@@ -1,32 +1,59 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import type { PostDoc } from '@/lib/types';
+import type { PostDoc, RankingFilter } from '@/lib/types';
 import { toTitleCase } from '@/lib/utils';
+import { useAccountContext } from '@/components/account/account-provider';
 
 interface RankingClientProps {
   initialPosts: PostDoc[];
+  filters: Omit<RankingFilter, 'accountId'> & { sort: 'top' | 'latest' };
 }
 
-export function RankingClient({ initialPosts }: RankingClientProps) {
+export function RankingClient({ initialPosts, filters }: RankingClientProps) {
+  const { selectedAccount } = useAccountContext();
   const [posts, setPosts] = useState(initialPosts);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedAccount) return;
+
+    const fetchRankingData = async () => {
+      setIsLoading(true);
+      const params = new URLSearchParams({
+        platform: filters.platform,
+        media: filters.media_type,
+        period: String(filters.period_days),
+        sort: filters.sort,
+        accountId: selectedAccount.id,
+      });
+
+      try {
+        const response = await fetch(`/api/ranking-data?${params.toString()}`);
+        const data = await response.json();
+        if (data.ok) {
+          setPosts(data.posts);
+        }
+      } catch (error) {
+        console.error('Failed to fetch ranking data', error);
+      }
+      setIsLoading(false);
+    };
+
+    fetchRankingData();
+  }, [selectedAccount, filters]);
 
   const handleDelete = async (postId: string) => {
     if (!confirm('Are you sure you want to delete this post from the database?')) {
       return;
     }
-
     try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'DELETE',
-      });
-
+      const response = await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to delete post');
       }
-
       setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
     } catch (error) {
       console.error('Error deleting post:', error);
@@ -35,7 +62,7 @@ export function RankingClient({ initialPosts }: RankingClientProps) {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
+    <div className={`overflow-hidden rounded-xl border border-border bg-surface transition-opacity ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
       <table className="min-w-full divide-y divide-border">
         <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
