@@ -64,7 +64,8 @@ function buildPrompt(
   recentPosts: PostDoc[],
   drafts: DraftDoc[],
   tips: Tip[],
-  exemplaryPosts: ExemplaryPost[]
+  exemplaryPosts: ExemplaryPost[],
+  targetLength: number,
 ) {
   const topSummary = topPosts.length
     ? `Top performing posts ranked by engagement:\n${formatPostSummary(topPosts).join("\n")}`
@@ -102,13 +103,12 @@ function buildPrompt(
   return `
 You are an experienced social media strategist for short form posts on X (Twitter).
 
-You will receive several datasets to inform your writing. Use all of them to create the best possible post.
-1. General Tips: These are universal principles for creating engaging content. Internalize them.
-2. Exemplary Posts: These are specific examples of the desired style and tone for this account. Emulate them.
-3. High-Performing Posts: These are past successes. Analyze them to understand what works for this audience.
-4. Recent Posts: This is what has been posted lately. Do not repeat these topics.
+Your task is to write a brand new post. Analyze the provided data (tips, exemplary posts, high-performing posts, recent posts) to understand the account's tone and what resonates with the audience. However, do not simply imitate them. Your goal is to create a completely new and original post in your own words.
 
-Your task is to write a brand new post idea that is consistent with the brand voice and exemplary posts, incorporates the general tips, learns from the high-performing posts, and introduces a fresh angle not seen in the recent posts.
+Key instructions:
+- Target length: Your post should be approximately ${targetLength} characters long.
+- Quality variation: Not every post needs to be a masterpiece. Sometimes a simple, low-effort tweet can feel more authentic and relatable. Strive for a natural mix of post qualities.
+- Originality: The provided posts are for reference only. Do not copy their content or structure. Create a unique post.
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
@@ -153,7 +153,8 @@ export async function POST(request: Request) {
     const referenceRecent = uniqueRecent.slice(0, perCategoryLimit);
 
     // Note: In prepare-prompt, we don't have `extraAvoid`, so the prompt might be slightly different from the final one if duplicates are found.
-    const prompt = buildPrompt(referenceTop, referenceRecent, drafts, tips, exemplaryPosts);
+    const targetLength = Math.floor(Math.random() * (260 - 40 + 1)) + 40;
+    const prompt = buildPrompt(referenceTop, referenceRecent, drafts, tips, exemplaryPosts, targetLength);
 
     return NextResponse.json({ ok: true, prompt });
 
