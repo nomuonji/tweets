@@ -20,18 +20,18 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { title, text, platform, url, author_handle, account_ids } = body;
+    const { text, platform, url, author_handle, account_ids } = body;
 
-    if (!text || !title) {
+    if (!text) {
       return NextResponse.json(
-        { ok: false, message: "title and text are required." },
+        { ok: false, message: "text is required." },
         { status: 400 },
       );
     }
 
     const newTipRef = adminDb.collection("tips").doc();
     const newTip: Omit<Tip, "id"> = {
-      title,
+      title: text.substring(0, 40),
       text,
       platform: platform || '',
       url: url || '',

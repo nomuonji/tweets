@@ -84,7 +84,6 @@ export default function TipsPage() {
 
   const handleManualAdd = () => {
     setCurrentTip({
-      title: '',
       text: '',
       account_ids: [],
     });
@@ -165,17 +164,6 @@ export default function TipsPage() {
               <p className="mt-1 text-sm text-gray-900">{currentTip.url}</p>
             </div>
           )}
-          <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700">Title</label>
-            <input
-              type="text"
-              id="title"
-              value={currentTip.title || ''}
-              onChange={(e) => setCurrentTip({ ...currentTip, title: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              required
-            />
-          </div>
           <div>
             <label htmlFor="text" className="block text-sm font-medium text-gray-700">Tip Text</label>
             <textarea
