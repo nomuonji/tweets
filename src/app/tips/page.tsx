@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, FormEvent } from 'react';
-import { Tip, AccountDoc } from '@/lib/types';
+import { Tip, AccountDoc, Platform } from '@/lib/types';
 
 export default function TipsPage() {
   const [tips, setTips] = useState<Tip[]>([]);
@@ -82,6 +82,15 @@ export default function TipsPage() {
     }
   };
 
+  const handleManualAdd = () => {
+    setCurrentTip({
+      title: '',
+      text: '',
+      account_ids: [],
+    });
+    setIsEditing(true);
+  };
+
   const handleEdit = (tip: Tip) => {
     setCurrentTip(tip);
     setIsEditing(true);
@@ -150,12 +159,25 @@ export default function TipsPage() {
       <div className="p-4">
         <h1 className="text-2xl font-bold mb-4">{currentTip.id ? 'Edit Reference Post' : 'Add New Reference Post'}</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {currentTip.url && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Post URL</label>
+              <p className="mt-1 text-sm text-gray-900">{currentTip.url}</p>
+            </div>
+          )}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Post URL</label>
-            <p className="mt-1 text-sm text-gray-900">{currentTip.url}</p>
+            <label htmlFor="title" className="block text-sm font-medium text-gray-700">Title</label>
+            <input
+              type="text"
+              id="title"
+              value={currentTip.title || ''}
+              onChange={(e) => setCurrentTip({ ...currentTip, title: e.target.value })}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              required
+            />
           </div>
           <div>
-            <label htmlFor="text" className="block text-sm font-medium text-gray-700">Post Text</label>
+            <label htmlFor="text" className="block text-sm font-medium text-gray-700">Tip Text</label>
             <textarea
               id="text"
               rows={6}
@@ -164,6 +186,33 @@ export default function TipsPage() {
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               required
             />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="author_handle" className="block text-sm font-medium text-gray-700">Author Handle</label>
+              <input
+                type="text"
+                id="author_handle"
+                value={currentTip.author_handle || ''}
+                onChange={(e) => setCurrentTip({ ...currentTip, author_handle: e.target.value })}
+                disabled={!!currentTip.url}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
+              />
+            </div>
+            <div>
+              <label htmlFor="platform" className="block text-sm font-medium text-gray-700">Platform</label>
+              <select
+                id="platform"
+                value={currentTip.platform || ''}
+                onChange={(e) => setCurrentTip({ ...currentTip, platform: e.target.value as Platform })}
+                disabled={!!currentTip.url}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
+              >
+                <option value="">Select Platform</option>
+                <option value="x">X</option>
+                <option value="threads">Threads</option>
+              </select>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Associate with Accounts</label>
@@ -215,6 +264,14 @@ export default function TipsPage() {
             className="inline-flex items-center rounded-r-md border border-l-0 border-gray-300 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
           >
             {isFetchingPost ? 'Fetching...' : 'Fetch & Add'}
+          </button>
+        </div>
+        <div className="mt-4">
+          <button
+            onClick={handleManualAdd}
+            className="inline-flex items-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+          >
+            Add Tip Manually
           </button>
         </div>
       </div>
