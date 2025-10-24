@@ -20,22 +20,22 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { text, platform, url, author_handle, account_ids } = body;
+    const { title, text, platform, url, author_handle, account_ids } = body;
 
-    if (!text || !platform || !url || !author_handle) {
+    if (!text || !title) {
       return NextResponse.json(
-        { ok: false, message: "text, platform, url and author_handle are required." },
+        { ok: false, message: "title and text are required." },
         { status: 400 },
       );
     }
 
     const newTipRef = adminDb.collection("tips").doc();
     const newTip: Omit<Tip, "id"> = {
-      title: text.substring(0, 40),
+      title,
       text,
-      platform,
-      url,
-      author_handle,
+      platform: platform || '',
+      url: url || '',
+      author_handle: author_handle || '',
       account_ids: account_ids || [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

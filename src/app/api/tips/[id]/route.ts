@@ -6,11 +6,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   try {
     const { id } = params;
     const body = await request.json();
-    const { title, content } = body;
+    const { title, text, platform, url, author_handle, account_ids } = body;
 
-    if (!title || !content) {
+    if (!title || !text) {
       return NextResponse.json(
-        { ok: false, message: "Title and content are required." },
+        { ok: false, message: "Title and text are required." },
         { status: 400 },
       );
     }
@@ -24,7 +24,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
     const updatedData = {
       title,
-      content,
+      text,
+      platform: platform || '',
+      url: url || '',
+      author_handle: author_handle || '',
+      account_ids: account_ids || [],
       updated_at: new Date().toISOString(),
     };
 
