@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, FormEvent } from 'react';
-import { Tip, AccountDoc } from '@/lib/types';
+import { Tip, AccountDoc, Platform } from '@/lib/types';
 
 export default function TipsPage() {
   const [tips, setTips] = useState<Tip[]>([]);
@@ -204,7 +204,7 @@ export default function TipsPage() {
               <select
                 id="platform"
                 value={currentTip.platform || ''}
-                onChange={(e) => setCurrentTip({ ...currentTip, platform: e.target.value as any })}
+                onChange={(e) => setCurrentTip({ ...currentTip, platform: e.target.value as Platform })}
                 disabled={!!currentTip.url}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
               >
