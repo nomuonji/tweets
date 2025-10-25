@@ -110,6 +110,28 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
 }
 
 // (Existing fetch functions: fetchTopPosts, fetchRecentPosts, fetchExistingDrafts - unchanged)
+async function fetchTopPosts(accountId: string, limit: number) {
+  const snapshot = await adminDb
+    .collection("posts")
+    .where("account_id", "==", accountId)
+    .orderBy("score", "desc")
+    .limit(50)
+    .get();
+
+  const posts = snapshot.docs.map((doc) => {
+    const data = doc.data() as PostDoc;
+    return { ...data, id: doc.id };
+  });
+
+  // Fisher-Yates shuffle to get random posts from the top 50
+  for (let i = posts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [posts[i], posts[j]] = [posts[j], posts[i]];
+  }
+
+  return posts.slice(0, limit);
+}
+
 async function fetchRecentPosts(accountId: string, limit: number) {
   try {
     const snapshot = await adminDb
@@ -247,6 +269,7 @@ function formatReferencePosts(posts: Tip[]) {
 
 // Updated buildPrompt function
 function buildPrompt(
+  topPosts: PostDoc[],
   referencePosts: Tip[],
   recentPosts: PostDoc[],
   drafts: DraftDoc[],
@@ -254,6 +277,10 @@ function buildPrompt(
   tips: Tip[],
   exemplaryPosts: ExemplaryPost[]
 ) {
+  const topPostsSummary = topPosts.length
+    ? `Here are some of your top-performing posts. Use them as inspiration for style and tone:\n${formatPostSummary(topPosts).join("\n")}`
+    : "";
+
   const referenceSummary = referencePosts.length
     ? `Here are some reference posts for inspiration. Do not copy them, but learn from their style and topics:\n${formatReferencePosts(referencePosts).join("\n")}`
     : "No reference posts provided.";
@@ -317,6 +344,8 @@ Output requirements (strict):
 Here is your data:
 ${tipsBlock}
 ${exemplaryBlock}
+${topPostsSummary}
+
 ${referenceSummary}
 
 ${recentSummary}
@@ -390,7 +419,8 @@ export async function POST(request: Request) {
     const normalizedLimit = Math.min(Math.max(limit, 6), 40);
     const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
 
-    const [referencePosts, recentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
+    const [topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
+        fetchTopPosts(accountId, 3),
         fetchReferencePosts(accountId, 3),
         fetchRecentPosts(accountId, perCategoryLimit),
         fetchExistingDrafts(accountId, 50),
@@ -416,7 +446,7 @@ export async function POST(request: Request) {
     let finalPrompt = ""; // Variable to hold the prompt
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts);
+      const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts);
       finalPrompt = prompt; // Capture the prompt
       const raw = await requestGemini(prompt, geminiApiKey);
       suggestion = parseSuggestion(raw);
