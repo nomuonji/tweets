@@ -115,7 +115,7 @@ async function fetchTopPosts(accountId: string, limit: number) {
     .collection("posts")
     .where("account_id", "==", accountId)
     .orderBy("score", "desc")
-    .limit(50)
+    .limit(30)
     .get();
 
   const posts = snapshot.docs.map((doc) => {
@@ -123,7 +123,7 @@ async function fetchTopPosts(accountId: string, limit: number) {
     return { ...data, id: doc.id };
   });
 
-  // Fisher-Yates shuffle to get random posts from the top 50
+  // Fisher-Yates shuffle to get random posts from the top 30
   for (let i = posts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [posts[i], posts[j]] = [posts[j], posts[i]];
