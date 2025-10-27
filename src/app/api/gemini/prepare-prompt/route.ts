@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip } from "@/lib/types";
-import { DateTime } from "luxon";
+import { buildPrompt } from "@/lib/gemini/prompt";
 
 // NOTE: This file reuses a lot of logic from generate/route.ts.
 // In a real application, this shared logic should be refactored into a common service.
@@ -47,79 +47,6 @@ function dedupePostSets(topPosts: PostDoc[], recentPosts: PostDoc[]) {
 }
 
 // --- Prompt Building Functions (copied from generate/route.ts) ---
-function formatPostSummary(posts: PostDoc[]) {
-  return posts.map((post, index) => {
-    const created = DateTime.fromISO(post.created_at).toFormat("yyyy-LL-dd");
-    const impressions = post.metrics.impressions ?? 0;
-    return [
-      `${index + 1}. ${created} @${post.account_id}`,
-      `   Text: ${post.text}`,
-      `   Metrics: impressions=${impressions}, likes=${post.metrics.likes}, reposts=${post.metrics.reposts_or_rethreads}, replies=${post.metrics.replies}, score=${post.score.toFixed(3)}`,
-    ].join("\n");
-  });
-}
-
-function buildPrompt(
-  topPosts: PostDoc[],
-  recentPosts: PostDoc[],
-  drafts: DraftDoc[],
-  tips: Tip[],
-  exemplaryPosts: ExemplaryPost[]
-) {
-  const topSummary = topPosts.length
-    ? `Top performing posts ranked by engagement:\n${formatPostSummary(topPosts).join("\n")}`
-    : "Top performing posts ranked by engagement:\n- No historical high performers available.";
-
-  const recentSummary = recentPosts.length
-    ? `Latest posts (newest first):\n${formatPostSummary(recentPosts).join("\n")}`
-    : "Latest posts (newest first):\n- No recent posts available.";
-
-  const tipsBlock = tips.length > 0
-    ? `\nGeneral guidance and tips for writing effective posts:\n${tips.map(tip => `- ${tip.text}`).join("\n")}\n`
-    : "";
-
-  const exemplaryBlock = exemplaryPosts.length > 0
-    ? `\nStudy these exemplary posts for style and tone:\n${exemplaryPosts.map(p => `Post: ${p.text}\nReasoning: ${p.explanation}`).join("\n\n")}\n`
-    : "";
-
-  const avoidList = Array.from(
-    new Set(
-      [...drafts.map((draft) => draft.text)]
-        .filter(Boolean)
-        .map((text) => text.trim()),
-    ),
-  )
-    .slice(0, 20)
-    .map((text) => `- ${text.replace(/\s+/g, " ").slice(0, 120)}`);
-
-  const avoidBlock = 
-    avoidList.length > 0
-      ? `\nAvoid repeating these existing drafts or suggesting something semantically identical:\n${avoidList.join(
-          "\n",
-        )}\n`
-      : "";
-
-  return `
-You are an experienced social media strategist for short form posts on X (Twitter).
-
-You will receive several datasets to inform your writing. Use all of them to create the best possible post.
-1. General Tips: These are universal principles for creating engaging content. Internalize them.
-2. Exemplary Posts: These are specific examples of the desired style and tone for this account. Emulate them.
-3. High-Performing Posts: These are past successes. Analyze them to understand what works for this audience.
-4. Recent Posts: This is what has been posted lately. Do not repeat these topics.
-
-Your task is to write a brand new post idea that is consistent with the brand voice and exemplary posts, incorporates the general tips, learns from the high-performing posts, and introduces a fresh angle not seen in the recent posts.
-
-Output requirements (strict):
-- Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
-- "tweet": the new post text (<= 260 characters, no surrounding quotes).
-- "explanation": concise reasoning in Japanese (<= 200 characters) referencing observed metrics, stylistic cues, or tips.
-- Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
-- Do not add any additional fields, markdown, or commentary.
-- Avoid repeating existing draft texts or their close variations.
-
-Here is your data:\n${tipsBlock}\n${exemplaryBlock}\n${topSummary}\n\n${recentSummary}\n${avoidBlock}\nRespond only with JSON.`;
-}
 
 
 export async function POST(request: Request) {
@@ -153,7 +80,7 @@ export async function POST(request: Request) {
     const referenceRecent = uniqueRecent.slice(0, perCategoryLimit);
 
     // Note: In prepare-prompt, we don't have `extraAvoid`, so the prompt might be slightly different from the final one if duplicates are found.
-    const prompt = buildPrompt(referenceTop, referenceRecent, drafts, tips, exemplaryPosts);
+    const prompt = buildPrompt(referenceTop, [], referenceRecent, drafts, [], tips, exemplaryPosts, account.concept);
 
     return NextResponse.json({ ok: true, prompt });
 
