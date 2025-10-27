@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip } from "@/lib/types";
-import { DateTime } from "luxon";
 import { buildPrompt } from "@/lib/gemini/prompt";
 
 // NOTE: This file reuses a lot of logic from generate/route.ts.
