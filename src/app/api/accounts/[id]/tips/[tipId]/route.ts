@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 
-// Tipを更新
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+// Update a tip
+export async function PUT(request: Request, { params }: { params: { id: string, tipId: string } }) {
   try {
-    const { id } = params;
+    const { id, tipId } = params;
     const body = await request.json();
-    const { text, platform, url, author_handle } = body;
+    const { text } = body;
 
     if (!text) {
       return NextResponse.json(
@@ -15,7 +15,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       );
     }
 
-    const tipRef = adminDb.collection("tips").doc(id);
+    const tipRef = adminDb.collection("accounts").doc(id).collection("tips").doc(tipId);
     const snapshot = await tipRef.get();
 
     if (!snapshot.exists) {
@@ -23,17 +23,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const updatedData = {
-      title: text.substring(0, 40),
       text,
-      platform: platform || '',
-      url: url || '',
-      author_handle: author_handle || '',
       updated_at: new Date().toISOString(),
     };
 
     await tipRef.update(updatedData);
 
-    return NextResponse.json({ ok: true, tip: { id, ...snapshot.data(), ...updatedData } });
+    return NextResponse.json({ ok: true, tip: { id: tipId, ...snapshot.data(), ...updatedData } });
   } catch (error) {
     return NextResponse.json(
       { ok: false, message: (error as Error).message },
@@ -42,11 +38,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   }
 }
 
-// Tipを削除
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+// Delete a tip
+export async function DELETE(request: Request, { params }: { params: { id: string, tipId: string } }) {
   try {
-    const { id } = params;
-    const tipRef = adminDb.collection("tips").doc(id);
+    const { id, tipId } = params;
+    const tipRef = adminDb.collection("accounts").doc(id).collection("tips").doc(tipId);
     const snapshot = await tipRef.get();
 
     if (!snapshot.exists) {

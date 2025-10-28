@@ -9,6 +9,7 @@ import { AddAccountButton } from '@/components/add-account-button';
 import { SyncControls } from '@/components/sync-controls';
 import { SmartTweetGenerator } from '@/components/smart-tweet-generator';
 import { ExemplaryPostManager } from '@/components/exemplary-post-manager';
+import { AccountTipsControl } from '@/components/account-tips-control';
 import { AccountSettingsControl } from '@/components/account-settings-control';
 import { useAccountContext } from '@/components/account/account-provider';
 
@@ -64,6 +65,13 @@ export function DashboardClient({
     };
 
     fetchAccountData();
+
+    const handleFocus = () => fetchAccountData();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [selectedAccount]);
 
   const handleAccountUpdate = (accountId: string, updatedData: Partial<AccountDoc>) => {
@@ -244,6 +252,7 @@ export function DashboardClient({
   
               <div className="grid gap-6 md:grid-cols-2">
                 <ExemplaryPostManager selectedAccountId={selectedAccount?.id ?? null} />
+                <AccountTipsControl account={selectedAccount} onAccountUpdate={handleAccountUpdate} />
               </div>
   
               {errors.quotaExceeded && (
