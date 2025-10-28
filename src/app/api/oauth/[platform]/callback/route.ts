@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { upsertAccount } from "@/lib/services/account-service";
+import { getThreadsUserProfile } from "@/lib/platforms/threads";
 
 type RouteContext = {
   params: {
@@ -171,29 +172,13 @@ async function handleThreadsCallback(code: string, state: string, requestUrl: UR
     expires_in?: number;
   };
 
-  const profileResponse = await fetch(
-    "https://graph.facebook.com/v18.0/me?fields=id,name,username",
-    {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-      },
-    },
-  );
-
-  if (!profileResponse.ok) {
-    const detail = await safeJson(profileResponse);
-    return redirectWithMessage(
-      "threads",
-      requestUrl,
-      `ユーザー情報の取得に失敗しました: ${profileResponse.status} ${JSON.stringify(detail)}`,
-    );
+  let profile: { id: string; name?: string; username?: string };
+  try {
+    profile = await getThreadsUserProfile(tokenData.access_token);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return redirectWithMessage("threads", requestUrl, `ユーザー情報の取得に失敗しました: ${message}`);
   }
-
-  const profile = (await profileResponse.json()) as {
-    id?: string;
-    name?: string;
-    username?: string;
-  };
 
   if (!profile.id) {
     return redirectWithMessage("threads", requestUrl, "Threads のユーザー情報が取得できませんでした。");

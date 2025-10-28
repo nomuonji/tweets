@@ -90,6 +90,34 @@ export function ManualAccountForm() {
     }
   };
 
+  const handleFetchThreadsUserId = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/threads/user-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken: form.accessToken }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message ?? "Failed to fetch user profile.");
+      }
+      const { id, username, name } = result.profile;
+      setForm((prev) => ({
+        ...prev,
+        userId: id,
+        handle: username ?? id,
+        displayName: name ?? "",
+      }));
+      setMessage({ type: "success", text: "User profile fetched successfully." });
+    } catch (error) {
+      setMessage({ type: "error", text: (error as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <div className="grid gap-3">
@@ -157,16 +185,29 @@ export function ManualAccountForm() {
         </label>
 
         {isThreads ? (
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Threads user ID</span>
-            <input
-              value={form.userId}
-              onChange={(event) => handleChange("userId", event.target.value)}
-              placeholder="31573770612207145"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              required
-            />
-          </label>
+          <div className="space-y-1 text-sm">
+            <label htmlFor="threads-user-id" className="font-medium text-foreground">
+              Threads user ID
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="threads-user-id"
+                value={form.userId}
+                onChange={(event) => handleChange("userId", event.target.value)}
+                placeholder="31573770612207145"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                required
+              />
+              <button
+                type="button"
+                onClick={handleFetchThreadsUserId}
+                disabled={loading || !form.accessToken}
+                className="rounded-md bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Fetch
+              </button>
+            </div>
+          </div>
         ) : null}
 
         <label className="space-y-1 text-sm">

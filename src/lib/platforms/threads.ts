@@ -342,6 +342,45 @@ export async function fetchRecentThreadsPosts(
   return { posts: finalPosts, debug };
 }
 
+
+export async function getThreadsUserProfile(accessToken: string): Promise<{
+  id: string;
+  name?: string;
+  username?: string;
+  threads_profile_picture_url?: string;
+  threads_biography?: string;
+}> {
+  const url = `https://graph.threads.net/v1.0/me?fields=id,username,name,threads_profile_picture_url,threads_biography&access_token=${accessToken}`;
+  const profileResponse = await fetch(url);
+
+  if (!profileResponse.ok) {
+    const errorDetail = await profileResponse.text();
+    throw new Error(
+      `Failed to fetch Threads user profile: ${profileResponse.status} ${errorDetail}`,
+    );
+  }
+
+  const profile = (await profileResponse.json()) as {
+    id?: string;
+    name?: string;
+    username?: string;
+    threads_profile_picture_url?: string;
+    threads_biography?: string;
+  };
+
+  if (!profile.id) {
+    throw new Error("Could not retrieve Threads user ID from profile response.");
+  }
+
+  return profile as { 
+    id: string; 
+    name?: string; 
+    username?: string; 
+    threads_profile_picture_url?: string; 
+    threads_biography?: string; 
+  };
+}
+
 export async function publishThreadsPost(
   account: AccountDoc,
   payload: { text: string; mediaUrls?: string[]; url?: string },

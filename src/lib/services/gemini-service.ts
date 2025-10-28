@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
+import { buildPrompt } from "@/lib/gemini/prompt";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 
 const MODEL = "models/gemini-flash-latest";
@@ -18,7 +19,7 @@ type GeminiContent = { parts?: GeminiPart[] };
 type GeminiCandidate = { content?: GeminiContent };
 type GeminiResponse = { candidates?: GeminiCandidate[] };
 
-// (Utility functions from the original route file)
+// --- Utility Functions ---
 function sanitizeCandidateText(text: string) {
   return text.replace(/```json\s*/gi, "").replace(/```\s*$/g, "").trim();
 }
@@ -50,20 +51,24 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
   return { tweet: sections[0] ?? cleaned, explanation: sections.slice(1).join("\n\n") || "Failed to extract a reasoning explanation from the model response." };
 }
 
+// --- Data Fetching Functions ---
+async function fetchTopPosts(accountId: string, limit: number) {
+  const snapshot = await adminDb.collection("posts").where("account_id", "==", accountId).orderBy("score", "desc").limit(30).get();
+  const posts = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })) as PostDoc[];
+  for (let i = posts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [posts[i], posts[j]] = [posts[j], posts[i]];
+  }
+  return posts.slice(0, limit);
+}
+
 async function fetchReferencePosts(accountId: string, limit: number): Promise<Tip[]> {
-    const snapshot = await adminDb
-      .collection("tips")
-      .where("account_ids", "array-contains", accountId)
-      .get();
-
+    const snapshot = await adminDb.collection("tips").where("account_ids", "array-contains", accountId).get();
     const tips = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Tip[];
-
-    // Fisher-Yates shuffle
     for (let i = tips.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [tips[i], tips[j]] = [tips[j], tips[i]];
     }
-
     return tips.slice(0, limit);
 }
 
@@ -110,71 +115,39 @@ async function fetchExemplaryPosts(accountId: string): Promise<ExemplaryPost[]> 
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ExemplaryPost[];
 }
 
-function formatPostSummary(posts: PostDoc[]) {
-  return posts.map((post, index) => {
-    const created = DateTime.fromISO(post.created_at).toFormat("yyyy-LL-dd");
-    const impressions = post.metrics.impressions ?? 0;
-    return [
-      `${index + 1}. ${created} @${post.account_id}`,
-      `   Text: ${post.text}`,
-      `   Metrics: impressions=${impressions}, likes=${post.metrics.likes}, reposts=${post.metrics.reposts_or_rethreads}, replies=${post.metrics.replies}, score=${post.score.toFixed(3)}`,
-    ].join("\n");
-  });
-}
+// --- Core Service Functions ---
 
-function formatReferencePosts(posts: Tip[]) {
-  return posts.map((post, index) => {
-    return [
-      `${index + 1}. @${post.author_handle} on ${post.platform}`,
-      `   Text: ${post.text}`,
-    ].join("\n");
-  });
-}
+export async function preparePromptPayload(accountId: string, limit = 15) {
+    const account = await fetchAccount(accountId);
+    if (!account) {
+        throw new Error("Account not found.");
+    }
 
-function buildPrompt(referencePosts: Tip[], recentPosts: PostDoc[], drafts: DraftDoc[], extraAvoid: string[], tips: Tip[], exemplaryPosts: ExemplaryPost[]) {
-  const referenceSummary = referencePosts.length
-    ? `Here are some reference posts for inspiration. Do not copy them, but learn from their style and topics:\n${formatReferencePosts(referencePosts).join("\n")}`
-    : "No reference posts provided.";
-  const recentSummary = recentPosts.length ? `Latest posts (newest first):\n${formatPostSummary(recentPosts).join("\n")}` : "Latest posts (newest first):\n- No recent posts available.";
-  const tipsBlock = tips.length > 0 ? `\nGeneral guidance and tips for writing effective posts:\n${tips.map(tip => `- ${tip.text}`).join("\n")}\n` : "";
-  const exemplaryBlock = exemplaryPosts.length > 0 ? `\nStudy these exemplary posts for style and tone:\n${exemplaryPosts.map(p => `Post: ${p.text}\nReasoning: ${p.explanation}`).join("\n\n")}\n` : "";
-  const avoidList = Array.from(new Set([...drafts.map((draft) => draft.text), ...extraAvoid].filter(Boolean).map((text) => text.trim()))).slice(0, 20).map((text) => `- ${text.replace(/\s+/g, " ").slice(0, 120)}`);
-  const avoidBlock = avoidList.length > 0 ? `\nAvoid repeating these existing drafts or suggesting something semantically identical:\n${avoidList.join("\n")}\n` : "";
-  const targetLength = Math.floor(Math.random() * (260 - 80 + 1)) + 80;
+    const normalizedLimit = Math.min(Math.max(limit, 6), 40);
+    const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
 
-  return `
-You are a persona analyst and a creative social media strategist for X (Twitter), skilled at emulating a realistic human voice.
+    const [topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
+        fetchTopPosts(accountId, 3),
+        fetchReferencePosts(accountId, 3),
+        fetchRecentPosts(accountId, perCategoryLimit),
+        fetchExistingDrafts(accountId, 50),
+        fetchSelectedTips(account.selectedTipIds || []),
+        fetchExemplaryPosts(accountId),
+    ]);
 
-Your first task is to analyze the provided past posts to build a detailed persona of the speaker. Understand their tone, interests, and style.
+    if (recentPosts.length === 0) {
+      throw new Error("No posts found for this account yet. Run a sync first.");
+    }
 
-Your second task is to identify recurring themes, topics, and specific keywords that are frequently used in the past posts. Make a mental list of these patterns to actively avoid.
-
-Your third task is to generate a completely new post that the persona would plausibly say next, while **deliberately avoiding the overused themes and keywords you identified**. The goal is to break the pattern and show a new side of the persona. The post should feel fresh and unpredictable, yet still authentic.
-
-To create this human-like realism, you should:
-1.  **Embrace Variety:** The new post can be a fresh take on their usual themes, OR it can be something completely different—a random thought, a simple observation, or a reaction to an unseen daily event.
-2.  **Simulate Spontaneity:** Occasionally, generate a more casual, "content-less" tweet. Not every post needs to be a masterpiece of insight.
-3.  **Think "What's Next?":** Based on the persona, imagine what they are thinking or doing *right now*, and generate a natural, spontaneous post from that mindset.
-
-The goal is a tweet that feels authentic and continues to build a multifaceted, believable character.
-
-Output requirements (strict):
-- Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
-- "tweet": the new post text (target length: around ${targetLength} characters, max 260, no surrounding quotes).
-- "explanation": concise reasoning in Japanese (<= 200 characters) explaining how this post fits the persona while avoiding past patterns (e.g., "ペルソナに沿いつつ、頻出する〇〇の話題を避け、新たな一面を見せることで人間味を演出").
-- Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
-- Do not add any additional fields, markdown, or commentary.
-- Do not copy the reference posts.
-- Do not repeat topics from recent posts.
-
-Here is your data:
-${tipsBlock}
-${exemplaryBlock}
-${referenceSummary}
-
-${recentSummary}
-${avoidBlock}
-Respond only with JSON.`;
+    return {
+        account,
+        topPosts,
+        referencePosts,
+        recentPosts,
+        drafts,
+        tips,
+        exemplaryPosts,
+    };
 }
 
 async function requestGemini(prompt: string, apiKey: string) {
@@ -188,21 +161,8 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     const geminiApiKey = process.env.GEMINI_API_KEY;
     if (!geminiApiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-    const account = await fetchAccount(accountId);
-    if (!account) throw new Error("Account not found.");
-
-    const normalizedLimit = Math.min(Math.max(limit, 6), 40);
-    const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
-
-    const [ referencePosts, recentPosts, drafts, tips, exemplaryPosts ] = await Promise.all([
-        fetchReferencePosts(accountId, 3),
-        fetchRecentPosts(accountId, perCategoryLimit),
-        fetchExistingDrafts(accountId, 50),
-        fetchSelectedTips(account.selectedTipIds || []),
-        fetchExemplaryPosts(accountId),
-    ]);
-
-    if (recentPosts.length === 0) throw new Error("No posts found for this account yet. Run a sync first.");
+    const payload = await preparePromptPayload(accountId, limit);
+    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts } = payload;
 
     const normalizedDrafts = new Set(drafts.map((draft) => normalizeText(draft.text ?? "")));
 
@@ -212,7 +172,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     let duplicate = false;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts);
+      const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept);
       const raw = await requestGemini(prompt, geminiApiKey);
       suggestion = parseSuggestion(raw);
       const normalizedSuggestion = normalizeText(suggestion.tweet);
