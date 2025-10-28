@@ -1,30 +1,44 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getTopPosts } from "@/lib/services/firestore.server";
-import type { RankingFilter } from "@/lib/types";
+import { RankingFilter } from "@/lib/types";
 
-function parseParams(searchParams: URLSearchParams): { filter: RankingFilter, sort: 'top' | 'latest', page: number } {
-  const platform = (searchParams.get('platform') || 'all') as RankingFilter['platform'];
-  const media_type = (searchParams.get('media') || 'all') as RankingFilter['media_type'];
-  const period_days = (searchParams.get('period') === 'all' ? 'all' : Number(searchParams.get('period')) || 'all') as RankingFilter['period_days'];
-  const accountId = searchParams.get('accountId') || undefined;
-  const sort = (searchParams.get('sort') === 'latest' ? 'latest' : 'top');
-  const page = Number(searchParams.get('page')) || 1;
+export const dynamic = 'force-dynamic';
 
+const schema = z.object({
+  platform: z.enum(["x", "threads", "all"]).default("all"),
+  media_type: z.enum(["text", "image", "video", "all"]).default("all"),
+  period_days: z.coerce.number().int().positive().default(7),
+  sort: z.enum(["top", "latest"]).default("top"),
+  limit: z.coerce.number().int().positive().default(50),
+  page: z.coerce.number().int().positive().default(1),
+  accountId: z.string().optional(),
+});
+function parseParams(searchParams: URLSearchParams) {
+  const params = Object.fromEntries(searchParams.entries());
+  const parsed = schema.parse(params);
+  
   return {
-    filter: { platform, media_type, period_days, accountId },
-    sort,
-    page,
+    filter: {
+      platform: parsed.platform,
+      media_type: parsed.media_type,
+      period_days: parsed.period_days as RankingFilter['period_days'],
+      accountId: parsed.accountId,
+    },
+    sort: parsed.sort,
+    page: parsed.page,
+    limit: parsed.limit,
   };
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const { filter, sort, page } = parseParams(searchParams);
+    const { filter, sort, page, limit } = parseParams(searchParams);
 
     const result = await getTopPosts(filter, {
       sort,
-      limit: 50,
+      limit,
       page,
     });
 
@@ -32,6 +46,9 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error("[API/ranking-data] Failed to load posts", error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ ok: false, message: "Invalid query parameters.", details: error.flatten() }, { status: 400 });
+    }
     return NextResponse.json(
       { ok: false, message: (error as Error).message },
       { status: 500 },

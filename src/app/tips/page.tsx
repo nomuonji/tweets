@@ -134,7 +134,7 @@ export default function TipsPage() {
       const isNewTip = !currentTip.id;
       const tipApiUrl = isNewTip ? '/api/tips' : `/api/tips/${currentTip.id}`;
       const tipApiMethod = isNewTip ? 'POST' : 'PUT';
-      const { account_ids, ...tipData } = currentTip; // Exclude account_ids
+      const { ...tipData } = currentTip; // Exclude account_ids
 
       const tipResponse = await fetch(tipApiUrl, {
         method: tipApiMethod,

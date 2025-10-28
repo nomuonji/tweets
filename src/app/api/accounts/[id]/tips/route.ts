@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { Tip } from "@/lib/types";
+import { Tip, Platform } from "@/lib/types";
 import { getAllTips } from "@/lib/services/firestore.server";
 
 // Get all tips for an account
@@ -48,6 +48,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const newTipRef = adminDb.collection("accounts").doc(id).collection("tips").doc();
     const newTip: Omit<Tip, "id"> = {
       text,
+      title: text.substring(0, 40),
+      platform: '' as Platform,
+      url: '',
+      author_handle: '',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
