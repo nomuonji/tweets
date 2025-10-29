@@ -11,13 +11,25 @@ type AccountSettingsControlProps = {
 export function AccountSettingsControl({ account, onAccountUpdate }: AccountSettingsControlProps) {
   const [concept, setConcept] = useState(account.concept ?? '');
   const [autoPostEnabled, setAutoPostEnabled] = useState(account.autoPostEnabled ?? false);
-  const [postSchedule, setPostSchedule] = useState(account.postSchedule ?? Array(5).fill(''));
+  const [postSchedule, setPostSchedule] = useState<string[]>(
+    account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']
+  );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const handleScheduleChange = (index: number, value: string) => {
     const newSchedule = [...postSchedule];
     newSchedule[index] = value;
+    setPostSchedule(newSchedule);
+  };
+
+  const addScheduleSlot = () => {
+    setPostSchedule([...postSchedule, '']);
+  };
+
+  const removeScheduleSlot = (index: number) => {
+    if (postSchedule.length <= 1) return; // Prevent removing the last input
+    const newSchedule = postSchedule.filter((_, i) => i !== index);
     setPostSchedule(newSchedule);
   };
 
@@ -80,16 +92,34 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
         <div>
           <label className="block text-sm font-medium text-muted-foreground">Post Schedule</label>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mt-1">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <input
-                key={index}
-                type="time"
-                value={postSchedule[index] ?? ''}
-                onChange={(e) => handleScheduleChange(index, e.target.value)}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-              />
+            {postSchedule.map((time, index) => (
+              <div key={index} className="flex items-center gap-1">
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => handleScheduleChange(index, e.target.value)}
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+                />
+                {postSchedule.length > 1 && (
+                  <button
+                    onClick={() => removeScheduleSlot(index)}
+                    className="p-1 text-red-500 rounded-full hover:bg-red-100"
+                    aria-label="Remove schedule time"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
+          <button
+            onClick={addScheduleSlot}
+            className="mt-2 rounded-md bg-secondary px-3 py-1 text-xs text-secondary-foreground transition hover:opacity-90"
+          >
+            + Add Time
+          </button>
         </div>
         <div className="flex justify-end gap-2">
           {error && <p className="text-sm text-destructive">{error}</p>}
