@@ -123,6 +123,9 @@ export async function executeDueSchedules(nowIso: string | null = DateTime.utc()
       console.log(`[Scheduler] Published draft ${draft.id} and moved to posts as ${result.platform_post_id}.`);
     } catch (error) {
       console.error(`[Scheduler] Failed to process draft ${draft.id} for account ${accountId}.`, error);
+      console.log(`[Scheduler] Deleting failed draft ${draft.id}.`);
+      const draftRef = adminDb.collection("drafts").doc(draft.id);
+      await draftRef.delete();
     }
   }
 
