@@ -73,7 +73,7 @@ export function buildPrompt(
         )}\n`
       : "";
 
-  const targetLength = Math.floor(Math.random() * (260 - 1 + 1)) + 1;
+  const targetLength = Math.floor(Math.random() * (240 - 1 + 1)) + 1;
 
   return `
 You are a persona analyst and a creative social media strategist for X (Twitter), skilled at emulating a realistic human voice.
@@ -109,7 +109,7 @@ The goal is a tweet that feels authentic and continues to build a multifaceted, 
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
-- "tweet": The new post text. Its length MUST be very close to the target of ${targetLength} characters. The absolute maximum is 260 characters. Do not include surrounding quotes.
+- "tweet": The new post text. Its length MUST be very close to the target of ${targetLength} characters. The absolute maximum is 240 characters. Do not include surrounding quotes.
 - "explanation": concise reasoning in Japanese (<= 200 characters) explaining how this post fits the persona while avoiding past patterns (e.g., "ペルソナに沿いつつ、頻出する〇〇の話題を避け、新たな一面を見せることで人間味を演出").
 - Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
 - Do not add any additional fields, markdown, or commentary.
