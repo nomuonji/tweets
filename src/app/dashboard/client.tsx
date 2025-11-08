@@ -36,7 +36,7 @@ export function DashboardClient({
   initialAccountData,
   errors,
 }: DashboardClientProps) {
-  const { selectedAccount } = useAccountContext();
+  const { selectedAccount, setSelectedAccountId } = useAccountContext();
 
   const [accounts, setAccounts] = useState(initialAccounts);
   const [drafts, setDrafts] = useState(initialDrafts);
@@ -218,7 +218,18 @@ export function DashboardClient({
                 Monitor the selected account, usage, and top performing posts.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={selectedAccount?.id ?? ''}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+              >
+                {accounts.map(acc => (
+                  <option key={acc.id} value={acc.id}>
+                    @{acc.handle} ({toTitleCase(acc.platform)})
+                  </option>
+                ))}
+              </select>
               <AddAccountButton />
             </div>
           </div>
@@ -244,7 +255,7 @@ export function DashboardClient({
                   <p className="text-xs text-muted-foreground">Month: {initialApiUsage.month || "N/A"}</p>
                 </div>
                 <div className="md:col-span-2">
-                  <SyncControls accounts={accountOptions} selectedAccountId={selectedAccount?.id ?? null} />
+                  <SyncControls accounts={accountOptions} />
                 </div>
               </div>
   
