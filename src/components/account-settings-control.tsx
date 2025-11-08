@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AccountDoc } from '@/lib/types';
 
 type AccountSettingsControlProps = {
@@ -16,6 +16,14 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
   );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setConcept(account.concept ?? '');
+    setAutoPostEnabled(account.autoPostEnabled ?? false);
+    setPostSchedule(account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']);
+    setError(null);
+    setIsSaving(false);
+  }, [account]);
 
   const handleScheduleChange = (index: number, value: string) => {
     const newSchedule = [...postSchedule];

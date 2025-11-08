@@ -219,6 +219,9 @@ export function DashboardClient({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <Link href="/admin/simulation" className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80">
+                Go to Prompt Simulator
+              </Link>
               <select
                 value={selectedAccount?.id ?? ''}
                 onChange={(e) => setSelectedAccountId(e.target.value)}
