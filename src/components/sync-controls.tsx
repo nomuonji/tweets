@@ -13,12 +13,16 @@ type AccountOption = {
   platform: string;
 };
 
+import { useAccountContext } from "./account/account-provider";
+
 type SyncControlsProps = {
   accounts: AccountOption[];
-  selectedAccountId: string | null;
 };
 
-export function SyncControls({ accounts, selectedAccountId }: SyncControlsProps) {
+export function SyncControls({ accounts }: SyncControlsProps) {
+  const { selectedAccount } = useAccountContext();
+  const selectedAccountId = selectedAccount?.id ?? null;
+
   const [lookbackDays, setLookbackDays] = useState("");
   const [maxPosts, setMaxPosts] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
