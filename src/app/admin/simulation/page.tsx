@@ -22,6 +22,7 @@ export default function SimulationPage() {
     exemplaryPosts: [],
   });
   const [editablePrompt, setEditablePrompt] = useState<string>("");
+  const [isPromptLoading, setIsPromptLoading] = useState<boolean>(false);
   const [generatedResult, setGeneratedResult] = useState<{ tweet: string, explanation: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jsonError, setJsonError] = useState<Record<string, string | null>>({});
@@ -79,6 +80,39 @@ export default function SimulationPage() {
     };
     fetchAccountDetails();
   }, [selectedAccountId]);
+
+  // Fetch prompt when data changes
+  useEffect(() => {
+    const preparePrompt = async () => {
+      // Do not generate if any JSON is currently invalid
+      if (Object.values(jsonError).some(Boolean)) return;
+
+      // Do not generate if there is no concept and no recent posts
+      if (!promptData.concept && promptData.recentPosts?.length === 0) {
+        setEditablePrompt("");
+        return;
+      }
+
+      setIsPromptLoading(true);
+      try {
+        const res = await fetch("/api/gemini/prepare-prompt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(promptData),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setEditablePrompt(data.prompt);
+        }
+      } catch {
+        // Do not set a global error, just fail silently
+      } finally {
+        setIsPromptLoading(false);
+      }
+    };
+
+    preparePrompt();
+  }, [promptData, jsonError]);
 
   const handleGenerate = async () => {
     setIsLoading(true);
@@ -179,7 +213,8 @@ export default function SimulationPage() {
               value={editablePrompt}
               onChange={(e) => setEditablePrompt(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md h-96 font-mono text-sm"
-              placeholder="Prompt will be generated here..."
+              placeholder={isPromptLoading ? "Generating prompt..." : "Prompt will be generated here..."}
+              disabled={isPromptLoading}
             />
           </div>
           <button

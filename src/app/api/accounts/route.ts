@@ -1,15 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { adminDb } from "@/lib/firebase/admin";
+import { getAccounts } from "@/lib/services/firestore.server";
 import { preparePromptPayload } from "@/lib/services/gemini-service";
 import { upsertAccount } from "@/lib/services/account-service";
-import type { AccountDoc } from "@/lib/types";
-
-// アカウント一覧を取得
-async function getAccounts() {
-  const snapshot = await adminDb.collection("accounts").orderBy("id", "asc").get();
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as AccountDoc[];
-}
 
 export async function GET(request: Request) {
   try {
