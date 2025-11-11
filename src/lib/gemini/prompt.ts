@@ -31,13 +31,15 @@ export function buildPrompt(
   tips: Tip[],
   exemplaryPosts: ExemplaryPost[],
   concept?: string,
+  minPostLength = 1,
+  maxPostLength = 240,
 ) {
   const conceptBlock = concept
     ? `\nYour writing MUST strictly adhere to the following concept: ${concept}\n`
     : "";
 
   const topPostsSummary = topPosts.length
-    ? `Here are some of your top-performing posts. Analyze what aspects of these posts resonated with your audience:\n${formatPostSummary(topPosts).join("\n")}`
+    ? `For your reference, here are some of your top-performing posts. Use these primarily to avoid repetition and understand what has resonated with your audience in the past, but do not simply copy their topics or style. Your main focus should be the account concept.\n${formatPostSummary(topPosts).join("\n")}`
     : "";
 
   const referenceSummary = referencePosts.length
@@ -45,7 +47,7 @@ export function buildPrompt(
     : "No reference posts provided.";
 
   const recentSummary = recentPosts.length
-    ? `Latest posts (newest first):\n${formatPostSummary(recentPosts).join("\n")}`
+    ? `Latest posts (newest first). Use these primarily to avoid repetition:\n${formatPostSummary(recentPosts).join("\n")}`
     : "Latest posts (newest first):\n- No recent posts available.";
 
   const tipsBlock = tips.length > 0
@@ -73,7 +75,7 @@ export function buildPrompt(
         )}\n`
       : "";
 
-  const targetLength = Math.floor(Math.random() * (240 - 1 + 1)) + 1;
+  const targetLength = Math.floor(Math.random() * (maxPostLength - minPostLength + 1)) + minPostLength;
 
   return `
 You are a persona analyst and a creative social media strategist for X (Twitter), skilled at emulating a realistic human voice.
@@ -82,11 +84,11 @@ Your first task is to analyze the provided past posts to build a detailed person
 
 Your second task is to identify recurring themes, topics, and specific keywords that are frequently used in the past posts. Make a mental list of these patterns to actively avoid.
 
-Your third task is to generate a completely new post with a target length of **exactly ${targetLength} characters**. The post should be what the persona would plausibly say next, while **deliberately avoiding the overused themes and keywords you identified**. The goal is to break the pattern and show a new side of the persona. The post should feel fresh and unpredictable, yet still authentic.
+Your third task is to generate a completely new post with a target length of **exactly ${targetLength} characters**. The post should be what the persona would plausibly say next, while **deliberately avoiding the overused themes and keywords you identified**. The goal is to break the pattern and show a new side of the persona. The post should feel fresh and unpredictable, yet still authentic. Your top priority is to adhere to the account concept.
 
 Output requirements (strict):
 - Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
-- "tweet": The new post text. Its length MUST be very close to the target of ${targetLength} characters. The absolute maximum is 240 characters. Do not include surrounding quotes.
+- "tweet": The new post text. Its length MUST be very close to the target of ${targetLength} characters. The absolute maximum is ${maxPostLength} characters. Do not include surrounding quotes.
 - "explanation": concise reasoning in Japanese (<= 200 characters) explaining how this post fits the persona while avoiding past patterns (e.g., "ペルソナに沿いつつ、頻出する〇〇の話題を避け、新たな一面を見せることで人間味を演出").
 - Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
 - Do not add any additional fields, markdown, or commentary.

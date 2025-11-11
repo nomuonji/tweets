@@ -14,6 +14,8 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
   const [postSchedule, setPostSchedule] = useState<string[]>(
     account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']
   );
+  const [minPostLength, setMinPostLength] = useState(account.minPostLength ?? 1);
+  const [maxPostLength, setMaxPostLength] = useState(account.maxPostLength ?? 240);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -21,6 +23,8 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
     setConcept(account.concept ?? '');
     setAutoPostEnabled(account.autoPostEnabled ?? false);
     setPostSchedule(account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']);
+    setMinPostLength(account.minPostLength ?? 1);
+    setMaxPostLength(account.maxPostLength ?? 240);
     setError(null);
     setIsSaving(false);
   }, [account]);
@@ -49,6 +53,8 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
       concept,
       autoPostEnabled,
       postSchedule: postSchedule.filter(t => t), // remove empty strings
+      minPostLength,
+      maxPostLength,
     };
 
     try {
@@ -128,6 +134,35 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
           >
             + Add Time
           </button>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-muted-foreground">Post Length</label>
+          <div className="mt-1 grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor={`min-length-${account.id}`} className="block text-xs text-muted-foreground">Min</label>
+              <input
+                type="number"
+                id={`min-length-${account.id}`}
+                value={minPostLength}
+                onChange={(e) => setMinPostLength(parseInt(e.target.value, 10))}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+                min="1"
+                max="240"
+              />
+            </div>
+            <div>
+              <label htmlFor={`max-length-${account.id}`} className="block text-xs text-muted-foreground">Max</label>
+              <input
+                type="number"
+                id={`max-length-${account.id}`}
+                value={maxPostLength}
+                onChange={(e) => setMaxPostLength(parseInt(e.target.value, 10))}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+                min="1"
+                max="240"
+              />
+            </div>
+          </div>
         </div>
         <div className="flex justify-end gap-2">
           {error && <p className="text-sm text-destructive">{error}</p>}
