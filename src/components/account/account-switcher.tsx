@@ -38,7 +38,7 @@ export function AccountSwitcher() {
         <select
           value={selectedAccountId ?? ""}
           onChange={(event) => setSelectedAccountId(event.target.value)}
-          className="min-w-[180px] bg-transparent text-sm outline-none"
+          className="min-w-0 bg-transparent text-sm outline-none md:min-w-[180px]"
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
