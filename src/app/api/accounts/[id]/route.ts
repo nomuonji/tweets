@@ -7,6 +7,8 @@ const payloadSchema = z.object({
   autoPostEnabled: z.boolean().optional(),
   postSchedule: z.array(z.string()).optional(),
   selectedTipIds: z.array(z.string()).optional(),
+  minPostLength: z.number().optional(),
+  maxPostLength: z.number().optional(),
 });
 
 export async function PATCH(

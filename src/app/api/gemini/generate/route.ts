@@ -96,7 +96,18 @@ export async function POST(request: Request) {
     let finalPrompt = "";
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept);
+      const prompt = buildPrompt(
+        topPosts,
+        referencePosts,
+        recentPosts,
+        drafts,
+        extraAvoid,
+        tips,
+        exemplaryPosts,
+        account.concept,
+        account.minPostLength,
+        account.maxPostLength,
+      );
       finalPrompt = prompt;
       const raw = await requestGemini(prompt, geminiApiKey);
       suggestion = parseSuggestion(raw);
