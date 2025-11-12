@@ -29,7 +29,7 @@ export function AppShell({
                   X / Threads アカウント�E統合�E析と運用支援
                 </p>
               </div>
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+              <div className="flex shrink flex-col items-end gap-3 md:flex-row md:items-center md:gap-4">
                 <TopNav />
                 <AccountSwitcher />
               </div>

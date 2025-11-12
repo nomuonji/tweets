@@ -25,11 +25,11 @@ export function AccountSwitcher() {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="text-nowrap text-xs uppercase tracking-wide text-muted-foreground">
         運用アカウント
       </span>
-      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
+      <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
         <span className="hidden text-xs text-muted-foreground md:inline-block">
           {selectedAccount
             ? toTitleCase(selectedAccount.platform)
@@ -38,10 +38,14 @@ export function AccountSwitcher() {
         <select
           value={selectedAccountId ?? ""}
           onChange={(event) => setSelectedAccountId(event.target.value)}
-          className="min-w-0 bg-transparent text-sm outline-none md:min-w-[180px]"
+          className="min-w-0 flex-1 basis-auto bg-transparent text-sm outline-none"
         >
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option
+              key={option.value}
+              value={option.value}
+              className="truncate"
+            >
               {option.platform} · {option.label}
             </option>
           ))}
