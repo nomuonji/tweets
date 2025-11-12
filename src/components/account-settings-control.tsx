@@ -16,6 +16,7 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
   );
   const [minPostLength, setMinPostLength] = useState(account.minPostLength ?? 1);
   const [maxPostLength, setMaxPostLength] = useState(account.maxPostLength ?? 240);
+  const [isConceptExpanded, setIsConceptExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -82,13 +83,21 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
       </div>
       <div className="space-y-4">
         <div>
-          <label htmlFor={`concept-${account.id}`} className="block text-sm font-medium text-muted-foreground">Concept</label>
+          <div className="flex justify-between items-center">
+            <label htmlFor={`concept-${account.id}`} className="block text-sm font-medium text-muted-foreground">Concept</label>
+            <button
+              onClick={() => setIsConceptExpanded(!isConceptExpanded)}
+              className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition hover:opacity-90"
+            >
+              {isConceptExpanded ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
           <textarea
             id={`concept-${account.id}`}
             value={concept}
             onChange={(e) => setConcept(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm resize-y"
-            rows={8}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+            rows={isConceptExpanded ? 12 : 3}
             placeholder="e.g., A bot that posts about the weather in Tokyo."
           />
         </div>
