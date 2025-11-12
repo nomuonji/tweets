@@ -87,8 +87,8 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
             id={`concept-${account.id}`}
             value={concept}
             onChange={(e) => setConcept(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-            rows={3}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm resize-y"
+            rows={8}
             placeholder="e.g., A bot that posts about the weather in Tokyo."
           />
         </div>
