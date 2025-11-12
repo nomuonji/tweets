@@ -17,7 +17,7 @@ export function TopNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex items-center gap-3 text-sm font-medium">
+    <nav className="flex flex-wrap items-center gap-3 text-sm font-medium">
       {navItems.map((item) => {
         const isActive =
           item.href === "/"

@@ -26,6 +26,7 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
     setPostSchedule(account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']);
     setMinPostLength(account.minPostLength ?? 1);
     setMaxPostLength(account.maxPostLength ?? 240);
+    setIsConceptExpanded(false);
     setError(null);
     setIsSaving(false);
   }, [account]);
