@@ -26,6 +26,7 @@ export interface AccountDoc {
   postSchedule?: string[];
   minPostLength?: number;
   maxPostLength?: number;
+  r18Mode?: boolean;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {

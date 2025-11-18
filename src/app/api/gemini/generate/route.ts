@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
-import { preparePromptPayload } from "@/lib/services/gemini-service";
+import { preparePromptPayload } from "@/lib/services/prompt-service";
+import { requestGrok } from "@/lib/grok/client";
 
 const MODEL = "models/gemini-flash-latest";
 const GENERATION_CONFIG = {
@@ -95,26 +96,49 @@ export async function POST(request: Request) {
     let duplicate = false;
     let finalPrompt = "";
 
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const prompt = buildPrompt(
-        topPosts,
-        referencePosts,
-        recentPosts,
-        drafts,
-        extraAvoid,
-        tips,
-        exemplaryPosts,
-        account.concept,
-        account.minPostLength,
-        account.maxPostLength,
-      );
-      finalPrompt = prompt;
-      const raw = await requestGemini(prompt, geminiApiKey);
-      suggestion = parseSuggestion(raw);
-      const normalizedSuggestion = normalizeText(suggestion.tweet);
-      duplicate = normalizedDrafts.has(normalizedSuggestion);
-      if (!duplicate) break;
-      extraAvoid.push(suggestion.tweet);
+    if (account.r18Mode) {
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const prompt = buildPrompt(
+          topPosts,
+          referencePosts,
+          recentPosts,
+          drafts,
+          extraAvoid,
+          tips,
+          exemplaryPosts,
+          account.concept,
+          account.minPostLength,
+          account.maxPostLength,
+        );
+        finalPrompt = prompt;
+        suggestion = await requestGrok(prompt);
+        const normalizedSuggestion = normalizeText(suggestion.tweet);
+        duplicate = normalizedDrafts.has(normalizedSuggestion);
+        if (!duplicate) break;
+        extraAvoid.push(suggestion.tweet);
+      }
+    } else {
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const prompt = buildPrompt(
+          topPosts,
+          referencePosts,
+          recentPosts,
+          drafts,
+          extraAvoid,
+          tips,
+          exemplaryPosts,
+          account.concept,
+          account.minPostLength,
+          account.maxPostLength,
+        );
+        finalPrompt = prompt;
+        const raw = await requestGemini(prompt, geminiApiKey);
+        suggestion = parseSuggestion(raw);
+        const normalizedSuggestion = normalizeText(suggestion.tweet);
+        duplicate = normalizedDrafts.has(normalizedSuggestion);
+        if (!duplicate) break;
+        extraAvoid.push(suggestion.tweet);
+      }
     }
 
     if (!suggestion) {

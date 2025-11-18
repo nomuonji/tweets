@@ -16,6 +16,7 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
   );
   const [minPostLength, setMinPostLength] = useState(account.minPostLength ?? 1);
   const [maxPostLength, setMaxPostLength] = useState(account.maxPostLength ?? 240);
+  const [r18Mode, setR18Mode] = useState(account.r18Mode ?? false);
   const [isConceptExpanded, setIsConceptExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -26,6 +27,7 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
     setPostSchedule(account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']);
     setMinPostLength(account.minPostLength ?? 1);
     setMaxPostLength(account.maxPostLength ?? 240);
+    setR18Mode(account.r18Mode ?? false);
     setIsConceptExpanded(false);
     setError(null);
     setIsSaving(false);
@@ -57,6 +59,7 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
       postSchedule: postSchedule.filter(t => t), // remove empty strings
       minPostLength,
       maxPostLength,
+      r18Mode,
     };
 
     try {
@@ -111,6 +114,17 @@ export function AccountSettingsControl({ account, onAccountUpdate }: AccountSett
               className="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring-primary"
             />
             <span className="ml-2 text-sm text-muted-foreground">Enable auto-posting</span>
+          </label>
+        </div>
+        <div>
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={r18Mode}
+              onChange={(e) => setR18Mode(e.target.checked)}
+              className="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring-primary"
+            />
+            <span className="ml-2 text-sm text-muted-foreground">Enable R18 Mode (Generates posts with Grok)</span>
           </label>
         </div>
         <div>
