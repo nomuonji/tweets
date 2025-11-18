@@ -1,5 +1,5 @@
 import { getAccounts, getDraftsByAccountId } from "@/lib/services/firestore.server";
-import { generatePost } from "@/lib/services/gemini-service";
+import { generatePost } from "@/lib/services/prompt-service";
 
 const DRAFT_THRESHOLD = 5;
 

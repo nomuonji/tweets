@@ -8,7 +8,7 @@ type GrokSuggestion = {
 
 export async function requestGrok(prompt: string): Promise<GrokSuggestion> {
   const { text } = await generateText({
-    model: xai('grok-3'),
+    model: xai('grok-4-fast-non-reasoning'),
     prompt,
   });
 
@@ -18,7 +18,8 @@ export async function requestGrok(prompt: string): Promise<GrokSuggestion> {
       return json;
     }
     throw new Error('Invalid JSON format from Grok API.');
-  } catch (error) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  } catch (_e) {
     throw new Error(`Failed to parse Grok API response: ${text}`);
   }
 }
