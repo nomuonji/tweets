@@ -26,6 +26,7 @@ export interface AccountDoc {
   postSchedule?: string[];
   minPostLength?: number;
   maxPostLength?: number;
+  r18Mode?: boolean;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
@@ -92,6 +93,7 @@ export interface DraftDoc {
   created_at: string;
   updated_at: string;
   similarity_warning?: boolean;
+  generatedBy?: string;
 }
 
 export interface SettingsDoc {

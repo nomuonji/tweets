@@ -9,6 +9,7 @@ type CreateDraftPayload = {
   platform?: "x" | "threads";
   text?: string;
   createdBy?: string;
+  generatedBy?: string;
 };
 
 function normalizeText(value: string) {
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
       created_at: now,
       updated_at: now,
       similarity_warning: false,
+      generatedBy: body.generatedBy,
     };
 
     await saveDraft(draft);

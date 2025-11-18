@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAccounts } from "@/lib/services/firestore.server";
-import { preparePromptPayload } from "@/lib/services/gemini-service";
+import { preparePromptPayload } from "@/lib/services/prompt-service";
 import { upsertAccount } from "@/lib/services/account-service";
 
 export async function GET(request: Request) {

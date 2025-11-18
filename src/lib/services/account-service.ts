@@ -79,6 +79,7 @@ type UpdateAccountParams = Partial<{
   autoPostEnabled: boolean;
   postSchedule: string[];
   selectedTipIds: string[];
+  r18Mode: boolean;
 }>;
 
 export async function updateAccount(
