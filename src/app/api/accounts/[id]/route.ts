@@ -9,6 +9,7 @@ const payloadSchema = z.object({
   selectedTipIds: z.array(z.string()).optional(),
   minPostLength: z.number().optional(),
   maxPostLength: z.number().optional(),
+  r18Mode: z.boolean().optional(),
 });
 
 export async function PATCH(
