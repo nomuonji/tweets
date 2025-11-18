@@ -1,4 +1,4 @@
-import { xai } from '@ai-sdk/xai';
+import { createXai } from '@ai-sdk/xai';
 import { generateText } from 'ai';
 
 type GrokSuggestion = {
@@ -6,7 +6,9 @@ type GrokSuggestion = {
   explanation: string;
 };
 
-export async function requestGrok(prompt: string): Promise<GrokSuggestion> {
+export async function requestGrok(prompt: string, apiKey: string): Promise<GrokSuggestion> {
+  const xai = createXai({ apiKey });
+
   const { text } = await generateText({
     model: xai('grok-4-fast-non-reasoning'),
     prompt,

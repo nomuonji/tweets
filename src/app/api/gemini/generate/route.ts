@@ -97,6 +97,11 @@ export async function POST(request: Request) {
     let finalPrompt = "";
 
     if (account.r18Mode) {
+      const xaiApiKey = process.env.XAI_API_KEY;
+      if (!xaiApiKey) {
+        return NextResponse.json({ ok: false, message: "XAI_API_KEY environment variable is not configured." }, { status: 500 });
+      }
+
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const prompt = buildPrompt(
           topPosts,
@@ -111,7 +116,7 @@ export async function POST(request: Request) {
           account.maxPostLength,
         );
         finalPrompt = prompt;
-        suggestion = await requestGrok(prompt);
+        suggestion = await requestGrok(prompt, xaiApiKey);
         const normalizedSuggestion = normalizeText(suggestion.tweet);
         duplicate = normalizedDrafts.has(normalizedSuggestion);
         if (!duplicate) break;
