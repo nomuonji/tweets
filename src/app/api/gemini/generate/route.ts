@@ -155,6 +155,7 @@ export async function POST(request: Request) {
       suggestion,
       duplicate,
       prompt: finalPrompt,
+      modelUsed: account.r18Mode ? 'grok' : 'gemini',
     });
   } catch (error) {
     return NextResponse.json({ ok: false, message: (error as Error).message }, { status: 500 });

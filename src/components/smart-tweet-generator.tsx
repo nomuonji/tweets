@@ -48,6 +48,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [contextPosts, setContextPosts] = useState<ContextPost[]>([]);
   const [existingDrafts, setExistingDrafts] = useState<ExistingDraftSummary[]>([]);
   const [duplicateWarning, setDuplicateWarning] = useState(false);
@@ -118,6 +119,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
         throw new Error(data.message ?? "Failed to generate a suggestion.");
       }
       setSuggestion(data.suggestion as SuggestionResult);
+      setModelUsed(data.modelUsed as string);
       setContextPosts((data.context?.usedPosts ?? []) as ContextPost[]);
       setExistingDrafts((data.context?.existingDrafts ?? []) as ExistingDraftSummary[]);
       setDuplicateWarning(Boolean(data.duplicate));
@@ -144,6 +146,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
           text: suggestion.tweet,
           accountId: selectedAccount.id,
           platform: selectedAccount.platform,
+          generatedBy: modelUsed,
         }),
       });
       const data = await response.json();

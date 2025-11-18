@@ -93,6 +93,7 @@ export interface DraftDoc {
   created_at: string;
   updated_at: string;
   similarity_warning?: boolean;
+  generatedBy?: string;
 }
 
 export interface SettingsDoc {
