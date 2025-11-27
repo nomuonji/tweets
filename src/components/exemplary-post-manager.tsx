@@ -85,12 +85,7 @@ export function ExemplaryPostManager({ selectedAccountId }: ExemplaryPostManager
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm relative">
-      <div className="absolute inset-0 z-10 bg-surface/60 flex items-center justify-center rounded-xl cursor-not-allowed">
-        <div className="rounded-md bg-secondary px-4 py-2 font-semibold shadow-sm text-secondary-foreground">
-          Currently Suspended (Use Account Concept)
-        </div>
-      </div>
-      <div className="opacity-50 pointer-events-none">
+      <div>
         <div>
           <h2 className="text-lg font-semibold">Exemplary Posts</h2>
           <p className="text-sm text-muted-foreground">Add examples of the style you want to emulate.</p>
