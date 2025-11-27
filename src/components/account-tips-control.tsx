@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { Tip, AccountDoc } from '@/lib/types';
+import type { AccountDoc, Tip } from '@/lib/types';
 
 type AccountTipsControlProps = {
   account: AccountDoc | null;
@@ -9,127 +9,115 @@ type AccountTipsControlProps = {
 };
 
 export function AccountTipsControl({ account, onAccountUpdate }: AccountTipsControlProps) {
-  const [allTips, setAllTips] = useState<Tip[]>([]);
-  const [selectedTipIds, setSelectedTipIds] = useState<Set<string>>(new Set());
+  const [tips, setTips] = useState<Tip[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedTipIds, setSelectedTipIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
+  // Fetch tips only once
   useEffect(() => {
-    async function fetchAllTips() {
+    const fetchTips = async () => {
+      setIsLoading(true);
       try {
-        setIsLoading(true);
-        const response = await fetch('/api/tips');
-        const data = await response.json();
+        const res = await fetch(`/api/tips`); // Fetch all available tips
+        const data = await res.json();
         if (data.ok) {
-          setAllTips(data.tips);
-        } else {
-          throw new Error(data.message || 'Failed to fetch tips.');
+          setTips(data.tips);
         }
       } catch (err) {
-        setError((err as Error).message);
+        console.error("Failed to load tips", err);
+      } finally {
+        setIsLoading(false);
       }
-    }
-
-    fetchAllTips();
+    };
+    fetchTips();
   }, []);
 
+  // Update selection when account changes
   useEffect(() => {
-    if (account?.selectedTipIds) {
-      setSelectedTipIds(new Set(account.selectedTipIds));
+    if (account) {
+      setSelectedTipIds(new Set(account.selectedTipIds || []));
     } else {
       setSelectedTipIds(new Set());
     }
-    // Stop loading only when account is loaded
-    if (account) {
-        setIsLoading(false);
-    }
   }, [account]);
 
-  const handleToggle = (tipId: string) => {
-    const newSelection = new Set(selectedTipIds);
-    if (newSelection.has(tipId)) {
-      newSelection.delete(tipId);
+  const toggleTip = (tipId: string) => {
+    const newSet = new Set(selectedTipIds);
+    if (newSet.has(tipId)) {
+      newSet.delete(tipId);
     } else {
-      newSelection.add(tipId);
+      newSet.add(tipId);
     }
-    setSelectedTipIds(newSelection);
+    setSelectedTipIds(newSet);
   };
 
   const handleSave = async () => {
     if (!account) return;
     setIsSaving(true);
-    setError(null);
-
-    const updatedData = { 
-      selectedTipIds: Array.from(selectedTipIds)
-    };
-
+    const newSelectedIds = Array.from(selectedTipIds);
     try {
       const response = await fetch(`/api/accounts/${account.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedData),
+        body: JSON.stringify({ selectedTipIds: newSelectedIds }),
       });
-      const data = await response.json();
-      if (!data.ok) throw new Error(data.message || 'Failed to update tips selection.');
-      
-      onAccountUpdate(account.id, updatedData);
+      if (response.ok) {
+        onAccountUpdate(account.id, { selectedTipIds: newSelectedIds });
+      }
     } catch (err) {
-      setError((err as Error).message);
+      console.error(err);
+      alert("Failed to save tips selection.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!account) {
-    return (
-        <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm animate-pulse">
-            <div className="h-6 bg-muted rounded w-1/3"></div>
-            <div className="h-4 bg-muted rounded w-2/3"></div>
-        </div>
-    );
-  }
+  if (!account) return null;
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-      <div>
-        <h2 className="text-lg font-semibold">Account-specific Tips</h2>
-        <p className="text-sm text-muted-foreground">Select which global tips to apply to this account.</p>
+    <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm relative">
+       <div className="absolute inset-0 z-10 bg-surface/60 flex items-center justify-center rounded-xl cursor-not-allowed">
+        <div className="rounded-md bg-secondary px-4 py-2 font-semibold shadow-sm text-secondary-foreground">
+          Currently Suspended (Use Account Concept)
+        </div>
       </div>
-      
-      {isLoading && <p>Loading tips...</p>}
-      {error && <p className="text-red-500">Error: {error}</p>}
+      <div className="opacity-50 pointer-events-none">
+        <div>
+          <h2 className="text-lg font-semibold">Active Tips</h2>
+          <p className="text-sm text-muted-foreground">Select tips to include in the prompt context.</p>
+        </div>
 
-      <div className="max-h-60 space-y-2 overflow-y-auto pr-2">
-        {allTips.map((tip) => (
-          <label key={tip.id} className="flex items-center justify-between rounded-md bg-background p-3 hover:bg-surface-hover">
-            <div className="flex items-start gap-3">
-                <input
-                type="checkbox"
-                checked={selectedTipIds.has(tip.id)}
-                onChange={() => handleToggle(tip.id)}
-                className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                />
-                <div>
-                    <span className="block text-sm font-medium">{tip.title}</span>
-                    <span className="block text-xs text-muted-foreground">{tip.text}</span>
-                </div>
-            </div>
-            <a href={tip.url} target="_blank" rel="noopener noreferrer" className="ml-4 text-xs text-primary hover:underline">Source</a>
-          </label>
-        ))}
-      </div>
+        {isLoading ? <p>Loading tips...</p> : (
+          <div className="max-h-60 overflow-y-auto space-y-2 border border-border rounded-md p-2">
+            {tips.length === 0 ? <p className="text-sm text-muted-foreground">No tips available in the library.</p> : (
+              tips.map(tip => (
+                <label key={tip.id} className="flex items-start gap-2 p-2 hover:bg-muted rounded cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedTipIds.has(tip.id)}
+                    onChange={() => toggleTip(tip.id)}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">{tip.text}</p>
+                    <p className="text-xs text-muted-foreground">@{tip.author_handle}</p>
+                  </div>
+                </label>
+              ))
+            )}
+          </div>
+        )}
 
-      <div className="flex justify-end gap-2 pt-2">
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
-          {isSaving ? 'Saving...' : 'Save Tips Selection'}
-        </button>
+        <div className="flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="rounded-md bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Update Selection"}
+          </button>
+        </div>
       </div>
     </div>
   );
