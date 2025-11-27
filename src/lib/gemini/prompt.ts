@@ -36,7 +36,7 @@ export function buildPrompt(
   const inputValuesBlock = `
 # 2. INPUT VALUES (SOURCE MATERIAL)
 Use these values as the content and style source.
-${conceptSection}${styleSection}${ideaSection}`;
+${conceptSection}`;
 
   // --- Part 3: Past Posts (Duplication Prevention) ---
   const avoidTexts = [
