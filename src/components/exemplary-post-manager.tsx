@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, FormEvent, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import type { ExemplaryPost } from '@/lib/types';
 
 type ExemplaryPostManagerProps = {
@@ -11,140 +11,125 @@ export function ExemplaryPostManager({ selectedAccountId }: ExemplaryPostManager
   const [posts, setPosts] = useState<ExemplaryPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [currentPost, setCurrentPost] = useState<Partial<ExemplaryPost> | null>(null);
 
-  const fetchPosts = useCallback(async () => {
-    if (!selectedAccountId) {
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/accounts/${selectedAccountId}/exemplary-posts`);
-      const data = await response.json();
-      if (data.ok) {
-        setPosts(data.posts);
-      } else {
-        throw new Error(data.message || 'Failed to fetch exemplary posts.');
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedAccountId]);
+  const [text, setText] = useState('');
+  const [explanation, setExplanation] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
 
   useEffect(() => {
-    if (selectedAccountId) {
-      fetchPosts();
-    } else {
-      setPosts([]);
+    if (!selectedAccountId) return;
+    const fetchPosts = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/accounts/${selectedAccountId}/exemplary-posts`);
+        const data = await res.json();
+        if (data.ok) {
+          setPosts(data.posts);
+        } else {
+          setError(data.message);
+        }
+      } catch (err) {
+        setError("Failed to load exemplary posts.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchPosts();
+  }, [selectedAccountId]);
+
+  const handleAdd = async () => {
+    if (!selectedAccountId || !text || !explanation) return;
+    setIsAdding(true);
+    try {
+      const res = await fetch(`/api/accounts/${selectedAccountId}/exemplary-posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, explanation, platform: 'x' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setPosts([data.post, ...posts]);
+        setText('');
+        setExplanation('');
+      } else {
+        alert(data.message);
+      }
+    } catch (err) {
+      alert("Failed to add post.");
+    } finally {
+      setIsAdding(false);
     }
-  }, [selectedAccountId, fetchPosts]);
-
-  const handleEdit = (post: ExemplaryPost) => {
-    setCurrentPost(post);
-    setIsEditing(true);
-  };
-
-  const handleAddNew = () => {
-    setCurrentPost({ text: '', explanation: '' });
-    setIsEditing(true);
-  };
-
-  const handleCancel = () => {
-    setCurrentPost(null);
-    setIsEditing(false);
   };
 
   const handleDelete = async (id: string) => {
-    if (!selectedAccountId) return;
-    if (confirm('Are you sure you want to delete this post?')) {
-      try {
-        const response = await fetch(`/api/accounts/${selectedAccountId}/exemplary-posts/${id}`, { method: 'DELETE' });
-        const data = await response.json();
-        if (data.ok) {
-          fetchPosts();
-        } else {
-          throw new Error(data.message || 'Failed to delete post.');
-        }
-      } catch (err) {
-        setError((err as Error).message);
-      }
-    }
-  };
-
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!currentPost || !selectedAccountId) return;
-
-    const url = currentPost.id ? `/api/accounts/${selectedAccountId}/exemplary-posts/${currentPost.id}` : `/api/accounts/${selectedAccountId}/exemplary-posts`;
-    const method = currentPost.id ? 'PUT' : 'POST';
-
+    if (!selectedAccountId || !confirm("Delete this exemplary post?")) return;
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: currentPost.text, explanation: currentPost.explanation }),
+      const res = await fetch(`/api/accounts/${selectedAccountId}/exemplary-posts?id=${id}`, {
+        method: 'DELETE',
       });
-      const data = await response.json();
-      if (data.ok) {
-        handleCancel();
-        fetchPosts();
+      if (res.ok) {
+        setPosts(posts.filter(p => p.id !== id));
       } else {
-        throw new Error(data.message || 'Failed to save post.');
+        alert("Failed to delete.");
       }
     } catch (err) {
-      setError((err as Error).message);
+      alert("Failed to delete.");
     }
   };
 
-  if (!selectedAccountId) {
-    return null; // Or a message asking to select an account
-  }
+  if (!selectedAccountId) return null;
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-      <h2 className="text-lg font-semibold">Exemplary Posts</h2>
-      <p className="text-sm text-muted-foreground">Manage exemplary posts for the selected account to guide AI generation.</p>
-      
-      {isLoading && <p>Loading posts...</p>}
-      {error && <p className="text-red-500">Error: {error}</p>}
-
-      {isEditing && currentPost ? (
-        <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-          <div>
-            <label htmlFor="text" className="block text-sm font-medium">Post Text</label>
-            <textarea id="text" rows={4} value={currentPost.text || ''} onChange={(e) => setCurrentPost({ ...currentPost, text: e.target.value })} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" required />
-          </div>
-          <div>
-            <label htmlFor="explanation" className="block text-sm font-medium">Explanation (What to learn from this)</label>
-            <textarea id="explanation" rows={3} value={currentPost.explanation || ''} onChange={(e) => setCurrentPost({ ...currentPost, explanation: e.target.value })} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" required />
-          </div>
-          <div className="flex justify-end space-x-2">
-            <button type="button" onClick={handleCancel} className="px-4 py-2 border rounded-md text-sm">Cancel</button>
-            <button type="submit" className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm text-white bg-indigo-600 hover:bg-indigo-700">Save Post</button>
-          </div>
-        </form>
-      ) : (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <button onClick={handleAddNew} className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Add New Post</button>
-          </div>
-          {posts.map((post) => (
-            <div key={post.id} className="p-4 border rounded-md bg-background">
-              <p className="text-sm text-gray-800 whitespace-pre-wrap">{post.text}</p>
-              <p className="mt-2 text-xs text-gray-500 italic border-l-2 border-gray-300 pl-2">Explanation: {post.explanation}</p>
-              <div className="mt-3 flex justify-end space-x-2">
-                <button onClick={() => handleEdit(post)} className="px-3 py-1 border rounded-md text-sm">Edit</button>
-                <button onClick={() => handleDelete(post.id)} className="px-3 py-1 border rounded-md text-sm text-white bg-red-600 hover:bg-red-700">Delete</button>
-              </div>
-            </div>
-          ))}
-          {!isLoading && posts.length === 0 && <p className="text-sm text-muted-foreground">No exemplary posts found for this account.</p>}
+    <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm relative">
+      <div className="absolute inset-0 z-10 bg-surface/60 flex items-center justify-center rounded-xl cursor-not-allowed">
+        <div className="rounded-md bg-secondary px-4 py-2 font-semibold shadow-sm text-secondary-foreground">
+          Currently Suspended (Use Account Concept)
         </div>
-      )}
+      </div>
+      <div className="opacity-50 pointer-events-none">
+        <div>
+          <h2 className="text-lg font-semibold">Exemplary Posts</h2>
+          <p className="text-sm text-muted-foreground">Add examples of the style you want to emulate.</p>
+        </div>
+
+        <div className="space-y-2">
+          <textarea
+            placeholder="Post text..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm p-2"
+          />
+          <textarea
+            placeholder="Why is this good? (Reasoning)"
+            value={explanation}
+            onChange={(e) => setExplanation(e.target.value)}
+            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm p-2"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={isAdding || !text || !explanation}
+            className="rounded-md bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
+          >
+            {isAdding ? "Adding..." : "Add Example"}
+          </button>
+        </div>
+
+        {isLoading && <p>Loading...</p>}
+        {error && <p className="text-red-500">{error}</p>}
+
+        <ul className="space-y-3">
+          {posts.map(post => (
+            <li key={post.id} className="rounded-lg border border-border bg-background p-3">
+              <p className="text-sm font-medium">{post.text}</p>
+              <p className="text-xs text-muted-foreground mt-1">Reasoning: {post.explanation}</p>
+              <button onClick={() => handleDelete(post.id)} className="mt-2 text-xs text-red-500 hover:underline">
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
