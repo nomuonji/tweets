@@ -17,26 +17,26 @@ export function buildPrompt(
   // --- Part 2: Input Values (Source Material) ---
   const conceptSection = concept ? `\n[Account Concept]\n${concept}\n` : "";
 
-  const styleSamples = [
-      ...exemplaryPosts.map(p => `- ${p.text}`),
-      ...topPosts.map(p => `- ${p.text}`)
-  ];
-  const styleSection = styleSamples.length > 0
-      ? `\n[Style Samples & Past Hits]\n${styleSamples.join("\n")}\n`
-      : "";
+  // const styleSamples = [
+  //     ...exemplaryPosts.map(p => `- ${p.text}`),
+  //     ...topPosts.map(p => `- ${p.text}`)
+  // ];
+  // const styleSection = styleSamples.length > 0
+  //     ? `\n[Style Samples & Past Hits]\n${styleSamples.join("\n")}\n`
+  //     : "";
 
-  const ideaSamples = [
-      ...tips.map(t => `- ${t.text}`),
-      ...referencePosts.map(r => `- ${r.text}`)
-  ];
-  const ideaSection = ideaSamples.length > 0
-      ? `\n[Topic Ideas & Inspiration]\n${ideaSamples.join("\n")}\n`
-      : "";
+  // const ideaSamples = [
+  //     ...tips.map(t => `- ${t.text}`),
+  //     ...referencePosts.map(r => `- ${r.text}`)
+  // ];
+  // const ideaSection = ideaSamples.length > 0
+  //     ? `\n[Topic Ideas & Inspiration]\n${ideaSamples.join("\n")}\n`
+  //     : "";
 
   const inputValuesBlock = `
 # 2. INPUT VALUES (SOURCE MATERIAL)
 Use these values as the content and style source.
-${conceptSection}${styleSection}${ideaSection}`;
+${conceptSection}`;
 
   // --- Part 3: Past Posts (Duplication Prevention) ---
   const avoidTexts = [
