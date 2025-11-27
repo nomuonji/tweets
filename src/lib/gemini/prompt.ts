@@ -4,11 +4,9 @@ import type { DraftDoc, ExemplaryPost, PostDoc, Tip } from "@/lib/types";
 function formatPostSummary(posts: PostDoc[]) {
   return posts.map((post, index) => {
     const created = DateTime.fromISO(post.created_at).toFormat("yyyy-LL-dd");
-    const impressions = post.metrics.impressions ?? 0;
     return [
-      `${index + 1}. ${created} @${post.account_id}`,
+      `${index + 1}. [${created}]`,
       `   Text: ${post.text}`,
-      `   Metrics: impressions=${impressions}, likes=${post.metrics.likes}, reposts=${post.metrics.reposts_or_rethreads}, replies=${post.metrics.replies}, score=${post.score.toFixed(3)}`,
     ].join("\n");
   });
 }
@@ -34,28 +32,30 @@ export function buildPrompt(
   minPostLength = 1,
   maxPostLength = 240,
 ) {
+  const targetLength = Math.floor(Math.random() * (maxPostLength - minPostLength + 1)) + minPostLength;
+
   const conceptBlock = concept
-    ? `\nYour writing MUST strictly adhere to the following concept: ${concept}\n`
-    : "";
-
-  const topPostsSummary = topPosts.length
-    ? `For your reference, here are some of your top-performing posts. Use these primarily to avoid repetition and understand what has resonated with your audience in the past, but do not simply copy their topics or style. Your main focus should be the account concept.\n${formatPostSummary(topPosts).join("\n")}`
-    : "";
-
-  const referenceSummary = referencePosts.length
-    ? `Here are some reference posts for inspiration. Do not copy them, but learn from their style and topics:\n${formatReferencePosts(referencePosts).join("\n")}`
-    : "No reference posts provided.";
-
-  const recentSummary = recentPosts.length
-    ? `Latest posts (newest first). Use these primarily to avoid repetition:\n${formatPostSummary(recentPosts).join("\n")}`
-    : "Latest posts (newest first):\n- No recent posts available.";
-
-  const tipsBlock = tips.length > 0
-    ? `\nUse these tips as a source of ideas and content for your posts:\n${tips.map(tip => `- ${tip.text}`).join("\n")}\n`
+    ? `\n# 1. ACCOUNT CONCEPT (CORE IDENTITY)\nYour writing MUST strictly adhere to the following concept. This is the persona you are enacting:\n"${concept}"\n`
     : "";
 
   const exemplaryBlock = exemplaryPosts.length > 0
-    ? `\nYou MUST strictly emulate the writing style, tone, and voice of these exemplary posts. Replicate the sentence structure, vocabulary, emoji usage, and overall personality conveyed in these examples:\n${exemplaryPosts.map(p => `Post: ${p.text}\nReasoning: ${p.explanation}`).join("\n\n")}\n`
+    ? `\n# 2. STYLE REFERENCE (PRIMARY)\nYou MUST strictly emulate the writing style, tone, and voice of these exemplary posts. Replicate the sentence structure, vocabulary, emoji usage, and overall personality:\n${exemplaryPosts.map(p => `Post: ${p.text}\nReasoning: ${p.explanation}`).join("\n\n")}\n`
+    : "";
+
+  const topPostsSummary = topPosts.length
+    ? `\n# ${exemplaryPosts.length === 0 ? "2. STYLE REFERENCE (SECONDARY)" : "PAST HITS (CONTEXT)"}\nHere are some of your top-performing posts. ${exemplaryPosts.length === 0 ? "Since no exemplary posts are provided, use these as your primary style guide." : "Use these to understand what resonates with your audience."} \nHowever, DO NOT copy their exact topics. We need fresh content.\n${formatPostSummary(topPosts).join("\n")}\n`
+    : "";
+
+  const tipsBlock = tips.length > 0
+    ? `\n# 3. CONTENT SOURCE (IDEAS)\nUse these tips as a source of ideas and content for your posts. Adapt them to your persona:\n${tips.map(tip => `- ${tip.text}`).join("\n")}\n`
+    : "";
+
+  const referenceSummary = referencePosts.length
+    ? `\n# REFERENCE POSTS (INSPIRATION)\nHere are some reference posts from others. Do not copy them, but learn from their style and topics:\n${formatReferencePosts(referencePosts).join("\n")}\n`
+    : "";
+
+  const recentSummary = recentPosts.length
+    ? `\n# RECENT POSTS (AVOID REPETITION)\nLatest posts (newest first). You MUST AVOID repeating the topics and phrasings found here. Do not start sentences with the same words as these posts:\n${formatPostSummary(recentPosts).join("\n")}\n`
     : "";
 
   const avoidList = Array.from(
@@ -70,63 +70,39 @@ export function buildPrompt(
 
   const avoidBlock =
     avoidList.length > 0
-      ? `\nAvoid repeating these existing drafts or suggesting something semantically identical:\n${avoidList.join(
+      ? `\n# DRAFTS & REJECTED TEXTS (STRICT AVOIDANCE)\nAvoid repeating these existing drafts or suggesting something semantically identical:\n${avoidList.join(
           "\n",
         )}\n`
       : "";
 
-  const targetLength = Math.floor(Math.random() * (maxPostLength - minPostLength + 1)) + minPostLength;
-
   return `
-You are a persona analyst and a creative social media strategist for X (Twitter), skilled at emulating a realistic human voice.
+You are a highly skilled social media persona analyst and content creator (Grok/Gemini).
+Your goal is to generate a new post for a specific account that feels authentic, engaging, and fresh.
 
-Your first task is to analyze the provided past posts to build a detailed persona of the speaker. Understand their tone, interests, and style.
-
-Your second task is to identify recurring themes, topics, and specific keywords that are frequently used in the past posts. Make a mental list of these patterns to actively avoid.
-
-Your third task is to generate a completely new post with a target length of **exactly ${targetLength} characters**. The post should be what the persona would plausibly say next, while **deliberately avoiding the overused themes and keywords you identified**. The goal is to break the pattern and show a new side of the persona. The post should feel fresh and unpredictable, yet still authentic. Your top priority is to adhere to the account concept.
-
-Output requirements (strict):
-- Respond ONLY with a single JSON object exactly like {"tweet":"...", "explanation":"..."}.
-- "tweet": The new post text. Its length MUST be very close to the target of ${targetLength} characters. The absolute maximum is ${maxPostLength} characters. Do not include surrounding quotes.
-- "explanation": concise reasoning in Japanese (<= 200 characters) explaining how this post fits the persona while avoiding past patterns (e.g., "ペルソナに沿いつつ、頻出する〇〇の話題を避け、新たな一面を見せることで人間味を演出").
-- Keep the tone in Japanese if the prior examples are in Japanese. Preserve useful emoji or punctuation patterns.
-- Do not add any additional fields, markdown, or commentary.
-- Do not copy the reference posts.
-- Do not repeat topics from recent posts.
-
-Here is your data:
 ${conceptBlock}
-${tipsBlock}
 ${exemplaryBlock}
 ${topPostsSummary}
 
+${tipsBlock}
 ${referenceSummary}
 
 ${recentSummary}
 ${avoidBlock}
-Respond only with JSON.`;
-}
 
-/* To create this human-like realism, you should follow these 20 conditions for human-like writing:
-1.  **Include personal experiences and anecdotes:** Share stories and events from your life.
-2.  **Naturally incorporate emotional expressions:** Let your feelings show through in your writing.
-3.  **Vary sentence length:** Mix short, punchy sentences with longer, more descriptive ones.
-4.  **Use colloquialisms and contractions:** Write in a conversational style, like you're talking to a friend.
-5.  **Effectively use metaphors and analogies:** Make complex ideas easier to understand with comparisons.
-6.  **Speak directly to the reader:** Use "you" and "I" to create a connection with your audience.
-7.  **Have an unpredictable development:** Surprise your readers with unexpected twists and turns.
-8.  **Have a moderate amount of imperfection:** Don't be afraid to make mistakes; it makes you more human.
-9.  **Change tone according to the context:** Adapt your writing style to the topic and your mood.
-10. **Rephrase technical terms in everyday language:** Explain complex topics in a way that everyone can understand.
-11. **Use conjunctions naturally:** Connect your ideas with words like "and," "but," and "so."
-12. **Avoid repeating the same words:** Use a thesaurus to find synonyms and keep your writing fresh.
-13. **Explain abstract concepts with concrete examples:** Make abstract ideas easier to understand with real-world examples.
-14. **Intersperse questions and exclamations:** Use punctuation to add emphasis and emotion to your writing.
-15. **Insert anecdotes and stories:** Share personal stories to make your writing more engaging.
-16. **Explain from the reader's perspective:** Put yourself in your reader's shoes and explain things in a way that they can understand.
-17. **Sometimes include digressions and asides:** Go off-topic to add personality and humor to your writing.
-18. **Overlays emotions onto numbers and facts:** Don't just present data; tell the story behind it.
-19. **Reflect cultural background and current events:** Show that you're aware of what's happening in the world.
-20. **Has unique phrasing and quirks:** Develop your own unique writing style that sets you apart from everyone else.
-The goal is a tweet that feels authentic and continues to build a multifaceted, believable character. */
+# 6. TASK
+Generate ONE new post that:
+1.  **Strictly matches the Account Concept.**
+2.  **Mimics the Style Reference** (exemplary posts or top posts).
+3.  **Is completely distinct in topic/phrasing from the Recent Posts and Avoidance List.** We want to avoid "more of the same". Do not start with the same words as recent posts.
+4.  **Meets the length requirement:** exactly around **${targetLength} characters** (absolute max ${maxPostLength}).
+5.  **Is written in Japanese** (unless the concept implies otherwise).
+6.  **Has a moderate amount of imperfection.** It does not need to be overly polished; simple and relatable is often better.
+
+# 7. OUTPUT FORMAT (STRICT JSON)
+Return ONLY a single JSON object. Do not include markdown code blocks like \`\`\`json.
+{
+  "tweet": "The post text here...",
+  "explanation": "Brief reasoning in Japanese (max 200 chars) on how this fits the concept and avoids past repetition."
+}
+`;
+}
