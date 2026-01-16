@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
+import { requestGemini } from "@/lib/gemini/client";
 import { preparePromptPayload } from "@/lib/services/prompt-service";
 import { requestGrok } from "@/lib/grok/client";
 
-const MODEL = "models/gemini-flash-latest";
-const GENERATION_CONFIG = {
-  temperature: 0.7,
-  topK: 32,
-  topP: 0.95,
-  maxOutputTokens: 4096,
-  responseMimeType: "application/json",
-};
+
 
 type GeminiSuggestion = { tweet: string; explanation: string; };
 type GeminiFunctionCall = { args?: Record<string, unknown> };
@@ -47,7 +41,7 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
   try {
     const json = JSON.parse(cleaned);
     if (typeof json.tweet === "string" && typeof json.explanation === "string") return json;
-  } catch {}
+  } catch { }
   const tweetMatch = cleaned.match(/"tweet"\s*:\s*"([^"]+)"/i);
   const explanationMatch = cleaned.match(/"explanation"\s*:\s*"([^"]+)"/i);
   if (tweetMatch && explanationMatch) return { tweet: tweetMatch[1], explanation: explanationMatch[1] };
@@ -55,28 +49,10 @@ function parseSuggestion(raw: unknown): GeminiSuggestion {
   return { tweet: sections[0] ?? cleaned, explanation: sections.slice(1).join("\n\n") || "Failed to extract a reasoning explanation from the model response." };
 }
 
-async function requestGemini(prompt: string, apiKey: string) {
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: GENERATION_CONFIG,
-    }),
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error?.message ?? `Gemini API request failed with status ${response.status}`);
-  }
-  return data;
-}
+
 
 export async function POST(request: Request) {
   try {
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      return NextResponse.json({ ok: false, message: "GEMINI_API_KEY is not configured." }, { status: 500 });
-    }
 
     const body = (await request.json()) as GenerateRequestBody;
     const accountId = String(body.accountId ?? "").trim();
@@ -137,7 +113,7 @@ export async function POST(request: Request) {
           account.maxPostLength,
         );
         finalPrompt = prompt;
-        const raw = await requestGemini(prompt, geminiApiKey);
+        const raw = await requestGemini(prompt);
         suggestion = parseSuggestion(raw);
         const normalizedSuggestion = normalizeText(suggestion.tweet);
         duplicate = normalizedDrafts.has(normalizedSuggestion);

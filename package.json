@@ -14,10 +14,10 @@
     "auto:generate": "tsx scripts/auto-generate-drafts.ts"
   },
   "dependencies": {
-    "@ai-sdk/xai": "^2.0.33",
+    "@ai-sdk/xai": "^2.0.53",
     "@sparticuz/chromium": "^141.0.0",
     "@types/cheerio": "^0.22.35",
-    "ai": "^5.0.93",
+    "ai": "^5.0.121",
     "axios": "^1.12.2",
     "cheerio": "^1.1.2",
     "cosine-similarity": "^1.0.1",
