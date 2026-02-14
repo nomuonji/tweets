@@ -192,8 +192,8 @@ export async function fetchRecentThreadsPosts(
   for (
     let page = 1;
     page <= THREADS_MAX_FETCH_PAGES &&
-      aggregated.length < targetLimit &&
-      !stopDueToSince;
+    aggregated.length < targetLimit &&
+    !stopDueToSince;
     page += 1
   ) {
     const remaining = targetLimit - aggregated.length;
@@ -372,12 +372,12 @@ export async function getThreadsUserProfile(accessToken: string): Promise<{
     throw new Error("Could not retrieve Threads user ID from profile response.");
   }
 
-  return profile as { 
-    id: string; 
-    name?: string; 
-    username?: string; 
-    threads_profile_picture_url?: string; 
-    threads_biography?: string; 
+  return profile as {
+    id: string;
+    name?: string;
+    username?: string;
+    threads_profile_picture_url?: string;
+    threads_biography?: string;
   };
 }
 
@@ -422,6 +422,122 @@ export async function publishThreadsPost(
   const publishedPostId = publishResponse.data?.id;
   if (typeof publishedPostId !== "string") {
     throw new Error("Failed to publish Threads container: final post ID not found");
+  }
+
+  const handle = account.handle.startsWith("@") ? account.handle.slice(1) : account.handle;
+  const permalink = `https://www.threads.net/@${handle}/post/${publishedPostId}`;
+
+  return {
+    platform_post_id: publishedPostId,
+    raw: publishResponse.data,
+    url: permalink,
+  };
+}
+
+/**
+ * 引用投稿（Quote Post）を作成
+ * 他のユーザーの投稿を引用して新しい投稿を作成します
+ */
+export async function publishThreadsQuotePost(
+  account: AccountDoc,
+  payload: { text: string; quotePostId: string },
+): Promise<PublishResult> {
+  const accessToken = getThreadsAccessToken(account);
+  if (!accessToken) {
+    throw new Error("Threads access token is not configured");
+  }
+
+  const userId = getThreadsUserId(account);
+  if (!userId) {
+    throw new Error("Threads user ID is not configured");
+  }
+
+  // Step 1: Create a media container with quote_post_id
+  const containerResponse = await axios.post<{ id: string }>(
+    `${THREADS_API_BASE}/${userId}/threads`,
+    {
+      media_type: "TEXT",
+      text: payload.text,
+      quote_post_id: payload.quotePostId,
+      access_token: accessToken,
+    },
+  );
+
+  const creationId = containerResponse.data?.id;
+  if (typeof creationId !== "string") {
+    throw new Error("Failed to create Threads quote post container: creation_id not found");
+  }
+
+  // Step 2: Publish the media container
+  const publishResponse = await axios.post<{ id: string }>(
+    `${THREADS_API_BASE}/${userId}/threads_publish`,
+    {
+      creation_id: creationId,
+      access_token: accessToken,
+    },
+  );
+
+  const publishedPostId = publishResponse.data?.id;
+  if (typeof publishedPostId !== "string") {
+    throw new Error("Failed to publish Threads quote post: final post ID not found");
+  }
+
+  const handle = account.handle.startsWith("@") ? account.handle.slice(1) : account.handle;
+  const permalink = `https://www.threads.net/@${handle}/post/${publishedPostId}`;
+
+  return {
+    platform_post_id: publishedPostId,
+    raw: publishResponse.data,
+    url: permalink,
+  };
+}
+
+/**
+ * 返信（Reply）を作成
+ * 特定の投稿に対して返信を投稿します
+ */
+export async function publishThreadsReply(
+  account: AccountDoc,
+  payload: { text: string; replyToId: string },
+): Promise<PublishResult> {
+  const accessToken = getThreadsAccessToken(account);
+  if (!accessToken) {
+    throw new Error("Threads access token is not configured");
+  }
+
+  const userId = getThreadsUserId(account);
+  if (!userId) {
+    throw new Error("Threads user ID is not configured");
+  }
+
+  // Step 1: Create a media container with reply_to_id
+  const containerResponse = await axios.post<{ id: string }>(
+    `${THREADS_API_BASE}/${userId}/threads`,
+    {
+      media_type: "TEXT",
+      text: payload.text,
+      reply_to_id: payload.replyToId,
+      access_token: accessToken,
+    },
+  );
+
+  const creationId = containerResponse.data?.id;
+  if (typeof creationId !== "string") {
+    throw new Error("Failed to create Threads reply container: creation_id not found");
+  }
+
+  // Step 2: Publish the media container
+  const publishResponse = await axios.post<{ id: string }>(
+    `${THREADS_API_BASE}/${userId}/threads_publish`,
+    {
+      creation_id: creationId,
+      access_token: accessToken,
+    },
+  );
+
+  const publishedPostId = publishResponse.data?.id;
+  if (typeof publishedPostId !== "string") {
+    throw new Error("Failed to publish Threads reply: final post ID not found");
   }
 
   const handle = account.handle.startsWith("@") ? account.handle.slice(1) : account.handle;
