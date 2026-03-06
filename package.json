@@ -7,11 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "sync:posts": "tsx scripts/sync.ts",
-    "sync:schedules": "tsx scripts/execute-scheduled.ts",
-    "sync:refresh-tokens": "tsx scripts/refresh-tokens.ts",
-    "auto:sync": "tsx scripts/auto-sync.ts",
-    "auto:generate": "tsx scripts/auto-generate-drafts.ts"
+    "sync:posts": "tsx -r dotenv/config scripts/sync.ts",
+    "sync:schedules": "tsx -r dotenv/config scripts/execute-scheduled.ts",
+    "sync:refresh-tokens": "tsx -r dotenv/config scripts/refresh-tokens.ts",
+    "auto:sync": "tsx -r dotenv/config scripts/auto-sync.ts",
+    "auto:generate": "tsx -r dotenv/config scripts/auto-generate-drafts.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.53",
@@ -37,6 +37,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "dotenv": "^17.3.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.33",
     "postcss": "^8",

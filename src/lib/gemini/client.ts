@@ -73,6 +73,103 @@ export async function requestGemini(prompt: string): Promise<unknown> {
     const keyIndex = (startIndex + i) % keys.length;
     const apiKey = keys[keyIndex];
 
+    const MAX_DEMAND_RETRIES = 3;
+    let demandRetries = 0;
+
+    while (demandRetries <= MAX_DEMAND_RETRIES) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: GENERATION_CONFIG,
+            }),
+          }
+        );
+
+        let data: GeminiApiError = {};
+        let textContent = "";
+        try {
+          textContent = await response.text();
+          data = JSON.parse(textContent);
+        } catch {
+          data = { error: { message: textContent || "Non-JSON response received." } };
+        }
+
+        if (!response.ok) {
+          const errorMessage = data?.error?.message ?? `Gemini API request failed with status ${response.status}`;
+          const errorCode = data?.error?.code ?? response.status;
+          const isHighDemand = response.status === 503 || errorCode === 503 || errorMessage.includes("high demand") || errorMessage.includes("currently experiencing");
+
+          if (isHighDemand) {
+            console.warn(`[Gemini] High demand error (attempt ${demandRetries + 1}/${MAX_DEMAND_RETRIES + 1}). Waiting before retry...`);
+            lastError = new Error(errorMessage);
+            if (demandRetries < MAX_DEMAND_RETRIES) {
+              await new Promise(resolve => setTimeout(resolve, (demandRetries + 1) * 3000));
+              demandRetries++;
+              continue;
+            } else {
+              console.warn(`[Gemini] Max retries reached for high demand. Switching to next API key...`);
+              break;
+            }
+          }
+
+          // If 429 (rate limit), try next key
+          if (errorCode === 429 || response.status === 429 || errorMessage.includes("429")) {
+            console.warn(`[Gemini] Rate limit (429) hit on API key ${keyIndex + 1}/${keys.length}. Switching to next key...`);
+            lastError = new Error(errorMessage);
+            break;
+          }
+
+          // Other errors, throw immediately
+          throw new Error(errorMessage);
+        }
+
+        // Success! Update last used index for round-robin
+        lastUsedKeyIndex = keyIndex;
+        return data;
+      } catch (error) {
+        // Network or other errors
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        if (errorMsg.includes("429")) {
+          console.warn(`[Gemini] Rate limit hit on API key ${keyIndex + 1}/${keys.length}. Switching to next key...`);
+          lastError = error instanceof Error ? error : new Error(errorMsg);
+          break; // Try next key
+        }
+        if (errorMsg.includes("high demand") || errorMsg.includes("currently experiencing") || errorMsg.includes("503")) {
+          console.warn(`[Gemini] High demand error in catch block (attempt ${demandRetries + 1}/${MAX_DEMAND_RETRIES + 1}). Waiting before retry...`);
+          lastError = error instanceof Error ? error : new Error(errorMsg);
+          if (demandRetries < MAX_DEMAND_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, (demandRetries + 1) * 3000));
+            demandRetries++;
+            continue;
+          } else {
+            break; // Try next key
+          }
+        }
+        throw error;
+      }
+    }
+  }
+
+  // All keys exhausted
+  throw new Error(
+    `All Gemini API keys have hit rate limits or high demand. Tried ${keys.length} key(s). Last error: ${lastError?.message ?? "Unknown error"}`
+  );
+}
+
+/**
+ * Make a request to Gemini API with a specific API key (no failover)
+ * Use this when you need to use a specific key
+ */
+export async function requestGeminiWithKey(prompt: string, apiKey: string): Promise<unknown> {
+  const MAX_DEMAND_RETRIES = 3;
+  let demandRetries = 0;
+
+  while (demandRetries <= MAX_DEMAND_RETRIES) {
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -86,65 +183,40 @@ export async function requestGemini(prompt: string): Promise<unknown> {
         }
       );
 
-      const data = await response.json() as GeminiApiError;
+      let data: GeminiApiError = {};
+      let textContent = "";
+      try {
+        textContent = await response.text();
+        data = JSON.parse(textContent);
+      } catch {
+        data = { error: { message: textContent || "Non-JSON response received." } };
+      }
 
       if (!response.ok) {
         const errorMessage = data?.error?.message ?? `Gemini API request failed with status ${response.status}`;
         const errorCode = data?.error?.code ?? response.status;
+        const isHighDemand = response.status === 503 || errorCode === 503 || errorMessage.includes("high demand") || errorMessage.includes("currently experiencing");
 
-        // If 429 (rate limit), try next key
-        if (errorCode === 429 || response.status === 429) {
-          console.warn(`[Gemini] Rate limit (429) hit on API key ${keyIndex + 1}/${keys.length}. Switching to next key...`);
-          lastError = new Error(errorMessage);
+        if (isHighDemand && demandRetries < MAX_DEMAND_RETRIES) {
+          console.warn(`[Gemini] High demand error in requestGeminiWithKey (attempt ${demandRetries + 1}/${MAX_DEMAND_RETRIES + 1}). Waiting before retry...`);
+          await new Promise(resolve => setTimeout(resolve, (demandRetries + 1) * 3000));
+          demandRetries++;
           continue;
         }
 
-        // Other errors, throw immediately
         throw new Error(errorMessage);
       }
 
-      // Success! Update last used index for round-robin
-      lastUsedKeyIndex = keyIndex;
       return data;
     } catch (error) {
-      // Network or other errors
-      if (error instanceof Error && error.message.includes("429")) {
-        console.warn(`[Gemini] Rate limit hit on API key ${keyIndex + 1}/${keys.length}. Switching to next key...`);
-        lastError = error;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if ((errorMsg.includes("high demand") || errorMsg.includes("currently experiencing") || errorMsg.includes("503")) && demandRetries < MAX_DEMAND_RETRIES) {
+        console.warn(`[Gemini] High demand error in requestGeminiWithKey catch block (attempt ${demandRetries + 1}/${MAX_DEMAND_RETRIES + 1}). Waiting before retry...`);
+        await new Promise(resolve => setTimeout(resolve, (demandRetries + 1) * 3000));
+        demandRetries++;
         continue;
       }
       throw error;
     }
   }
-
-  // All keys exhausted
-  throw new Error(
-    `All Gemini API keys have hit rate limits (429). Tried ${keys.length} key(s). Last error: ${lastError?.message ?? "Unknown error"}`
-  );
-}
-
-/**
- * Make a request to Gemini API with a specific API key (no failover)
- * Use this when you need to use a specific key
- */
-export async function requestGeminiWithKey(prompt: string, apiKey: string): Promise<unknown> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: GENERATION_CONFIG,
-      }),
-    }
-  );
-
-  const data = await response.json() as GeminiApiError;
-
-  if (!response.ok) {
-    throw new Error(data?.error?.message ?? `Gemini API request failed with status ${response.status}`);
-  }
-
-  return data;
 }
