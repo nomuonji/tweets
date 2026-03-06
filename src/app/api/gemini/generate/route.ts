@@ -1,55 +1,18 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
 import { requestGemini } from "@/lib/gemini/client";
+import { parseGeminiResponse, type GeminiSuggestion } from "@/lib/gemini/parser";
 import { preparePromptPayload } from "@/lib/services/prompt-service";
 import { requestGrok } from "@/lib/grok/client";
-
-
-
-type GeminiSuggestion = { tweet: string; explanation: string; };
-type GeminiFunctionCall = { args?: Record<string, unknown> };
-type GeminiPart = { text?: string; functionCall?: GeminiFunctionCall };
-type GeminiContent = { parts?: GeminiPart[] };
-type GeminiCandidate = { content?: GeminiContent };
-type GeminiResponse = { candidates?: GeminiCandidate[] };
 
 type GenerateRequestBody = {
   accountId?: string;
   limit?: number;
 };
 
-function sanitizeCandidateText(text: string) {
-  return text.replace(/```json\s*/gi, "").replace(/```\s*$/g, "").trim();
-}
-
 function normalizeText(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
-
-function parseSuggestion(raw: unknown): GeminiSuggestion {
-  if (!raw || typeof raw !== "object") throw new Error("Gemini response was empty.");
-  const { candidates } = raw as GeminiResponse;
-  const candidateParts = candidates?.[0]?.content?.parts ?? [];
-  const text = candidateParts.map((part) => part?.text ?? "").join("").trim() ?? "";
-  if (!text) {
-    const functionArgs = candidateParts.map((part) => part?.functionCall?.args ?? null).filter((args): args is Record<string, unknown> => Boolean(args));
-    const candidateArgs = functionArgs.find((args) => typeof args.tweet === "string" && typeof args.explanation === "string") as { tweet?: string; explanation?: string } | undefined;
-    if (candidateArgs?.tweet && candidateArgs?.explanation) return { tweet: candidateArgs.tweet, explanation: candidateArgs.explanation };
-    throw new Error(`Gemini response did not include any text. Raw snippet: ${JSON.stringify(raw).slice(0, 400)}`);
-  }
-  const cleaned = sanitizeCandidateText(text);
-  try {
-    const json = JSON.parse(cleaned);
-    if (typeof json.tweet === "string" && typeof json.explanation === "string") return json;
-  } catch { }
-  const tweetMatch = cleaned.match(/"tweet"\s*:\s*"([^"]+)"/i);
-  const explanationMatch = cleaned.match(/"explanation"\s*:\s*"([^"]+)"/i);
-  if (tweetMatch && explanationMatch) return { tweet: tweetMatch[1], explanation: explanationMatch[1] };
-  const sections = cleaned.split(/\n{2,}/);
-  return { tweet: sections[0] ?? cleaned, explanation: sections.slice(1).join("\n\n") || "Failed to extract a reasoning explanation from the model response." };
-}
-
-
 
 export async function POST(request: Request) {
   try {
@@ -114,7 +77,7 @@ export async function POST(request: Request) {
         );
         finalPrompt = prompt;
         const raw = await requestGemini(prompt);
-        suggestion = parseSuggestion(raw);
+        suggestion = parseGeminiResponse(raw);
         const normalizedSuggestion = normalizeText(suggestion.tweet);
         duplicate = normalizedDrafts.has(normalizedSuggestion);
         if (!duplicate) break;
