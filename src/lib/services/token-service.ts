@@ -44,22 +44,23 @@ async function refreshThreadsToken(account: AccountDoc) {
   if (!account.token_meta?.refresh_token) {
     throw new Error(`No refresh token for account ${account.id}`);
   }
-  const response = await axios.post(
-    "https://graph.facebook.com/v17.0/oauth/access_token",
-    {
-      grant_type: "fb_exchange_token",
-      client_id: process.env.THREADS_APP_ID,
-      client_secret: process.env.THREADS_APP_SECRET,
-      fb_exchange_token: account.token_meta.refresh_token,
-    },
+
+  // Threads access tokens act as their own refresh tokens to extend their life
+  const params = new URLSearchParams({
+    grant_type: "th_refresh_token",
+    access_token: account.token_meta.refresh_token,
+  });
+
+  const response = await axios.get(
+    `https://graph.threads.net/v1.0/refresh_access_token?${params.toString()}`
   );
 
   const data = response.data;
   return {
     access_token: data.access_token,
-    refresh_token: data.access_token,
+    refresh_token: data.access_token, // Replace old with new
     expires_in: data.expires_in,
-    token_type: "Bearer",
+    token_type: data.token_type ?? "Bearer",
   };
 }
 
