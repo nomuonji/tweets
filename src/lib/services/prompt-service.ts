@@ -116,7 +116,10 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   const payload = await preparePromptPayload(accountId, limit);
   const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts } = payload;
 
-  const normalizedDrafts = new Set(drafts.map((draft) => normalizeText(draft.text ?? "")));
+  const normalizedAvoids = new Set([
+    ...drafts.map((d) => d.text ?? ""),
+    ...recentPosts.map((p) => p.text ?? "")
+  ].map(normalizeText));
 
   const maxAttempts = 3;
   const extraAvoid: string[] = [];
@@ -128,7 +131,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     const raw = await requestGemini(prompt);
     suggestion = parseGeminiResponse(raw);
     const normalizedSuggestion = normalizeText(suggestion.tweet);
-    duplicate = normalizedDrafts.has(normalizedSuggestion);
+    duplicate = normalizedAvoids.has(normalizedSuggestion);
     if (!duplicate) break;
     extraAvoid.push(suggestion.tweet);
   }

@@ -33,7 +33,7 @@ npx tsx -r dotenv/config .agent/workflows/scripts/get_accounts.ts > context.json
 取得した各アカウントについて、`neededCount` で指定された数だけ新しいドラフト文（プラットフォームの特性に合わせて140文字推奨など）を **あなた自身の知能で考案** してください。
 - 過去の投稿 (`recentPosts`, `topPosts`) のトーン＆マナーを踏襲すること
 - `exemplaryPosts` や `tips` の書き方を参考にすること
-- 過去の投稿や既存の `drafts` と全く同じ内容にならないようにすること
+- **【重要】過去の投稿 (`recentPosts`) や既存の `drafts` と、文字列レベルでも内容・展開レベルでも絶対に重複（全く同じ、あるいは酷似した内容）にならないよう厳密にチェックすること。同じ言い回しやオチの使い回しを避けること。**
 
 生成したドラフトは以下の JSON フォーマットの配列にまとめ、一時ファイル `generated_drafts.json` に保存してください（ファイル出力ツールを用いてください）。
 
