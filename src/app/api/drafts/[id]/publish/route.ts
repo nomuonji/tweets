@@ -46,21 +46,51 @@ export async function POST(
     }
 
     const draftRef = adminDb.collection("drafts").doc(draftId);
-    const draftSnapshot = await draftRef.get();
 
-    if (!draftSnapshot.exists) {
+    let draft: DraftDoc;
+    try {
+      draft = await adminDb.runTransaction(async (transaction) => {
+        const doc = await transaction.get(draftRef);
+        if (!doc.exists) {
+          throw new Error("Draft not found");
+        }
+        const data = doc.data() as DraftDoc;
+        if (data.status === "publishing") {
+          throw new Error("Draft is already being published");
+        }
+        transaction.update(draftRef, { status: "publishing" });
+        return { ...data, id: doc.id } as DraftDoc;
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "Draft not found") {
+        return NextResponse.json(
+          { ok: false, message: "Draft not found" },
+          { status: 404 },
+        );
+      }
       return NextResponse.json(
-        { ok: false, message: "Draft not found" },
-        { status: 404 },
+        { ok: false, message: err instanceof Error ? err.message : String(err) },
+        { status: 409 },
       );
     }
 
-    const draft = { id: draftSnapshot.id, ...draftSnapshot.data() } as DraftDoc;
-
     // --- Start of logic duplicated from scheduler-service.ts ---
+    const accountId = draft.target_account_id;
+    const fullText = buildPostText(draft);
+
+    if (accountId) {
+      const { hasDuplicatePost } = await import("@/lib/services/scheduler-service");
+      const isDuplicate = await hasDuplicatePost(accountId, fullText);
+      if (isDuplicate) {
+        return NextResponse.json(
+          { ok: false, message: "A duplicate post was recently published for this account." },
+          { status: 409 },
+        );
+      }
+    }
+
     const result = await publishDraft(draft);
     const nowStr = DateTime.utc().toISO();
-    const accountId = draft.target_account_id;
 
     const prefixedId = `${draft.target_platform}_${result.platform_post_id}`;
 
@@ -89,7 +119,7 @@ export async function POST(
 
     const batch = adminDb.batch();
     const postRef = adminDb.collection("posts").doc(prefixedId);
-    
+
     batch.set(postRef, newPost);
     batch.delete(draftRef);
 

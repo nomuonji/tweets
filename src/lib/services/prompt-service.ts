@@ -136,7 +136,9 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     extraAvoid.push(suggestion.tweet);
   }
 
-  if (!suggestion) throw new Error("Failed to generate a unique suggestion.");
+  if (!suggestion || duplicate) {
+    throw new Error("Failed to generate a unique suggestion after multiple attempts. Skipping to prevent duplicate posts.");
+  }
 
   const now = DateTime.utc().toISO()!;
   const draftId = `gemini_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

@@ -29,6 +29,34 @@ async function publishDraft(draft: DraftDoc) {
   return publishThreadsPost(account, { text: buildPostText(draft) });
 }
 
+export async function hasDuplicatePost(accountId: string, text: string): Promise<boolean> {
+  const windowStart = DateTime.utc().minus({ hours: 24 }).toISO();
+  let snapshot;
+  try {
+    snapshot = await adminDb
+      .collection("posts")
+      .where("account_id", "==", accountId)
+      .where("created_at", ">", windowStart)
+      .get();
+  } catch (error) {
+    // If index is missing, just fetch recent and filter in memory
+    const fallbackSnapshot = await adminDb
+      .collection("posts")
+      .where("account_id", "==", accountId)
+      .orderBy("created_at", "desc")
+      .limit(30)
+      .get();
+
+    return fallbackSnapshot.docs.some(doc => {
+      const data = doc.data() as PostDoc;
+      if (data.created_at < windowStart) return false;
+      return data.text === text;
+    });
+  }
+
+  return snapshot.docs.some(doc => (doc.data() as PostDoc).text === text);
+}
+
 export async function executeDueSchedules(nowIso: string | null = DateTime.utc().toISO()) {
   const now = DateTime.fromISO(nowIso ?? DateTime.utc().toISO()!).setZone('Asia/Tokyo');
   const windowStart = now.minus({ minutes: 59 });
@@ -61,7 +89,7 @@ export async function executeDueSchedules(nowIso: string | null = DateTime.utc()
       })
       .filter(scheduleTime => scheduleTime > windowStart && scheduleTime <= now)
       .sort((a, b) => a.toMillis() - b.toMillis())
-      [0];
+    [0];
 
     if (!dueSchedule) {
       continue; // No schedule due for this account in this window
@@ -79,9 +107,38 @@ export async function executeDueSchedules(nowIso: string | null = DateTime.utc()
       continue;
     }
 
-    const draft = mapDraft(draftsSnapshot.docs[0]);
+    const initialDraft = mapDraft(draftsSnapshot.docs[0]);
+    let draft: DraftDoc | null = null;
 
     try {
+      draft = await adminDb.runTransaction(async (transaction) => {
+        const docRef = adminDb.collection("drafts").doc(initialDraft.id);
+        const doc = await transaction.get(docRef);
+        if (!doc.exists) return null;
+        const data = doc.data() as DraftDoc;
+        if (data.status === "publishing") return null;
+        transaction.update(docRef, { status: "publishing" });
+        return { ...data, id: doc.id } as DraftDoc;
+      });
+    } catch (e) {
+      console.error(`[Scheduler] Transaction failed for draft ${initialDraft.id}`, e);
+    }
+
+    if (!draft) {
+      console.log(`[Scheduler] Draft ${initialDraft.id} is already locked by another process or deleted.`);
+      continue;
+    }
+
+    try {
+      const fullText = buildPostText(draft);
+      const isDuplicate = await hasDuplicatePost(accountId, fullText);
+      if (isDuplicate) {
+        console.warn(`[Scheduler] Skipping duplicate post for account ${accountId}: "${fullText.substring(0, 30)}..."`);
+        const draftRef = adminDb.collection("drafts").doc(draft.id);
+        await draftRef.delete();
+        continue;
+      }
+
       const result = await publishDraft(draft);
       const nowStr = now.toISO() ?? DateTime.utc().toISO()!;
 

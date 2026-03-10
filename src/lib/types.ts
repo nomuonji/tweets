@@ -1,6 +1,6 @@
 export type Platform = "x" | "threads";
 export type MediaType = "text" | "image" | "video";
-export type DraftStatus = "draft" | "scheduled" | "published";
+export type DraftStatus = "draft" | "scheduled" | "publishing" | "published";
 
 export interface Tip {
   id: string;
