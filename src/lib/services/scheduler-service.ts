@@ -38,7 +38,8 @@ export async function hasDuplicatePost(accountId: string, text: string): Promise
       .where("account_id", "==", accountId)
       .where("created_at", ">", windowStart)
       .get();
-  } catch (error) {
+  } catch (error: unknown) {
+    console.warn("[Scheduler] Fetching index failed. Falling back...", error);
     // If index is missing, just fetch recent and filter in memory
     const fallbackSnapshot = await adminDb
       .collection("posts")
@@ -120,7 +121,7 @@ export async function executeDueSchedules(nowIso: string | null = DateTime.utc()
         transaction.update(docRef, { status: "publishing" });
         return { ...data, id: doc.id } as DraftDoc;
       });
-    } catch (e) {
+    } catch (e: unknown) {
       console.error(`[Scheduler] Transaction failed for draft ${initialDraft.id}`, e);
     }
 
@@ -178,7 +179,7 @@ export async function executeDueSchedules(nowIso: string | null = DateTime.utc()
 
       publishedCount++;
       console.log(`[Scheduler] Published draft ${draft.id} and moved to posts as ${result.platform_post_id}.`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`[Scheduler] Failed to process draft ${draft.id} for account ${accountId}.`, error);
       console.log(`[Scheduler] Deleting failed draft ${draft.id}.`);
       const draftRef = adminDb.collection("drafts").doc(draft.id);
