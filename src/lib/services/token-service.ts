@@ -41,14 +41,16 @@ async function refreshXToken(account: AccountDoc) {
 }
 
 async function refreshThreadsToken(account: AccountDoc) {
-  if (!account.token_meta?.refresh_token) {
-    throw new Error(`No refresh token for account ${account.id}`);
+  const refreshToken = account.token_meta?.refresh_token || account.token_meta?.access_token;
+  
+  if (!refreshToken) {
+    throw new Error(`No refresh token or access token found for account ${account.id}`);
   }
 
   // Threads access tokens act as their own refresh tokens to extend their life
   const params = new URLSearchParams({
     grant_type: "th_refresh_token",
-    access_token: account.token_meta.refresh_token,
+    access_token: refreshToken,
   });
 
   const response = await axios.get(
