@@ -38,7 +38,8 @@ export async function hasDuplicatePost(accountId: string, text: string): Promise
       .where("account_id", "==", accountId)
       .where("created_at", ">", windowStart)
       .get();
-  } catch (error) {
+  } catch (error: unknown) {
+    console.warn(`[scheduler-service] Index may be missing for 'posts' collection query. Falling back to in-memory filter.`, error);
     // If index is missing, just fetch recent and filter in memory
     const fallbackSnapshot = await adminDb
       .collection("posts")
