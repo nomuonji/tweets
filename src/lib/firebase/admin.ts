@@ -12,7 +12,11 @@ function getServiceAccount() {
       raw.trim().startsWith("{") && raw.trim().endsWith("}")
         ? raw
         : Buffer.from(raw, "base64").toString("utf-8");
-    return JSON.parse(json);
+    const parsed = JSON.parse(json);
+    if (parsed.private_key) {
+      parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+    }
+    return parsed;
   } catch {
     throw new Error("Failed to parse FIREBASE_SERVICE_ACCOUNT");
   }
