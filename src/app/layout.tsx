@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { getAccounts } from "@/lib/services/firestore.server";
+import { themeInitScript } from "@/lib/theme";
 import type { AccountDoc } from "@/lib/types";
 
 const geistSans = localFont({
@@ -52,15 +53,27 @@ export default async function RootLayout({
   const initialSelectedAccountId =
     storedAccountId && accounts.some((account) => account.id === storedAccountId)
       ? storedAccountId
-      : accounts[0]?.id ?? null;
+      : (accounts[0]?.id ?? null);
 
   return (
-    <html lang="ja" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <AppShell accounts={accounts} initialSelectedAccountId={initialSelectedAccountId}>
+    // suppressHydrationWarning: the theme script below sets the `dark` class on
+    // <html> before React hydrates, so server and client markup differ by design.
+    <html
+      lang="ja"
+      className={`${geistSans.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <AppShell
+        accounts={accounts}
+        initialSelectedAccountId={initialSelectedAccountId}
+      >
         {quotaWarning ? (
-          <p className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            Firestore quota was exceeded while loading accounts. Account data may be limited until the quota resets.
-          </p>
+          <div className="mb-6 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+            Firestore の読み取り上限に達したため、アカウント情報を取得できませんでした。上限がリセットされるまで表示が制限されます。
+          </div>
         ) : null}
         {children}
       </AppShell>

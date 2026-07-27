@@ -1,5 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { linkButton } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { ExternalLinkIcon } from "@/components/ui/icons";
 
 const PROVIDER_GUIDE: Record<
   string,
@@ -11,28 +20,27 @@ const PROVIDER_GUIDE: Record<
   }
 > = {
   x: {
-    name: "X (Twitter)",
-    docs:
-      "https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code",
+    name: "X（旧 Twitter）",
+    docs: "https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code",
     callbackNote:
-      "Register the callback URL you plan to use (for example `/api/oauth/callback`) in the Twitter Developer Portal and pass it as `redirect_uri`.",
+      "使用するコールバック URL（例: /api/oauth/x/callback）を Twitter Developer Portal に登録し、redirect_uri として渡してください。",
     steps: [
-      "Create an application in the Twitter Developer Portal and obtain the OAuth 2.0 Client ID / Client Secret.",
-      "Implement the Authorization Code Flow with PKCE. Request scopes such as `tweet.read tweet.write users.read offline.access` as needed and redirect the user to the authorization URL.",
-      "Exchange the returned `code` together with the original `code_verifier` for an access token and refresh token, then store them in Firestore `/accounts`.",
-      "After saving tokens, run `npm run sync:posts` to pull the latest posts for scoring.",
+      "Twitter Developer Portal でアプリを作成し、OAuth 2.0 の Client ID / Client Secret を取得します。",
+      "PKCE つき Authorization Code Flow を使い、必要に応じて tweet.read / tweet.write / users.read / offline.access などのスコープを要求して認可 URL にリダイレクトします。",
+      "返ってきた code と元の code_verifier を交換してアクセストークンとリフレッシュトークンを取得し、Firestore の /accounts に保存します。",
+      "トークン保存後に npm run sync:posts を実行し、投稿を取り込んでスコアを計算します。",
     ],
   },
   threads: {
     name: "Threads",
     docs: "https://developers.facebook.com/docs/threads",
     callbackNote:
-      "Configure your Redirect URI in the Meta (Facebook) App dashboard when using the Threads Graph API or alternative integration.",
+      "Threads Graph API を使う場合は、Meta（Facebook）App Dashboard でリダイレクト URI を設定してください。",
     steps: [
-      "Issue client credentials for Threads via Meta for Developers (or prepare the alternative integration you rely on).",
-      "Request the required permissions for reading and posting content. Submit for review if necessary.",
-      "Save the resulting access token and user identifiers into Firestore `/accounts`.",
-      "If tokens expire, schedule `npm run sync:refresh-tokens` or adjust the GitHub Actions cadence.",
+      "Meta for Developers で Threads 用のクライアント認証情報を発行します。",
+      "投稿の読み取りと作成に必要な権限を申請します。必要に応じて審査を通してください。",
+      "取得したアクセストークンとユーザー ID を Firestore の /accounts に保存します。",
+      "トークンが失効する場合は npm run sync:refresh-tokens を定期実行するか、GitHub Actions の間隔を調整します。",
     ],
   },
 };
@@ -52,50 +60,61 @@ export default function ProviderOAuthGuide({ params }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">{provider.name} OAuth setup</h1>
-        <p className="text-sm text-muted-foreground">
-          Use the checklist below to complete the OAuth flow. Handle the actual callback in an API route such as
-          `/api/oauth/callback` where you can persist tokens into Firestore.
-        </p>
-      </header>
+      <PageHeader
+        title={`${provider.name} の OAuth 設定`}
+        description="以下の手順で認可フローを完了させてください。実際のコールバック処理は API ルート側でトークンを保存します。"
+      />
 
-      <section className="space-y-3 rounded-xl border border-border bg-surface p-5 shadow-sm">
-        <h2 className="text-lg font-semibold">Steps</h2>
-        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-          {provider.steps.map((step, index) => (
-            <li key={index}>{step}</li>
-          ))}
-        </ol>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>設定手順</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="space-y-3">
+            {provider.steps.map((step, index) => (
+              <li key={index} className="flex gap-3 text-sm">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  {index + 1}
+                </span>
+                <span className="leading-relaxed text-muted-foreground">
+                  {step}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
 
-      <section className="space-y-3 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
-        <h2 className="text-base font-semibold text-foreground">Callback notes</h2>
-        <p>{provider.callbackNote}</p>
-        <p>
-          After exchanging the authorization code, store tokens together with metadata such as
-          <code className="mx-1 inline-block rounded bg-muted px-1 py-0.5 text-xs text-foreground">
+      <Card>
+        <CardHeader>
+          <CardTitle>コールバックについて</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>{provider.callbackNote}</p>
+          <p>
+            認可コードの交換後は、次のようなメタデータと合わせて Firestore に保存します。
+          </p>
+          <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs text-foreground">
             {`{ connected: true, scopes: [...], token_meta: { expires_at, refresh_token } }`}
-          </code>
-          in Firestore. Update `sync_cursor` after the first successful sync.
-        </p>
-      </section>
+          </pre>
+          <p>初回同期の成功後に sync_cursor が更新されます。</p>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-wrap gap-3 text-sm">
-        <Link
+      <div className="flex flex-wrap gap-2">
+        <a
           href={provider.docs}
           target="_blank"
-          className="rounded-md border border-primary px-3 py-2 text-primary transition hover:bg-primary hover:text-primary-foreground"
+          rel="noopener noreferrer"
+          className={linkButton("outline")}
         >
-          Open official docs
+          <ExternalLinkIcon className="h-4 w-4" />
+          公式ドキュメントを開く
+        </a>
+        <Link href="/accounts/connect" className={linkButton("ghost")}>
+          アカウント連携に戻る
         </Link>
-        <Link
-          href="/accounts/connect"
-          className="rounded-md px-3 py-2 text-muted-foreground transition hover:text-primary"
-        >
-          Back to account list
-        </Link>
-      </section>
+      </div>
     </div>
   );
 }

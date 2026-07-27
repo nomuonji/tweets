@@ -1,74 +1,101 @@
-'use client';
+"use client";
 
-import { useState, useEffect, FormEvent } from 'react';
-import { Tip, AccountDoc, Platform } from '@/lib/types';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import type { Tip, AccountDoc, Platform } from "@/lib/types";
+import { platformLabel } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button, linkButton } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { SkeletonList } from "@/components/ui/skeleton";
+import {
+  AlertIcon,
+  ExternalLinkIcon,
+  LightbulbIcon,
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@/components/ui/icons";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm";
 
 export default function TipsPage() {
+  const toast = useToast();
+  const confirm = useConfirm();
+
   const [tips, setTips] = useState<Tip[]>([]);
   const [accounts, setAccounts] = useState<AccountDoc[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Form state
-  const [postUrl, setPostUrl] = useState('');
+  const [postUrl, setPostUrl] = useState("");
   const [isFetchingPost, setIsFetchingPost] = useState(false);
   const [currentTip, setCurrentTip] = useState<Partial<Tip> | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchTipsAndAccounts();
-
-    const handleFocus = () => fetchTipsAndAccounts();
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, []);
-
-  const fetchTipsAndAccounts = async () => {
+  const fetchTipsAndAccounts = useCallback(async () => {
     try {
       setIsLoading(true);
       const [tipsResponse, accountsResponse] = await Promise.all([
-        fetch('/api/tips'),
-        fetch('/api/accounts'),
+        fetch("/api/tips"),
+        fetch("/api/accounts"),
       ]);
       const tipsData = await tipsResponse.json();
       const accountsData = await accountsResponse.json();
 
-      if (tipsData.ok) {
-        setTips(tipsData.tips);
-      } else {
-        throw new Error(tipsData.message || 'Failed to fetch tips.');
+      if (!tipsData.ok) {
+        throw new Error(tipsData.message || "Tips を取得できませんでした。");
+      }
+      if (!accountsData.ok) {
+        throw new Error(
+          accountsData.message || "アカウントを取得できませんでした。",
+        );
       }
 
-      if (accountsData.ok) {
-        setAccounts(accountsData.accounts);
-      } else {
-        throw new Error(accountsData.message || 'Failed to fetch accounts.');
-      }
+      setTips(tipsData.tips);
+      setAccounts(accountsData.accounts);
+      setError(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchTipsAndAccounts();
+    const handleFocus = () => fetchTipsAndAccounts();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [fetchTipsAndAccounts]);
+
+  /** Which accounts currently reference each tip. */
+  const usersByTip = useMemo(() => {
+    const map = new Map<string, AccountDoc[]>();
+    tips.forEach((tip) => {
+      map.set(
+        tip.id,
+        accounts.filter((account) => account.selectedTipIds?.includes(tip.id)),
+      );
+    });
+    return map;
+  }, [tips, accounts]);
 
   const handleFetchPost = async () => {
-    if (!postUrl) return;
+    if (!postUrl.trim()) return;
     setIsFetchingPost(true);
-    setError(null);
     try {
-      const response = await fetch('/api/scrape-post', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/scrape-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: postUrl }),
       });
-
       const data = await response.json();
-
       if (!data.ok) {
-        throw new Error(data.message || 'Failed to fetch post data.');
+        throw new Error(data.message || "投稿を取得できませんでした。");
       }
 
       const { post } = data;
@@ -80,249 +107,386 @@ export default function TipsPage() {
         title: post.text.substring(0, 40),
         account_ids: [],
       });
-      setIsEditing(true);
+      setPostUrl("");
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setIsFetchingPost(false);
-      setPostUrl('');
     }
-  };
-
-  const handleManualAdd = () => {
-    setCurrentTip({
-      text: '',
-      account_ids: [],
-    });
-    setIsEditing(true);
   };
 
   const handleEdit = (tip: Tip) => {
-    const associatedAccountIds = accounts.filter(acc => acc.selectedTipIds?.includes(tip.id)).map(acc => acc.id);
-    setCurrentTip({ ...tip, account_ids: associatedAccountIds });
-    setIsEditing(true);
+    setCurrentTip({
+      ...tip,
+      account_ids: (usersByTip.get(tip.id) ?? []).map((account) => account.id),
+    });
   };
 
-  const handleCancel = () => {
-    setCurrentTip(null);
-    setIsEditing(false);
-  };
+  const handleDelete = async (tip: Tip) => {
+    const ok = await confirm({
+      title: "この参考投稿を削除しますか？",
+      description: "削除すると元に戻せません。",
+      confirmLabel: "削除する",
+      destructive: true,
+    });
+    if (!ok) return;
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this reference post?')) {
-      try {
-        // TODO: Also remove this tip's ID from all accounts that use it.
-        const response = await fetch(`/api/tips/${id}`, { method: 'DELETE' });
-        const data = await response.json();
-        if (data.ok) {
-          fetchTipsAndAccounts();
-        } else {
-          throw new Error(data.message || 'Failed to delete post.');
-        }
-      } catch (err) {
-        setError((err as Error).message);
-      }
-    }
-  };
-
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!currentTip) return;
-
+    setDeletingId(tip.id);
     try {
-      // Step 1: Save the tip content (POST or PUT)
-      const isNewTip = !currentTip.id;
-      const tipApiUrl = isNewTip ? '/api/tips' : `/api/tips/${currentTip.id}`;
-      const tipApiMethod = isNewTip ? 'POST' : 'PUT';
-      const { ...tipData } = currentTip; // Exclude account_ids
-
-      const tipResponse = await fetch(tipApiUrl, {
-        method: tipApiMethod,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tipData),
-      });
-      const tipResult = await tipResponse.json();
-      if (!tipResult.ok) throw new Error(tipResult.message || 'Failed to save tip.');
-      
-      const savedTipId = tipResult.tip.id;
-
-      // Step 2: Update account associations
-      const desiredAccountIds = new Set(currentTip.account_ids || []);
-      
-      const updatePromises = accounts.map(account => {
-        const currentTipIds = new Set(account.selectedTipIds || []);
-        const hasTip = currentTipIds.has(savedTipId);
-        const wantsTip = desiredAccountIds.has(account.id);
-
-        if (hasTip === wantsTip) {
-          return null; // No change needed
-        }
-
-        if (wantsTip) {
-          currentTipIds.add(savedTipId);
-        } else {
-          currentTipIds.delete(savedTipId);
-        }
-
-        return fetch(`/api/accounts/${account.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selectedTipIds: Array.from(currentTipIds) }),
-        });
-      });
-
-      await Promise.all(updatePromises.filter(p => p !== null));
-
-      // Step 3: Refresh UI
-      handleCancel();
+      const response = await fetch(`/api/tips/${tip.id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!data.ok) throw new Error(data.message || "削除に失敗しました。");
       await fetchTipsAndAccounts();
-
+      toast.success("参考投稿を削除しました。");
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  const handleAccountSelection = (accountId: string) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!currentTip) return;
-    const currentIds = currentTip.account_ids || [];
-    const newIds = currentIds.includes(accountId)
-      ? currentIds.filter(id => id !== accountId)
-      : [...currentIds, accountId];
-    setCurrentTip({ ...currentTip, account_ids: newIds });
+
+    setIsSaving(true);
+    try {
+      // `account_ids` is a UI-only association; it is persisted on each account
+      // in step 2 rather than on the tip document.
+      const { account_ids: desiredIds = [], ...tipData } = currentTip;
+
+      const isNewTip = !currentTip.id;
+      const tipResponse = await fetch(
+        isNewTip ? "/api/tips" : `/api/tips/${currentTip.id}`,
+        {
+          method: isNewTip ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(tipData),
+        },
+      );
+      const tipResult = await tipResponse.json();
+      if (!tipResult.ok) {
+        throw new Error(tipResult.message || "保存に失敗しました。");
+      }
+
+      const savedTipId = tipResult.tip.id;
+      const desired = new Set(desiredIds);
+
+      // Only PATCH accounts whose association actually changed.
+      const updates = accounts
+        .map((account) => {
+          const tipIds = new Set(account.selectedTipIds ?? []);
+          const hasTip = tipIds.has(savedTipId);
+          const wantsTip = desired.has(account.id);
+          if (hasTip === wantsTip) return null;
+
+          if (wantsTip) tipIds.add(savedTipId);
+          else tipIds.delete(savedTipId);
+
+          return fetch(`/api/accounts/${account.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ selectedTipIds: Array.from(tipIds) }),
+          });
+        })
+        .filter((item): item is Promise<Response> => item !== null);
+
+      await Promise.all(updates);
+
+      setCurrentTip(null);
+      await fetchTipsAndAccounts();
+      toast.success("参考投稿を保存しました。");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  if (isLoading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error} <button onClick={fetchTipsAndAccounts}>Retry</button></div>;
+  const toggleAccount = (accountId: string) => {
+    setCurrentTip((prev) => {
+      if (!prev) return prev;
+      const ids = prev.account_ids ?? [];
+      return {
+        ...prev,
+        account_ids: ids.includes(accountId)
+          ? ids.filter((id) => id !== accountId)
+          : [...ids, accountId],
+      };
+    });
+  };
 
-  if (isEditing && currentTip) {
+  // --- Editor view -----------------------------------------------------------
+  if (currentTip) {
+    const isLinked = Boolean(currentTip.url);
     return (
-      <div className="p-4">
-        <h1 className="text-2xl font-bold mb-4">{currentTip.id ? 'Edit Reference Post' : 'Add New Reference Post'}</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Form fields are unchanged */}
-          <div>
-            <label htmlFor="text" className="block text-sm font-medium text-gray-700">Tip Text</label>
-            <textarea
-              id="text"
-              rows={6}
-              value={currentTip.text || ''}
-              onChange={(e) => setCurrentTip({ ...currentTip, text: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="author_handle" className="block text-sm font-medium text-gray-700">Author Handle</label>
-              <input
-                type="text"
-                id="author_handle"
-                value={currentTip.author_handle || ''}
-                onChange={(e) => setCurrentTip({ ...currentTip, author_handle: e.target.value })}
-                disabled={!!currentTip.url}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
-              />
-            </div>
-            <div>
-              <label htmlFor="platform" className="block text-sm font-medium text-gray-700">Platform</label>
-              <select
-                id="platform"
-                value={currentTip.platform || ''}
-                onChange={(e) => setCurrentTip({ ...currentTip, platform: e.target.value as Platform })}
-                disabled={!!currentTip.url}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
-              >
-                <option value="">Select Platform</option>
-                <option value="x">X</option>
-                <option value="threads">Threads</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Associate with Accounts</label>
-            <div className="mt-2 space-y-2">
-              {accounts.map(account => (
-                <div key={account.id} className="flex items-center">
-                  <input
-                    id={`account-${account.id}`}
-                    type="checkbox"
-                    checked={currentTip.account_ids?.includes(account.id) || false}
-                    onChange={() => handleAccountSelection(account.id)}
-                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+      <div className="space-y-6">
+        <PageHeader
+          title={currentTip.id ? "参考投稿を編集" : "参考投稿を追加"}
+          description="投稿生成のプロンプトに含める参考テキストを設定します。"
+        />
+
+        <Card>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <Field label="本文" hint="この内容がプロンプトに含まれます。">
+                {(id) => (
+                  <Textarea
+                    id={id}
+                    rows={6}
+                    required
+                    value={currentTip.text ?? ""}
+                    onChange={(event) =>
+                      setCurrentTip({ ...currentTip, text: event.target.value })
+                    }
                   />
-                  <label htmlFor={`account-${account.id}`} className="ml-3 block text-sm font-medium text-gray-700">
-                    @{account.handle} ({account.platform})
-                  </label>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-end space-x-2">
-            <button type="button" onClick={handleCancel} className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
-            <button type="submit" className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Save Post</button>
-          </div>
-        </form>
+                )}
+              </Field>
+
+              <Field label="タイトル" hint="一覧での識別に使われます。">
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={currentTip.title ?? ""}
+                    placeholder="例: 冒頭で結論を出す型"
+                    onChange={(event) =>
+                      setCurrentTip({ ...currentTip, title: event.target.value })
+                    }
+                  />
+                )}
+              </Field>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="投稿者のハンドル"
+                  hint={isLinked ? "URL から取得済みのため編集できません。" : undefined}
+                >
+                  {(id) => (
+                    <Input
+                      id={id}
+                      value={currentTip.author_handle ?? ""}
+                      disabled={isLinked}
+                      onChange={(event) =>
+                        setCurrentTip({
+                          ...currentTip,
+                          author_handle: event.target.value,
+                        })
+                      }
+                    />
+                  )}
+                </Field>
+
+                <Field
+                  label="プラットフォーム"
+                  hint={isLinked ? "URL から取得済みのため編集できません。" : undefined}
+                >
+                  {(id) => (
+                    <Select
+                      id={id}
+                      value={currentTip.platform ?? ""}
+                      disabled={isLinked}
+                      onChange={(event) =>
+                        setCurrentTip({
+                          ...currentTip,
+                          platform: event.target.value as Platform,
+                        })
+                      }
+                    >
+                      <option value="">選択してください</option>
+                      <option value="x">X</option>
+                      <option value="threads">Threads</option>
+                    </Select>
+                  )}
+                </Field>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">使用するアカウント</p>
+                {accounts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    連携済みのアカウントがありません。
+                  </p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {accounts.map((account) => (
+                      <Checkbox
+                        key={account.id}
+                        label={`@${account.handle}`}
+                        description={platformLabel(account.platform)}
+                        checked={
+                          currentTip.account_ids?.includes(account.id) ?? false
+                        }
+                        onChange={() => toggleAccount(account.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setCurrentTip(null)}
+                >
+                  キャンセル
+                </Button>
+                <Button type="submit" loading={isSaving}>
+                  保存する
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  // --- List view -------------------------------------------------------------
   return (
-    <div className="p-4">
-      {/* Main page view is unchanged */}
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Manage Reference Posts</h1>
-      </div>
-      <div className="mb-6 p-4 border rounded-md">
-        <label htmlFor="postUrl" className="block text-sm font-medium text-gray-700">Add Post by URL</label>
-        <div className="mt-1 flex rounded-md shadow-sm">
-          <input
-            type="url"
-            id="postUrl"
-            value={postUrl}
-            onChange={(e) => setPostUrl(e.target.value)}
-            className="block w-full flex-1 rounded-none rounded-l-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            placeholder="https://x.com/user/status/123..."
-          />
-          <button
-            onClick={handleFetchPost}
-            disabled={isFetchingPost}
-            className="inline-flex items-center rounded-r-md border border-l-0 border-gray-300 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+    <div className="space-y-6">
+      <PageHeader
+        title="Tips（参考投稿）"
+        description="伸びた投稿や参考にしたい型を登録し、アカウントごとに使い分けられます。"
+        actions={
+          <Button onClick={() => setCurrentTip({ text: "", account_ids: [] })}>
+            <PlusIcon className="h-4 w-4" />
+            手動で追加
+          </Button>
+        }
+      />
+
+      <Card>
+        <CardContent className="space-y-2">
+          <Field
+            label="URL から追加"
+            hint="X / Threads の投稿 URL を貼り付けると、本文を自動で取り込みます。"
           >
-            {isFetchingPost ? 'Fetching...' : 'Fetch & Add'}
-          </button>
+            {(id) => (
+              <div className="flex gap-2">
+                <Input
+                  id={id}
+                  type="url"
+                  value={postUrl}
+                  placeholder="https://x.com/user/status/..."
+                  onChange={(event) => setPostUrl(event.target.value)}
+                />
+                <Button
+                  loading={isFetchingPost}
+                  disabled={!postUrl.trim()}
+                  onClick={handleFetchPost}
+                >
+                  取り込む
+                </Button>
+              </div>
+            )}
+          </Field>
+        </CardContent>
+      </Card>
+
+      {isLoading ? (
+        <SkeletonList rows={3} />
+      ) : error ? (
+        <EmptyState
+          tone="error"
+          icon={<AlertIcon className="h-5 w-5" />}
+          title="Tips を読み込めませんでした"
+          description={error}
+          action={
+            <Button variant="outline" onClick={fetchTipsAndAccounts}>
+              再試行
+            </Button>
+          }
+        />
+      ) : tips.length === 0 ? (
+        <EmptyState
+          icon={<LightbulbIcon className="h-5 w-5" />}
+          title="参考投稿がまだありません"
+          description="上の URL 入力欄から取り込むか、手動で追加してください。"
+        />
+      ) : (
+        <div className="space-y-3">
+          {tips.map((tip) => {
+            const users = usersByTip.get(tip.id) ?? [];
+            return (
+              <Card key={tip.id}>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {tip.title ? (
+                      <h2 className="text-sm font-semibold">{tip.title}</h2>
+                    ) : null}
+                    {tip.platform ? (
+                      <Badge variant="outline">
+                        {platformLabel(tip.platform)}
+                      </Badge>
+                    ) : null}
+                    {tip.author_handle ? (
+                      <span className="text-xs text-muted-foreground">
+                        @{tip.author_handle}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {tip.text}
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">
+                      使用中:
+                    </span>
+                    {users.length > 0 ? (
+                      users.map((account) => (
+                        <Badge key={account.id} variant="primary">
+                          @{account.handle}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        どのアカウントでも未使用
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-1 border-t border-border pt-3">
+                    {tip.url ? (
+                      <a
+                        href={tip.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={linkButton("ghost", "sm")}
+                      >
+                        <ExternalLinkIcon className="h-3.5 w-3.5" />
+                        元の投稿
+                      </a>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleEdit(tip)}
+                    >
+                      <PencilIcon className="h-3.5 w-3.5" />
+                      編集
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      loading={deletingId === tip.id}
+                      onClick={() => handleDelete(tip)}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      {deletingId === tip.id ? null : (
+                        <TrashIcon className="h-3.5 w-3.5" />
+                      )}
+                      削除
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
-        <div className="mt-4">
-          <button
-            onClick={handleManualAdd}
-            className="inline-flex items-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-          >
-            Add Tip Manually
-          </button>
-        </div>
-      </div>
-      <div className="space-y-4">
-        {tips.map((tip) => (
-          <div key={tip.id} className="p-4 border rounded-md shadow-sm">
-            <p className="text-sm text-gray-500">@{tip.author_handle} on {tip.platform}</p>
-            <p className="mt-2 text-gray-800 whitespace-pre-wrap">{tip.text}</p>
-            <div className="mt-2">
-              <span className="text-xs font-semibold">Used by: </span>
-              {accounts.filter(acc => acc.selectedTipIds?.includes(tip.id)).length > 0 ? (
-                accounts.filter(acc => acc.selectedTipIds?.includes(tip.id)).map(acc => (
-                  <span key={acc.id} className="ml-1 inline-block bg-gray-200 rounded-full px-2 py-1 text-xs font-semibold text-gray-700">@{acc.handle}</span>
-                ))
-              ) : (
-                <span className="text-xs text-gray-500">Not used by any account.</span>
-              )}
-            </div>
-            <div className="mt-4 flex justify-end space-x-2">
-              <a href={tip.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">View Post</a>
-              <button onClick={() => handleEdit(tip)} className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Edit</button>
-              <button onClick={() => handleDelete(tip.id)} className="px-3 py-1 border border-transparent rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700">Delete</button>
-            </div>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }

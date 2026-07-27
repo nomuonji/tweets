@@ -1,239 +1,368 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { DateTime } from "luxon";
 import type { AccountDoc, Tip } from "@/lib/types";
-import { toTitleCase } from '@/lib/utils';
-import { TipsSelectionModal } from '@/components/tips-selection-modal';
+import {
+  DEFAULT_SCHEDULE_TIMEZONE,
+  findNextSlot,
+} from "@/lib/services/schedule-slots";
+import { platformLabel } from "@/lib/utils";
+import { TipsSelectionModal } from "@/components/tips-selection-modal";
+import { Badge } from "@/components/ui/badge";
+import { Button, linkButton } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox, Field, Textarea } from "@/components/ui/field";
+import { ScheduleEditor } from "@/components/schedule/schedule-editor";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { AlertIcon, PlusIcon, UsersIcon } from "@/components/ui/icons";
+import { useToast } from "@/components/ui/toast";
+
+/** Editable per-account settings, held in React state rather than read off the DOM. */
+type SettingsDraft = {
+  concept: string;
+  autoPostEnabled: boolean;
+  postSchedule: string[];
+};
+
+function toSettingsDraft(account: AccountDoc): SettingsDraft {
+  return {
+    concept: account.concept ?? "",
+    autoPostEnabled: account.autoPostEnabled ?? false,
+    postSchedule: account.postSchedule ?? [],
+  };
+}
+
+/** At-a-glance auto-post state, so "why didn't it post?" is answerable here. */
+function ScheduleSummary({ account }: { account: AccountDoc }) {
+  const schedule = account.postSchedule ?? [];
+
+  if (!account.autoPostEnabled) {
+    return (
+      <p className="text-xs text-muted-foreground">自動投稿はオフです。</p>
+    );
+  }
+
+  if (schedule.length === 0) {
+    return (
+      <p className="text-xs text-warning">
+        自動投稿はオンですが、投稿時刻が未設定のため実行されません。
+      </p>
+    );
+  }
+
+  const next = findNextSlot(
+    schedule,
+    DateTime.now().setZone(DEFAULT_SCHEDULE_TIMEZONE),
+  );
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      投稿時刻 {[...schedule].sort().join(" / ")}
+      {next ? ` ・ 次回 ${next.toFormat("M/d HH:mm")}` : ""}
+    </p>
+  );
+}
 
 export default function AccountsIndexPage() {
+  const toast = useToast();
+
   const [accounts, setAccounts] = useState<AccountDoc[]>([]);
   const [allTips, setAllTips] = useState<Tip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
-  
-  const [selectedAccount, setSelectedAccount] = useState<AccountDoc | null>(null);
 
-  const fetchData = async () => {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [tipsTarget, setTipsTarget] = useState<AccountDoc | null>(null);
+
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const [accountsRes, tipsRes] = await Promise.all([
-        fetch('/api/accounts'),
-        fetch('/api/tips'),
+        fetch("/api/accounts"),
+        fetch("/api/tips"),
       ]);
       const accountsData = await accountsRes.json();
       const tipsData = await tipsRes.json();
 
-      if (!accountsData.ok) throw new Error(accountsData.message || 'Failed to fetch accounts.');
-      if (!tipsData.ok) throw new Error(tipsData.message || 'Failed to fetch tips.');
+      if (!accountsData.ok) {
+        throw new Error(accountsData.message || "アカウントを取得できませんでした。");
+      }
+      if (!tipsData.ok) {
+        throw new Error(tipsData.message || "Tips を取得できませんでした。");
+      }
 
-      setAccounts(accountsData.accounts.sort((a: AccountDoc, b: AccountDoc) => a.handle.localeCompare(b.handle)));
+      setAccounts(
+        [...accountsData.accounts].sort((a: AccountDoc, b: AccountDoc) =>
+          a.handle.localeCompare(b.handle),
+        ),
+      );
       setAllTips(tipsData.tips);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
-  const handleOpenModal = (account: AccountDoc) => {
-    setSelectedAccount(account);
-  };
-
-  const handleCloseModal = () => {
-    setSelectedAccount(null);
+  const startEditing = (account: AccountDoc) => {
+    if (editingId === account.id) {
+      setEditingId(null);
+      setSettingsDraft(null);
+      return;
+    }
+    setEditingId(account.id);
+    setSettingsDraft(toSettingsDraft(account));
   };
 
   const handleSaveTips = async (updatedTipIds: string[]) => {
-    if (!selectedAccount) return;
-
+    if (!tipsTarget) return;
     try {
-      const response = await fetch(`/api/accounts/${selectedAccount.id}/tips`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(`/api/accounts/${tipsTarget.id}/tips`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selectedTipIds: updatedTipIds }),
       });
       const data = await response.json();
-      if (!data.ok) throw new Error(data.message || 'Failed to update tips.');
-      
-      // Update local state to reflect changes immediately
-      setAccounts(prev => 
-        prev.map(acc => 
-          acc.id === selectedAccount.id ? { ...acc, selectedTipIds: updatedTipIds } : acc
-        )
+      if (!data.ok) throw new Error(data.message || "Tips を更新できませんでした。");
+
+      setAccounts((prev) =>
+        prev.map((account) =>
+          account.id === tipsTarget.id
+            ? { ...account, selectedTipIds: updatedTipIds }
+            : account,
+        ),
       );
-      handleCloseModal();
+      setTipsTarget(null);
+      toast.success("Tips の設定を保存しました。");
     } catch (err) {
-      setError((err as Error).message); // Show error to user
+      toast.error((err as Error).message);
     }
   };
 
   const handleSaveSettings = async (accountId: string) => {
-    const concept = (document.getElementById(`concept-${accountId}`) as HTMLTextAreaElement).value;
-    const autoPostEnabled = (document.getElementById(`autoPostEnabled-${accountId}`) as HTMLInputElement).checked;
-    const postSchedule: string[] = [];
-    for (let i = 0; i < 5; i++) {
-      const timeInput = document.getElementById(`postSchedule-${accountId}-${i}`) as HTMLInputElement;
-      if (timeInput.value) {
-        postSchedule.push(timeInput.value);
-      }
-    }
+    if (!settingsDraft) return;
+    setIsSaving(true);
+
+    const payload = {
+      concept: settingsDraft.concept,
+      autoPostEnabled: settingsDraft.autoPostEnabled,
+      postSchedule: settingsDraft.postSchedule.filter(Boolean).sort(),
+    };
 
     try {
-      const response = await fetch(`/api/accounts/${accountId}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ concept, autoPostEnabled, postSchedule }),
-        });
+      const response = await fetch(`/api/accounts/${accountId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       const data = await response.json();
-      if (!data.ok) throw new Error(data.message || 'Failed to update settings.');
+      if (!data.ok) throw new Error(data.message || "設定を更新できませんでした。");
 
-      setAccounts(prev =>
-        prev.map(acc =>
-          acc.id === accountId ? { ...acc, concept, autoPostEnabled, postSchedule } : acc
-        )
+      setAccounts((prev) =>
+        prev.map((account) =>
+          account.id === accountId ? { ...account, ...payload } : account,
+        ),
       );
-      setEditingAccountId(null); // Close the form
+      setEditingId(null);
+      setSettingsDraft(null);
+      toast.success("設定を保存しました。");
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  if (isLoading) return <div className="text-center p-8">Loading accounts...</div>;
-  if (error) return <div className="rounded-xl border border-destructive bg-destructive/10 p-4 text-sm text-destructive">Error: {error} <button onClick={fetchData} className="font-semibold underline">Retry</button></div>;
-
   return (
-    <div className="space-y-8">
-      {selectedAccount && (
-        <TipsSelectionModal 
-          account={selectedAccount}
+    <div className="space-y-6">
+      <PageHeader
+        title="アカウント"
+        description="接続状況、コンセプト、自動投稿スケジュール、生成に使う Tips を設定できます。"
+        actions={
+          <Link href="/accounts/connect" className={linkButton()}>
+            <PlusIcon className="h-4 w-4" />
+            アカウントを連携
+          </Link>
+        }
+      />
+
+      {tipsTarget ? (
+        <TipsSelectionModal
+          account={tipsTarget}
           allTips={allTips}
-          onClose={handleCloseModal}
+          onClose={() => setTipsTarget(null)}
           onSave={handleSaveTips}
         />
-      )}
+      ) : null}
 
-      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">アカウント一覧</h1>
-          <p className="text-sm text-muted-foreground">
-            接続済みアカウントの接続状況や生成に利用するTipsを設定できます。
-          </p>
-        </div>
-        <Link
-          href="/accounts/connect"
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
-        >
-          新しいアカウントを連携
-        </Link>
-      </header>
-
-      {accounts.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-surface p-6 text-sm text-muted-foreground">
-          接続済みのアカウントがまだありません。<Link href="/accounts/connect" className="text-primary underline">アカウント連携ページ</Link>から追加してください。
-        </div>
+      {isLoading ? (
+        <SkeletonList rows={3} />
+      ) : error ? (
+        <EmptyState
+          tone="error"
+          icon={<AlertIcon className="h-5 w-5" />}
+          title="アカウントを読み込めませんでした"
+          description={error}
+          action={
+            <Button variant="outline" onClick={fetchData}>
+              再試行
+            </Button>
+          }
+        />
+      ) : accounts.length === 0 ? (
+        <EmptyState
+          icon={<UsersIcon className="h-5 w-5" />}
+          title="接続済みのアカウントがありません"
+          description="X または Threads のアカウントを連携すると、ここに表示されます。"
+          action={
+            <Link href="/accounts/connect" className={linkButton()}>
+              アカウントを連携する
+            </Link>
+          }
+        />
       ) : (
-        <div className="space-y-4">
-          {accounts.map((account) => (
-            <div
-              key={account.id}
-              className="rounded-xl border border-border bg-surface p-6 shadow-sm"
-            >
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">
-                    {toTitleCase(account.platform)}
-                  </p>
-                  <h2 className="text-xl font-semibold">@{account.handle}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {account.concept || "コンセプト未設定"}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 font-semibold ${
-                      account.connected
-                        ? "bg-green-100 text-green-800"
-                        : "bg-gray-100 text-gray-800"
-                    }`}
-                  >
-                    {account.connected ? "Connected" : "Disconnected"}
-                  </span>
-                  <button
-                    onClick={() => setEditingAccountId(editingAccountId === account.id ? null : account.id)}
-                    className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 font-medium text-muted-foreground hover:text-primary hover:bg-gray-50"
-                  >
-                    設定
-                  </button>
-                  <button
-                    onClick={() => handleOpenModal(account)}
-                    className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 font-medium text-muted-foreground hover:text-primary hover:bg-gray-50"
-                  >
-                    Tips設定 ({account.selectedTipIds?.length || 0})
-                  </button>
-                  <Link
-                    href={`/accounts/connect?handle=${encodeURIComponent(account.handle)}`}
-                    className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 font-medium text-muted-foreground hover:text-primary hover:bg-gray-50"
-                  >
-                    接続を更新
-                  </Link>
-                </div>
-              </div>
-              {editingAccountId === account.id && (
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <label htmlFor={`concept-${account.id}`} className="block text-sm font-medium text-muted-foreground">コンセプト</label>
-                    <textarea
-                      id={`concept-${account.id}`}
-                      defaultValue={account.concept}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-                      rows={3}
-                    />
-                  </div>
-                  <div>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id={`autoPostEnabled-${account.id}`}
-                        defaultChecked={account.autoPostEnabled}
-                        className="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring-primary"
-                      />
-                      <span className="ml-2 text-sm text-muted-foreground">自動投稿を有効にする</span>
-                    </label>
-                  </div>
-                  <div>
-                    <label htmlFor={`postSchedule-${account.id}`} className="block text-sm font-medium text-muted-foreground">投稿スケジュール</label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mt-1">
-                      {Array.from({ length: 5 }).map((_, index) => (
-                        <input
-                          key={index}
-                          type="time"
-                          id={`postSchedule-${account.id}-${index}`}
-                          defaultValue={account.postSchedule?.[index] ?? ''}
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-                        />
-                      ))}
+        <div className="space-y-3">
+          {accounts.map((account) => {
+            const isEditing = editingId === account.id;
+            return (
+              <Card key={account.id}>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-lg font-semibold">
+                          @{account.handle}
+                        </h2>
+                        <Badge variant="outline">
+                          {platformLabel(account.platform)}
+                        </Badge>
+                        <Badge
+                          variant={account.connected ? "success" : "default"}
+                        >
+                          {account.connected ? "接続中" : "未接続"}
+                        </Badge>
+                        {account.autoPostEnabled ? (
+                          <Badge variant="primary">自動投稿 ON</Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {account.concept || "コンセプト未設定"}
+                      </p>
+                      <ScheduleSummary account={account} />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant={isEditing ? "secondary" : "outline"}
+                        onClick={() => startEditing(account)}
+                      >
+                        {isEditing ? "設定を閉じる" : "設定"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setTipsTarget(account)}
+                      >
+                        Tips ({account.selectedTipIds?.length ?? 0})
+                      </Button>
+                      <Link
+                        href={`/accounts/connect?handle=${encodeURIComponent(account.handle)}`}
+                        className={linkButton("outline", "sm")}
+                      >
+                        接続を更新
+                      </Link>
                     </div>
                   </div>
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => handleSaveSettings(account.id)}
-                      className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
-                    >
-                      保存
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+
+                  {isEditing && settingsDraft ? (
+                    <div className="space-y-4 border-t border-border pt-4">
+                      <Field
+                        label="コンセプト"
+                        hint="このアカウントの方向性を書くと、生成される投稿の内容に反映されます。"
+                      >
+                        {(id) => (
+                          <Textarea
+                            id={id}
+                            rows={3}
+                            value={settingsDraft.concept}
+                            onChange={(event) =>
+                              setSettingsDraft((prev) =>
+                                prev
+                                  ? { ...prev, concept: event.target.value }
+                                  : prev,
+                              )
+                            }
+                          />
+                        )}
+                      </Field>
+
+                      <Checkbox
+                        label="自動投稿を有効にする"
+                        description="下のスケジュール時刻に、下書きが自動で投稿されます。"
+                        checked={settingsDraft.autoPostEnabled}
+                        onChange={(event) =>
+                          setSettingsDraft((prev) =>
+                            prev
+                              ? { ...prev, autoPostEnabled: event.target.checked }
+                              : prev,
+                          )
+                        }
+                      />
+
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">投稿スケジュール</p>
+                        <ScheduleEditor
+                          value={settingsDraft.postSchedule}
+                          onChange={(next) =>
+                            setSettingsDraft((prev) =>
+                              prev ? { ...prev, postSchedule: next } : prev,
+                            )
+                          }
+                          copySources={accounts
+                            .filter((item) => item.id !== account.id)
+                            .map((item) => ({
+                              id: item.id,
+                              label: `@${item.handle}`,
+                              postSchedule: item.postSchedule ?? [],
+                            }))}
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingId(null);
+                            setSettingsDraft(null);
+                          }}
+                        >
+                          キャンセル
+                        </Button>
+                        <Button
+                          loading={isSaving}
+                          onClick={() => handleSaveSettings(account.id)}
+                        >
+                          保存する
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

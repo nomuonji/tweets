@@ -1,73 +1,94 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import type { AccountDoc, Tip } from '@/lib/types';
+import { useEffect, useMemo, useState } from "react";
+import type { AccountDoc, Tip } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 
 type AccountTipsControlProps = {
   account: AccountDoc | null;
   onAccountUpdate: (accountId: string, updatedData: Partial<AccountDoc>) => void;
 };
 
-export function AccountTipsControl({ account, onAccountUpdate }: AccountTipsControlProps) {
+export function AccountTipsControl({
+  account,
+  onAccountUpdate,
+}: AccountTipsControlProps) {
+  const toast = useToast();
   const [tips, setTips] = useState<Tip[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedTipIds, setSelectedTipIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch tips only once
   useEffect(() => {
+    let cancelled = false;
     const fetchTips = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/tips`); // Fetch all available tips
+        const res = await fetch("/api/tips");
         const data = await res.json();
-        if (data.ok) {
-          setTips(data.tips);
-        }
-      } catch (err) {
-        console.error("Failed to load tips", err);
+        if (!cancelled && data.ok) setTips(data.tips);
+      } catch {
+        if (!cancelled) toast.error("Tips を読み込めませんでした。");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     fetchTips();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
-  // Update selection when account changes
+  // Reset the selection whenever the active account changes.
   useEffect(() => {
-    if (account) {
-      setSelectedTipIds(new Set(account.selectedTipIds || []));
-    } else {
-      setSelectedTipIds(new Set());
-    }
+    setSelectedTipIds(new Set(account?.selectedTipIds ?? []));
   }, [account]);
 
+  const savedIds = useMemo(
+    () => new Set(account?.selectedTipIds ?? []),
+    [account],
+  );
+
+  const isDirty =
+    savedIds.size !== selectedTipIds.size ||
+    Array.from(selectedTipIds).some((id) => !savedIds.has(id));
+
   const toggleTip = (tipId: string) => {
-    const newSet = new Set(selectedTipIds);
-    if (newSet.has(tipId)) {
-      newSet.delete(tipId);
-    } else {
-      newSet.add(tipId);
-    }
-    setSelectedTipIds(newSet);
+    setSelectedTipIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tipId)) next.delete(tipId);
+      else next.add(tipId);
+      return next;
+    });
   };
 
   const handleSave = async () => {
     if (!account) return;
     setIsSaving(true);
-    const newSelectedIds = Array.from(selectedTipIds);
+    const nextIds = Array.from(selectedTipIds);
     try {
       const response = await fetch(`/api/accounts/${account.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedTipIds: newSelectedIds }),
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selectedTipIds: nextIds }),
       });
-      if (response.ok) {
-        onAccountUpdate(account.id, { selectedTipIds: newSelectedIds });
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Failed to save tips selection.");
+      if (!response.ok) throw new Error();
+      onAccountUpdate(account.id, { selectedTipIds: nextIds });
+      toast.success("使用する Tips を更新しました。");
+    } catch {
+      toast.error("Tips の保存に失敗しました。");
     } finally {
       setIsSaving(false);
     }
@@ -76,44 +97,74 @@ export function AccountTipsControl({ account, onAccountUpdate }: AccountTipsCont
   if (!account) return null;
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm relative">
-      <div>
-        <div>
-          <h2 className="text-lg font-semibold">Active Tips</h2>
-          <p className="text-sm text-muted-foreground">Select tips to include in the prompt context.</p>
-        </div>
-
-        {isLoading ? <p>Loading tips...</p> : (
-          <div className="max-h-60 overflow-y-auto space-y-2 border border-border rounded-md p-2">
-            {tips.length === 0 ? <p className="text-sm text-muted-foreground">No tips available in the library.</p> : (
-              tips.map(tip => (
-                <label key={tip.id} className="flex items-start gap-2 p-2 hover:bg-muted rounded cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedTipIds.has(tip.id)}
-                    onChange={() => toggleTip(tip.id)}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="text-sm font-medium">{tip.text}</p>
-                    <p className="text-xs text-muted-foreground">@{tip.author_handle}</p>
-                  </div>
-                </label>
-              ))
-            )}
+    <Card className="flex flex-col">
+      <CardHeader>
+        <CardTitle>使用する Tips</CardTitle>
+        <CardDescription>
+          選択した Tips が、投稿生成時のプロンプトに含まれます。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1">
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={index} className="h-14 w-full" />
+            ))}
           </div>
+        ) : tips.length === 0 ? (
+          <EmptyState
+            title="Tips がまだありません"
+            description="Tips ページから追加すると、ここで選択できます。"
+          />
+        ) : (
+          <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
+            {tips.map((tip) => {
+              const checked = selectedTipIds.has(tip.id);
+              return (
+                <li key={tip.id}>
+                  <label
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-md border p-2.5 transition-colors",
+                      checked
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-transparent hover:bg-surface-hover",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTip(tip.id)}
+                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-input accent-[rgb(var(--primary))]"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">
+                        {tip.title}
+                      </span>
+                      <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                        {tip.text}
+                        {tip.author_handle ? ` — @${tip.author_handle}` : ""}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
         )}
-
-        <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="rounded-md bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
-          >
-            {isSaving ? "Saving..." : "Update Selection"}
-          </button>
-        </div>
-      </div>
-    </div>
+      </CardContent>
+      <CardFooter className="justify-between">
+        <span className="text-xs text-muted-foreground">
+          {selectedTipIds.size} 件を選択中
+        </span>
+        <Button
+          size="sm"
+          loading={isSaving}
+          disabled={!isDirty}
+          onClick={handleSave}
+        >
+          {isDirty ? "変更を保存" : "保存済み"}
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

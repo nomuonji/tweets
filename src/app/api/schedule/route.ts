@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { DraftDoc, PostDoc, AccountDoc } from "@/lib/types";
 import { DateTime } from "luxon";
+import { SCHEDULE_TIMEZONE } from "@/lib/services/schedule-slots";
 
 export async function GET() {
   try {
@@ -29,7 +30,9 @@ export async function GET() {
     const accounts = accountsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AccountDoc[];
 
     const projectedSchedule: DraftDoc[] = [];
-    const now = DateTime.local();
+    // Must match the zone the scheduler resolves "HH:mm" slots in. Using the
+    // server's local zone (UTC on most hosts) projected the wrong times here.
+    const now = DateTime.now().setZone(SCHEDULE_TIMEZONE);
 
     const draftsByAccount = allDrafts.reduce((acc, draft) => {
       const accountId = draft.target_account_id;

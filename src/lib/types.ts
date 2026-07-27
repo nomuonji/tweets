@@ -1,6 +1,11 @@
 export type Platform = "x" | "threads";
 export type MediaType = "text" | "image" | "video";
-export type DraftStatus = "draft" | "scheduled" | "publishing" | "published";
+export type DraftStatus =
+  | "draft"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "failed";
 
 export interface Tip {
   id: string;
@@ -94,6 +99,13 @@ export interface DraftDoc {
   updated_at: string;
   similarity_warning?: boolean;
   generatedBy?: string;
+  /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */
+  publishing_started_at?: string;
+  /** Set when a publish attempt failed; the draft is kept for retry. */
+  last_error?: {
+    message: string;
+    occurred_at: string;
+  };
 }
 
 export interface SettingsDoc {

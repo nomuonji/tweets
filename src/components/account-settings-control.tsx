@@ -1,204 +1,210 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import type { AccountDoc } from '@/lib/types';
+import { useEffect, useState } from "react";
+import type { AccountDoc } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox, Field, Input, Textarea } from "@/components/ui/field";
+import { useToast } from "@/components/ui/toast";
+import { ScheduleEditor } from "@/components/schedule/schedule-editor";
 
 type AccountSettingsControlProps = {
   account: AccountDoc;
   onAccountUpdate: (accountId: string, updatedData: Partial<AccountDoc>) => void;
+  /** Other accounts, so their schedule can be copied in. */
+  otherAccounts?: AccountDoc[];
 };
 
-export function AccountSettingsControl({ account, onAccountUpdate }: AccountSettingsControlProps) {
-  const [concept, setConcept] = useState(account.concept ?? '');
-  const [autoPostEnabled, setAutoPostEnabled] = useState(account.autoPostEnabled ?? false);
+const MIN_LENGTH = 1;
+const MAX_LENGTH = 240;
+
+/** Coerce a number input to a usable value, falling back when left empty. */
+function toBoundedInt(value: string, fallback: number) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, parsed));
+}
+
+export function AccountSettingsControl({
+  account,
+  onAccountUpdate,
+  otherAccounts = [],
+}: AccountSettingsControlProps) {
+  const toast = useToast();
+
+  const [concept, setConcept] = useState(account.concept ?? "");
+  const [autoPostEnabled, setAutoPostEnabled] = useState(
+    account.autoPostEnabled ?? false,
+  );
   const [postSchedule, setPostSchedule] = useState<string[]>(
-    account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']
+    account.postSchedule ?? [],
   );
   const [minPostLength, setMinPostLength] = useState(account.minPostLength ?? 1);
-  const [maxPostLength, setMaxPostLength] = useState(account.maxPostLength ?? 240);
+  const [maxPostLength, setMaxPostLength] = useState(
+    account.maxPostLength ?? 240,
+  );
   const [r18Mode, setR18Mode] = useState(account.r18Mode ?? false);
   const [isConceptExpanded, setIsConceptExpanded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Re-seed the form whenever the active account changes.
   useEffect(() => {
-    setConcept(account.concept ?? '');
+    setConcept(account.concept ?? "");
     setAutoPostEnabled(account.autoPostEnabled ?? false);
-    setPostSchedule(account.postSchedule && account.postSchedule.length > 0 ? account.postSchedule : ['']);
+    setPostSchedule(account.postSchedule ?? []);
     setMinPostLength(account.minPostLength ?? 1);
     setMaxPostLength(account.maxPostLength ?? 240);
     setR18Mode(account.r18Mode ?? false);
     setIsConceptExpanded(false);
-    setError(null);
     setIsSaving(false);
   }, [account]);
 
-  const handleScheduleChange = (index: number, value: string) => {
-    const newSchedule = [...postSchedule];
-    newSchedule[index] = value;
-    setPostSchedule(newSchedule);
-  };
-
-  const addScheduleSlot = () => {
-    setPostSchedule([...postSchedule, '']);
-  };
-
-  const removeScheduleSlot = (index: number) => {
-    if (postSchedule.length <= 1) return; // Prevent removing the last input
-    const newSchedule = postSchedule.filter((_, i) => i !== index);
-    setPostSchedule(newSchedule);
-  };
+  const copySources = otherAccounts
+    .filter((item) => item.id !== account.id)
+    .map((item) => ({
+      id: item.id,
+      label: `@${item.handle}`,
+      postSchedule: item.postSchedule ?? [],
+    }));
 
   const handleSave = async () => {
     setIsSaving(true);
-    setError(null);
 
-    const updatedData = {
+    // Normalise before persisting: drop empty slots, keep min <= max.
+    const low = Math.min(minPostLength, maxPostLength);
+    const high = Math.max(minPostLength, maxPostLength);
+    const updated = {
       concept,
       autoPostEnabled,
-      postSchedule: postSchedule.filter(t => t), // remove empty strings
-      minPostLength,
-      maxPostLength,
+      postSchedule: postSchedule.filter(Boolean).sort(),
+      minPostLength: low,
+      maxPostLength: high,
       r18Mode,
     };
 
     try {
       const response = await fetch(`/api/accounts/${account.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedData),
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
       });
       const data = await response.json();
-      if (!data.ok) throw new Error(data.message || 'Failed to update settings.');
+      if (!data.ok) throw new Error(data.message || "設定を更新できませんでした。");
 
-      onAccountUpdate(account.id, updatedData);
+      onAccountUpdate(account.id, updated);
+      setMinPostLength(low);
+      setMaxPostLength(high);
+      toast.success("アカウント設定を保存しました。");
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-sm">
-      <div>
-        <h2 className="text-lg font-semibold">Account Settings</h2>
-        <p className="text-sm text-muted-foreground">Configure the behavior of this account.</p>
-      </div>
-      <div className="space-y-4">
-        <div>
-          <div className="flex justify-between items-center">
-            <label htmlFor={`concept-${account.id}`} className="block text-sm font-medium text-muted-foreground">Concept</label>
-            <button
-              onClick={() => setIsConceptExpanded(!isConceptExpanded)}
-              className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition hover:opacity-90"
+    <Card>
+      <CardHeader>
+        <CardTitle>アカウント設定</CardTitle>
+        <CardDescription>
+          @{account.handle} の投稿生成と自動投稿の動作を設定します。
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label htmlFor={`concept-${account.id}`} className="text-sm font-medium">
+              コンセプト
+            </label>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setIsConceptExpanded((value) => !value)}
             >
-              {isConceptExpanded ? 'Collapse' : 'Expand'}
-            </button>
+              {isConceptExpanded ? "折りたたむ" : "広げる"}
+            </Button>
           </div>
-          <textarea
+          <Textarea
             id={`concept-${account.id}`}
             value={concept}
-            onChange={(e) => setConcept(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+            onChange={(event) => setConcept(event.target.value)}
             rows={isConceptExpanded ? 12 : 3}
-            placeholder="e.g., A bot that posts about the weather in Tokyo."
+            placeholder="例: 東京の天気とおでかけ情報を、親しみやすい口調で発信するアカウント"
+          />
+          <p className="text-xs text-muted-foreground">
+            ここに書いた内容が、投稿生成時のプロンプトの土台になります。
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <Checkbox
+            label="自動投稿を有効にする"
+            description="下のスケジュール時刻に、下書きが自動で投稿されます。"
+            checked={autoPostEnabled}
+            onChange={(event) => setAutoPostEnabled(event.target.checked)}
+          />
+          <Checkbox
+            label="R18 モード"
+            description="有効にすると、投稿生成に Grok を使用します。"
+            checked={r18Mode}
+            onChange={(event) => setR18Mode(event.target.checked)}
           />
         </div>
-        <div>
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={autoPostEnabled}
-              onChange={(e) => setAutoPostEnabled(e.target.checked)}
-              className="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring-primary"
-            />
-            <span className="ml-2 text-sm text-muted-foreground">Enable auto-posting</span>
-          </label>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">投稿スケジュール</p>
+          <ScheduleEditor
+            value={postSchedule}
+            onChange={setPostSchedule}
+            copySources={copySources}
+          />
         </div>
-        <div>
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={r18Mode}
-              onChange={(e) => setR18Mode(e.target.checked)}
-              className="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring-primary"
-            />
-            <span className="ml-2 text-sm text-muted-foreground">Enable R18 Mode (Generates posts with Grok)</span>
-          </label>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-muted-foreground">Post Schedule</label>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mt-1">
-            {postSchedule.map((time, index) => (
-              <div key={index} className="flex items-center gap-1">
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(e) => handleScheduleChange(index, e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-                />
-                {postSchedule.length > 1 && (
-                  <button
-                    onClick={() => removeScheduleSlot(index)}
-                    className="p-1 text-red-500 rounded-full hover:bg-red-100"
-                    aria-label="Remove schedule time"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={addScheduleSlot}
-            className="mt-2 rounded-md bg-secondary px-3 py-1 text-xs text-secondary-foreground transition hover:opacity-90"
-          >
-            + Add Time
-          </button>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-muted-foreground">Post Length</label>
-          <div className="mt-1 grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor={`min-length-${account.id}`} className="block text-xs text-muted-foreground">Min</label>
-              <input
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="最小文字数">
+            {(id) => (
+              <Input
+                id={id}
                 type="number"
-                id={`min-length-${account.id}`}
+                min={MIN_LENGTH}
+                max={MAX_LENGTH}
                 value={minPostLength}
-                onChange={(e) => setMinPostLength(parseInt(e.target.value, 10))}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-                min="1"
-                max="240"
+                onChange={(event) =>
+                  setMinPostLength(toBoundedInt(event.target.value, MIN_LENGTH))
+                }
               />
-            </div>
-            <div>
-              <label htmlFor={`max-length-${account.id}`} className="block text-xs text-muted-foreground">Max</label>
-              <input
+            )}
+          </Field>
+          <Field label="最大文字数">
+            {(id) => (
+              <Input
+                id={id}
                 type="number"
-                id={`max-length-${account.id}`}
+                min={MIN_LENGTH}
+                max={MAX_LENGTH}
                 value={maxPostLength}
-                onChange={(e) => setMaxPostLength(parseInt(e.target.value, 10))}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
-                min="1"
-                max="240"
+                onChange={(event) =>
+                  setMaxPostLength(toBoundedInt(event.target.value, MAX_LENGTH))
+                }
               />
-            </div>
-          </div>
+            )}
+          </Field>
         </div>
-        <div className="flex justify-end gap-2">
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : 'Save Settings'}
-          </button>
-        </div>
-      </div>
-    </div>
+      </CardContent>
+
+      <CardFooter className="justify-end">
+        <Button loading={isSaving} onClick={handleSave}>
+          設定を保存
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

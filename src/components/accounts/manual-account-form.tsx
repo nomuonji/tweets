@@ -1,6 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { AlertIcon } from "@/components/ui/icons";
+import { cn } from "@/lib/utils";
 
 type OAuthVersion = "oauth2" | "oauth1";
 
@@ -20,12 +24,7 @@ type FormState = {
   rapidApiHost: string;
 };
 
-type MessageState =
-  | {
-      type: "success" | "error";
-      text: string;
-    }
-  | null;
+type MessageState = { type: "success" | "error"; text: string } | null;
 
 const initialState: FormState = {
   platform: "x",
@@ -75,12 +74,12 @@ export function ManualAccountForm() {
 
       const result = await response.json();
       if (!response.ok || !result.ok) {
-        throw new Error(result.message ?? "Failed to save account.");
+        throw new Error(result.message ?? "アカウントを保存できませんでした。");
       }
 
       setMessage({
         type: "success",
-        text: "Account saved. Run a sync from the dashboard to verify.",
+        text: "アカウントを保存しました。ダッシュボードから同期を実行して確認してください。",
       });
       setForm(initialState);
     } catch (error) {
@@ -101,7 +100,7 @@ export function ManualAccountForm() {
       });
       const result = await response.json();
       if (!response.ok || !result.ok) {
-        throw new Error(result.message ?? "Failed to fetch user profile.");
+        throw new Error(result.message ?? "プロフィールを取得できませんでした。");
       }
       const { id, username, name } = result.profile;
       setForm((prev) => ({
@@ -110,7 +109,7 @@ export function ManualAccountForm() {
         handle: username ?? id,
         displayName: name ?? "",
       }));
-      setMessage({ type: "success", text: "User profile fetched successfully." });
+      setMessage({ type: "success", text: "プロフィールを取得しました。" });
     } catch (error) {
       setMessage({ type: "error", text: (error as Error).message });
     } finally {
@@ -120,134 +119,137 @@ export function ManualAccountForm() {
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
-      <div className="grid gap-3">
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Platform</span>
-          <select
+      <Field label="プラットフォーム">
+        {(id) => (
+          <Select
+            id={id}
             value={form.platform}
             onChange={(event) =>
               handleChange("platform", event.target.value as FormState["platform"])
             }
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
           >
-            <option value="x">X (Twitter)</option>
+            <option value="x">X（旧 Twitter）</option>
             <option value="threads">Threads</option>
-          </select>
-        </label>
+          </Select>
+        )}
+      </Field>
 
-        {isThreads ? (
-          <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
-            <p className="font-medium text-foreground">Threads credential tips</p>
-            <p>
-              Provide the Threads numeric user ID alongside the access token. You can reuse the values from Meta&apos;s dashboard (example: <code>31573770612207145</code>).
-            </p>
-            <p>
-              Environment fallbacks (`THREADS_ACCESS_TOKEN` / `THREADS_USER_ID`) remain available for quick testing, but saving account-specific tokens here is recommended in production.
-            </p>
-          </div>
-        ) : null}
+      {isThreads ? (
+        <div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+          <p className="font-medium text-foreground">Threads の認証情報について</p>
+          <p>
+            アクセストークンと合わせて、Threads の数値ユーザー ID を入力してください（例:{" "}
+            <code className="rounded bg-muted px-1">31573770612207145</code>）。
+          </p>
+          <p>
+            環境変数（THREADS_ACCESS_TOKEN / THREADS_USER_ID）でも動作しますが、
+            本番ではアカウントごとに保存することを推奨します。
+          </p>
+        </div>
+      ) : null}
 
-        <fieldset className="space-y-2 text-sm">
-          <legend className="font-medium text-foreground">Token type</legend>
-          <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3">
-            <label className="flex items-center gap-2">
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">トークンの種類</legend>
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+          {(
+            [
+              ["oauth2", "OAuth 2.0（Bearer / PKCE）"],
+              ["oauth1", "OAuth 1.0a（Consumer Key + Access Token）"],
+            ] as Array<[OAuthVersion, string]>
+          ).map(([value, label]) => (
+            <label key={value} className="flex cursor-pointer items-center gap-2">
               <input
                 type="radio"
                 name="oauth-version"
-                value="oauth2"
-                checked={oauthVersion === "oauth2"}
-                onChange={() => setOauthVersion("oauth2")}
+                value={value}
+                checked={oauthVersion === value}
+                onChange={() => setOauthVersion(value)}
+                className="h-4 w-4 accent-[rgb(var(--primary))]"
               />
-              <span>OAuth 2.0 (Bearer / PKCE)</span>
+              <span>{label}</span>
             </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="oauth-version"
-                value="oauth1"
-                checked={oauthVersion === "oauth1"}
-                onChange={() => setOauthVersion("oauth1")}
-              />
-              <span>OAuth 1.0a (Consumer Key + Access Token)</span>
-            </label>
-          </div>
-        </fieldset>
+          ))}
+        </div>
+      </fieldset>
 
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Handle (screen name)</span>
-          <input
-            value={form.handle}
-            onChange={(event) => handleChange("handle", event.target.value)}
-            placeholder="example_user"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+      <Field label="ハンドル（スクリーンネーム）">
+        {(id) => (
+          <Input
+            id={id}
             required
+            value={form.handle}
+            placeholder="example_user"
+            onChange={(event) => handleChange("handle", event.target.value)}
           />
-        </label>
+        )}
+      </Field>
 
-        {isThreads ? (
-          <div className="space-y-1 text-sm">
-            <label htmlFor="threads-user-id" className="font-medium text-foreground">
-              Threads user ID
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="threads-user-id"
-                value={form.userId}
-                onChange={(event) => handleChange("userId", event.target.value)}
-                placeholder="31573770612207145"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+      {isThreads ? (
+        <Field
+          label="Threads ユーザー ID"
+          hint="アクセストークンを入力してから「取得」を押すと自動入力できます。"
+        >
+          {(id) => (
+            <div className="flex gap-2">
+              <Input
+                id={id}
                 required
+                value={form.userId}
+                placeholder="31573770612207145"
+                onChange={(event) => handleChange("userId", event.target.value)}
               />
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={handleFetchThreadsUserId}
                 disabled={loading || !form.accessToken}
-                className="rounded-md bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Fetch
-              </button>
+                取得
+              </Button>
             </div>
-          </div>
-        ) : null}
+          )}
+        </Field>
+      ) : null}
 
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Display name (optional)</span>
-          <input
+      <Field label="表示名（任意）">
+        {(id) => (
+          <Input
+            id={id}
             value={form.displayName}
-            onChange={(event) => handleChange("displayName", event.target.value)}
             placeholder="Example Inc."
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            onChange={(event) => handleChange("displayName", event.target.value)}
           />
-        </label>
-
-        {oauthVersion === "oauth1" ? (
-          <Oauth1Fields form={form} onChange={handleChange} />
-        ) : (
-          <Oauth2Fields form={form} onChange={handleChange} />
         )}
+      </Field>
 
-        {form.platform === "x" && (
-          <RapidApiFields form={form} onChange={handleChange} />
-        )}
-      </div>
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {loading ? "Saving..." : "Save to Firestore"}
-      </button>
-
-      {message && (
-        <p
-          className={`text-sm ${
-            message.type === "success" ? "text-emerald-600" : "text-red-600"
-          }`}
-        >
-          {message.text}
-        </p>
+      {oauthVersion === "oauth1" ? (
+        <Oauth1Fields form={form} onChange={handleChange} />
+      ) : (
+        <Oauth2Fields form={form} onChange={handleChange} />
       )}
+
+      {form.platform === "x" ? (
+        <RapidApiFields form={form} onChange={handleChange} />
+      ) : null}
+
+      <Button type="submit" className="w-full" loading={loading}>
+        {loading ? "保存中..." : "保存する"}
+      </Button>
+
+      {message ? (
+        <p
+          className={cn(
+            "flex items-start gap-2 rounded-md border p-3 text-sm",
+            message.type === "success"
+              ? "border-success/40 bg-success/5 text-success"
+              : "border-destructive/40 bg-destructive/5 text-destructive",
+          )}
+        >
+          {message.type === "error" ? (
+            <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : null}
+          <span>{message.text}</span>
+        </p>
+      ) : null}
     </form>
   );
 }
@@ -259,115 +261,145 @@ type OauthFieldsProps = {
   onChange: FieldChange;
 };
 
+function FieldGroup({
+  title,
+  dashed,
+  children,
+}: {
+  title: string;
+  dashed?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "space-y-3 rounded-md border p-3",
+        dashed ? "border-dashed border-border" : "border-border bg-muted/20",
+      )}
+    >
+      <p className="text-sm font-medium">{title}</p>
+      {children}
+    </div>
+  );
+}
+
 function Oauth1Fields({ form, onChange }: OauthFieldsProps) {
   return (
-    <div className="space-y-3 rounded-md border border-border bg-muted/10 p-3">
-      <p className="text-sm font-medium text-foreground">OAuth 1.0a credentials</p>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Consumer Key (API Key)</span>
-        <input
-          value={form.consumerKey}
-          onChange={(event) => onChange("consumerKey", event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Consumer Secret (API Secret)</span>
-        <input
-          value={form.consumerSecret}
-          onChange={(event) => onChange("consumerSecret", event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Access Token</span>
-        <input
-          value={form.accessToken}
-          onChange={(event) => onChange("accessToken", event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Access Token Secret</span>
-        <input
-          value={form.accessTokenSecret}
-          onChange={(event) => onChange("accessTokenSecret", event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-    </div>
+    <FieldGroup title="OAuth 1.0a の認証情報">
+      <Field label="Consumer Key（API Key）">
+        {(id) => (
+          <Input
+            id={id}
+            value={form.consumerKey}
+            onChange={(event) => onChange("consumerKey", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="Consumer Secret（API Secret）">
+        {(id) => (
+          <Input
+            id={id}
+            value={form.consumerSecret}
+            onChange={(event) => onChange("consumerSecret", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="Access Token">
+        {(id) => (
+          <Input
+            id={id}
+            value={form.accessToken}
+            onChange={(event) => onChange("accessToken", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="Access Token Secret">
+        {(id) => (
+          <Input
+            id={id}
+            value={form.accessTokenSecret}
+            onChange={(event) =>
+              onChange("accessTokenSecret", event.target.value)
+            }
+          />
+        )}
+      </Field>
+    </FieldGroup>
   );
 }
 
 function Oauth2Fields({ form, onChange }: OauthFieldsProps) {
   return (
-    <div className="space-y-3 rounded-md border border-border bg-muted/10 p-3">
-      <p className="text-sm font-medium text-foreground">OAuth 2.0 tokens</p>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Access token (Bearer)</span>
-        <textarea
-          value={form.accessToken}
-          onChange={(event) => onChange("accessToken", event.target.value)}
-          className="h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Refresh token (optional)</span>
-        <textarea
-          value={form.refreshToken}
-          onChange={(event) => onChange("refreshToken", event.target.value)}
-          className="h-20 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">Expiry (ISO 8601, optional)</span>
-        <input
-          type="datetime-local"
-          value={form.expiresAt}
-          onChange={(event) => onChange("expiresAt", event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">
-          Scopes (space or newline separated, optional)
-        </span>
-        <textarea
-          value={form.scopes}
-          onChange={(event) => onChange("scopes", event.target.value)}
-          placeholder="tweet.read tweet.write users.read"
-          className="h-20 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-    </div>
+    <FieldGroup title="OAuth 2.0 のトークン">
+      <Field label="アクセストークン（Bearer）">
+        {(id) => (
+          <Textarea
+            id={id}
+            value={form.accessToken}
+            className="h-24 font-mono text-xs"
+            onChange={(event) => onChange("accessToken", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="リフレッシュトークン（任意）">
+        {(id) => (
+          <Textarea
+            id={id}
+            value={form.refreshToken}
+            className="h-20 font-mono text-xs"
+            onChange={(event) => onChange("refreshToken", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="有効期限（任意）">
+        {(id) => (
+          <Input
+            id={id}
+            type="datetime-local"
+            value={form.expiresAt}
+            onChange={(event) => onChange("expiresAt", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="スコープ（任意）" hint="スペースまたは改行区切り">
+        {(id) => (
+          <Textarea
+            id={id}
+            value={form.scopes}
+            placeholder="tweet.read tweet.write users.read"
+            className="h-20 font-mono text-xs"
+            onChange={(event) => onChange("scopes", event.target.value)}
+          />
+        )}
+      </Field>
+    </FieldGroup>
   );
 }
 
 function RapidApiFields({ form, onChange }: OauthFieldsProps) {
   return (
-    <div className="space-y-3 rounded-md border border-dashed border-border p-3">
-      <p className="text-sm font-medium text-foreground">
-        RapidAPI override (optional)
-      </p>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">RapidAPI key</span>
-        <input
-          value={form.rapidApiKey}
-          onChange={(event) => onChange("rapidApiKey", event.target.value)}
-          placeholder="Defaults to RAPIDAPI_KEY env"
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-sm">
-        <span className="text-muted-foreground">RapidAPI host</span>
-        <input
-          value={form.rapidApiHost}
-          onChange={(event) => onChange("rapidApiHost", event.target.value)}
-          placeholder="twitter-api45.p.rapidapi.com"
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-      </label>
-    </div>
+    <FieldGroup title="RapidAPI の上書き（任意）" dashed>
+      <Field label="RapidAPI キー">
+        {(id) => (
+          <Input
+            id={id}
+            value={form.rapidApiKey}
+            placeholder="未入力なら RAPIDAPI_KEY 環境変数を使用"
+            onChange={(event) => onChange("rapidApiKey", event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="RapidAPI ホスト">
+        {(id) => (
+          <Input
+            id={id}
+            value={form.rapidApiHost}
+            placeholder="twitter-api45.p.rapidapi.com"
+            onChange={(event) => onChange("rapidApiHost", event.target.value)}
+          />
+        )}
+      </Field>
+    </FieldGroup>
   );
 }
 
@@ -375,16 +407,19 @@ type PayloadResult =
   | { ok: true; data: Record<string, unknown> }
   | { ok: false; error: string };
 
-function buildPayload(form: FormState, oauthVersion: OAuthVersion): PayloadResult {
+function buildPayload(
+  form: FormState,
+  oauthVersion: OAuthVersion,
+): PayloadResult {
   const handle = form.handle.trim();
   if (!handle) {
-    return { ok: false, error: "Enter a handle (screen name)." };
+    return { ok: false, error: "ハンドル（スクリーンネーム）を入力してください。" };
   }
 
   const displayName = form.displayName.trim();
   const userId = form.userId.trim();
   if (form.platform === "threads" && !userId) {
-    return { ok: false, error: "Enter a Threads user ID." };
+    return { ok: false, error: "Threads のユーザー ID を入力してください。" };
   }
 
   const base = {
@@ -398,6 +433,15 @@ function buildPayload(form: FormState, oauthVersion: OAuthVersion): PayloadResul
     base.userId = userId;
   }
 
+  const withRapidApi = (payload: Record<string, unknown>) => {
+    if (form.platform !== "x") return payload;
+    const rapidApiKey = form.rapidApiKey.trim();
+    const rapidApiHost = form.rapidApiHost.trim();
+    if (rapidApiKey) payload.rapidApiKey = rapidApiKey;
+    if (rapidApiHost) payload.rapidApiHost = rapidApiHost;
+    return payload;
+  };
+
   if (oauthVersion === "oauth1") {
     const consumerKey = form.consumerKey.trim();
     const consumerSecret = form.consumerSecret.trim();
@@ -408,35 +452,25 @@ function buildPayload(form: FormState, oauthVersion: OAuthVersion): PayloadResul
       return {
         ok: false,
         error:
-          "For OAuth 1.0a, provide Consumer Key, Consumer Secret, Access Token, and Access Token Secret.",
+          "OAuth 1.0a では Consumer Key / Consumer Secret / Access Token / Access Token Secret のすべてが必要です。",
       };
     }
 
-    const payload: Record<string, unknown> = {
-      ...base,
-      accessToken,
-      consumerKey,
-      consumerSecret,
-      accessTokenSecret,
+    return {
+      ok: true,
+      data: withRapidApi({
+        ...base,
+        accessToken,
+        consumerKey,
+        consumerSecret,
+        accessTokenSecret,
+      }),
     };
-
-    if (form.platform === "x") {
-      const rapidApiKey = form.rapidApiKey.trim();
-      const rapidApiHost = form.rapidApiHost.trim();
-      if (rapidApiKey) {
-        payload.rapidApiKey = rapidApiKey;
-      }
-      if (rapidApiHost) {
-        payload.rapidApiHost = rapidApiHost;
-      }
-    }
-
-    return { ok: true, data: payload };
   }
 
   const accessToken = form.accessToken.trim();
   if (!accessToken) {
-    return { ok: false, error: "Enter an access token." };
+    return { ok: false, error: "アクセストークンを入力してください。" };
   }
 
   const refreshToken = form.refreshToken.trim();
@@ -446,24 +480,14 @@ function buildPayload(form: FormState, oauthVersion: OAuthVersion): PayloadResul
     .map((scope) => scope.trim())
     .filter(Boolean);
 
-  const payload: Record<string, unknown> = {
-    ...base,
-    accessToken,
-    refreshToken: refreshToken || undefined,
-    expiresAt: expiresAt || undefined,
-    scopes,
+  return {
+    ok: true,
+    data: withRapidApi({
+      ...base,
+      accessToken,
+      refreshToken: refreshToken || undefined,
+      expiresAt: expiresAt || undefined,
+      scopes,
+    }),
   };
-
-  if (form.platform === "x") {
-    const rapidApiKey = form.rapidApiKey.trim();
-    const rapidApiHost = form.rapidApiHost.trim();
-    if (rapidApiKey) {
-      payload.rapidApiKey = rapidApiKey;
-    }
-    if (rapidApiHost) {
-      payload.rapidApiHost = rapidApiHost;
-    }
-  }
-
-  return { ok: true, data: payload };
 }

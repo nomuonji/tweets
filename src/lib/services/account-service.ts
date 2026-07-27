@@ -75,6 +75,8 @@ export async function upsertAccount(params: UpsertAccountParams) {
 }
 
 type UpdateAccountParams = Partial<{
+  handle: string;
+  display_name: string;
   concept: string;
   autoPostEnabled: boolean;
   postSchedule: string[];

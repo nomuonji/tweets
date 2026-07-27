@@ -1,7 +1,11 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import type { AccountDoc, Tip } from '@/lib/types';
+import { useState } from "react";
+import type { AccountDoc, Tip } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { EmptyState } from "@/components/ui/empty-state";
+import { cn } from "@/lib/utils";
 
 export function TipsSelectionModal({
   account,
@@ -14,45 +18,86 @@ export function TipsSelectionModal({
   onClose: () => void;
   onSave: (updatedTipIds: string[]) => Promise<void>;
 }) {
-  const [selectedIds, setSelectedIds] = useState<string[]>(account.selectedTipIds || []);
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    account.selectedTipIds ?? [],
+  );
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleCheckboxChange = (tipId: string) => {
-    setSelectedIds(prev => 
-      prev.includes(tipId) ? prev.filter(id => id !== tipId) : [...prev, tipId]
+  const toggle = (tipId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(tipId)
+        ? prev.filter((id) => id !== tipId)
+        : [...prev, tipId],
     );
   };
 
   const handleSave = async () => {
     setIsSaving(true);
-    await onSave(selectedIds);
-    setIsSaving(false);
+    try {
+      await onSave(selectedIds);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-        <h2 className="text-xl font-bold mb-4">Select Tips for @{account.handle}</h2>
-        <div className="space-y-2 max-h-60 overflow-y-auto">
-          {allTips.map(tip => (
-            <label key={tip.id} className="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-100">
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(tip.id)}
-                onChange={() => handleCheckboxChange(tip.id)}
-                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <span className="font-medium">{tip.title}</span>
-            </label>
-          ))}
-        </div>
-        <div className="mt-6 flex justify-end space-x-2">
-          <button onClick={onClose} disabled={isSaving} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
-            {isSaving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </div>
-    </div>
+    <Modal
+      open
+      onClose={onClose}
+      title={`@${account.handle} で使う Tips`}
+      description="選択した Tips が、投稿生成時のプロンプトに含まれます。"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={isSaving}>
+            キャンセル
+          </Button>
+          <Button loading={isSaving} onClick={handleSave}>
+            保存する（{selectedIds.length}件）
+          </Button>
+        </>
+      }
+    >
+      {allTips.length === 0 ? (
+        <EmptyState
+          title="Tips がまだ登録されていません"
+          description="Tips ページから追加すると、ここで選択できるようになります。"
+        />
+      ) : (
+        <ul className="max-h-80 space-y-1 overflow-y-auto">
+          {allTips.map((tip) => {
+            const checked = selectedIds.includes(tip.id);
+            return (
+              <li key={tip.id}>
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
+                    checked
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-transparent hover:bg-surface-hover",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(tip.id)}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-input accent-[rgb(var(--primary))]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">
+                      {tip.title}
+                    </span>
+                    {tip.text ? (
+                      <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                        {tip.text}
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Modal>
   );
 }

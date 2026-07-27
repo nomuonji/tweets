@@ -1,56 +1,150 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAccountContext } from "./account-provider";
-import { toTitleCase } from "@/lib/utils";
+import { cn, platformLabel } from "@/lib/utils";
+import { PlusIcon } from "@/components/ui/icons";
 
+/**
+ * The app's single source of truth for "which account am I working on".
+ * Rendered once in the sidebar — pages read `useAccountContext()` rather than
+ * shipping their own picker.
+ */
 export function AccountSwitcher() {
   const { accounts, selectedAccountId, setSelectedAccountId, selectedAccount } =
     useAccountContext();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const options = useMemo(
-    () =>
-      accounts.map((account) => ({
-        value: account.id,
-        label: `@${account.handle}${
-          account.display_name ? ` / ${account.display_name}` : ""
-        }`,
-        platform: toTitleCase(account.platform),
-      })),
-    [accounts],
-  );
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   if (accounts.length === 0) {
-    return null;
+    return (
+      <Link
+        href="/accounts/connect"
+        className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+      >
+        <PlusIcon className="h-4 w-4" />
+        アカウントを連携
+      </Link>
+    );
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="text-nowrap text-xs uppercase tracking-wide text-muted-foreground">
+    <div ref={containerRef} className="relative">
+      <p className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">
         運用アカウント
-      </span>
-      <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
-        <span className="hidden text-xs text-muted-foreground md:inline-block">
-          {selectedAccount
-            ? toTitleCase(selectedAccount.platform)
-            : "未選択"}
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex w-full items-center gap-2.5 rounded-md border border-border bg-surface px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+      >
+        <AccountAvatar handle={selectedAccount?.handle ?? "?"} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">
+            @{selectedAccount?.handle ?? "未選択"}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {selectedAccount ? platformLabel(selectedAccount.platform) : "—"}
+          </span>
         </span>
-        <select
-          value={selectedAccountId ?? ""}
-          onChange={(event) => setSelectedAccountId(event.target.value)}
-          className="min-w-0 flex-1 basis-auto bg-transparent text-sm outline-none"
+        <svg
+          viewBox="0 0 24 24"
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden="true"
         >
-          {options.map((option) => (
-            <option
-              key={option.value}
-              value={option.value}
-              className="truncate"
-            >
-              {option.platform} · {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          className="absolute left-0 right-0 z-40 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-lg animate-scale-in"
+        >
+          {accounts.map((account) => {
+            const isSelected = account.id === selectedAccountId;
+            return (
+              <button
+                key={account.id}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  setSelectedAccountId(account.id);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left transition-colors",
+                  isSelected ? "bg-surface-active" : "hover:bg-surface-hover",
+                )}
+              >
+                <AccountAvatar handle={account.handle} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">
+                    @{account.handle}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {platformLabel(account.platform)}
+                    {account.display_name ? ` · ${account.display_name}` : ""}
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    account.connected ? "bg-success" : "bg-muted-foreground/40",
+                  )}
+                  title={account.connected ? "接続中" : "未接続"}
+                />
+              </button>
+            );
+          })}
+          <Link
+            href="/accounts/connect"
+            onClick={() => setOpen(false)}
+            className="mt-1 flex items-center gap-2 border-t border-border px-2 py-2 text-sm text-muted-foreground transition-colors hover:text-primary"
+          >
+            <PlusIcon className="h-4 w-4" />
+            アカウントを追加
+          </Link>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function AccountAvatar({ handle }: { handle: string }) {
+  return (
+    <span
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold uppercase text-primary"
+      aria-hidden="true"
+    >
+      {handle.slice(0, 2)}
+    </span>
   );
 }

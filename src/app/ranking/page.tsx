@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { RankingFilters } from "@/components/ranking-filters";
 import { getAccounts } from "@/lib/services/firestore.server";
 import type { RankingFilter, PostDoc } from "@/lib/types";
+import { PageHeader } from "@/components/ui/page-header";
 import { RankingClient } from "./client";
 
 type RankingPageProps = {
@@ -37,7 +37,9 @@ function parseParams(
       ? searchParams.period
       : DEFAULT_FILTER.period_days;
   const sortParam =
-    typeof searchParams.sort === "string" ? searchParams.sort : DEFAULT_FILTER.sort;
+    typeof searchParams.sort === "string"
+      ? searchParams.sort
+      : DEFAULT_FILTER.sort;
   const accountIdParam =
     typeof searchParams.accountId === "string"
       ? searchParams.accountId
@@ -52,7 +54,9 @@ function parseParams(
   const periodDays = ["all", 7, 30, 90].includes(
     periodParam === "all" ? "all" : Number(periodParam),
   )
-    ? (periodParam === "all" ? "all" : (Number(periodParam) as 7 | 30 | 90))
+    ? periodParam === "all"
+      ? "all"
+      : (Number(periodParam) as 7 | 30 | 90)
     : DEFAULT_FILTER.period_days;
   const sort = sortParam === "latest" ? "latest" : "top";
 
@@ -65,183 +69,44 @@ function parseParams(
   };
 }
 
-function parsePage(searchParams: RankingPageProps["searchParams"]): number {
-  const raw = typeof searchParams.page === "string" ? Number(searchParams.page) : 1;
-  if (!Number.isFinite(raw) || raw < 1) {
-    return 1;
-  }
-  return Math.floor(raw);
-}
-
-function buildPageLink(filter: ParsedRankingFilter, page: number) {
-  const params = new URLSearchParams();
-  params.set("platform", filter.platform);
-  params.set("media", filter.media_type);
-  params.set("period", String(filter.period_days));
-  params.set("sort", filter.sort);
-  if (filter.accountId && filter.accountId !== "all") {
-    params.set("accountId", filter.accountId);
-  }
-  if (page > 1) {
-    params.set("page", String(page));
-  }
-  return `/ranking?${params.toString()}`;
-}
-
 export default async function RankingPage({ searchParams }: RankingPageProps) {
-
   const cookieStore = cookies();
-
   const storedAccountId = cookieStore.get(STORAGE_KEY)?.value;
 
-
-
   const initialFilter = parseParams(searchParams);
-
-
-
-  const accountId = initialFilter.accountId ?? storedAccountId ?? "all";
-
-
-
   const filter: ParsedRankingFilter = {
-
     ...initialFilter,
-
-    accountId,
-
+    accountId: initialFilter.accountId ?? storedAccountId ?? "all",
   };
-
-
 
   const accounts = await getAccounts();
 
-  const page = parsePage(searchParams);
-
-
-
-  // Data fetching is now handled by the client component
-
-  const posts: PostDoc[] = []; 
-
-
-
-  const hasNext = false; // Pagination logic might need adjustment or be handled client-side
-
-  const hasPrevious = page > 1;
-
-
+  // Posts are fetched client-side by RankingClient so the list can react to
+  // the account switcher without a full navigation.
+  const posts: PostDoc[] = [];
 
   return (
-
-    <div className="space-y-8">
-
-      <div>
-
-        <h1 className="text-2xl font-semibold">Ranking</h1>
-
-        <p className="text-sm text-muted-foreground">
-
-          Filter top performing posts by platform, media type, lookback period, and
-
-          sort order.
-
-        </p>
-
-      </div>
-
-
-
-      <RankingFilters
-
-        platform={filter.platform}
-
-        media={filter.media_type}
-
-        period={String(filter.period_days)}
-
-        sort={filter.sort}
-
-        accountId={filter.accountId ?? "all"}
-
-        accounts={accounts}
-
+    <div className="space-y-6">
+      <PageHeader
+        title="ランキング"
+        description="プラットフォーム・メディア種別・期間で絞り込み、伸びた投稿を確認できます。"
       />
 
+      <RankingFilters
+        platform={filter.platform}
+        media={filter.media_type}
+        period={String(filter.period_days)}
+        sort={filter.sort}
+        accountId={filter.accountId ?? "all"}
+        accounts={accounts}
+      />
 
-
-      <p className="text-xs text-muted-foreground">
-
-        Score = (Impressions * 0.1) + (40 * Likes) + (80 * Reposts) + (70 * Replies) + (60 * Clicks)
-
+      <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        スコア = 表示数 × 0.1 ＋ いいね × 40 ＋ リポスト × 80 ＋ 返信 × 70 ＋
+        リンククリック × 60
       </p>
 
-
-
       <RankingClient initialPosts={posts} filters={filter} />
-
-
-
-      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-
-        <span className="text-xs text-muted-foreground">Page {page}</span>
-
-        <div className="flex gap-2">
-
-          {hasPrevious ? (
-
-            <Link
-
-              href={buildPageLink(filter, page - 1)}
-
-              className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-primary"
-
-            >
-
-              Previous
-
-            </Link>
-
-          ) : (
-
-            <span className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-60">
-
-              Previous
-
-            </span>
-
-          )}
-
-          {hasNext ? (
-
-            <Link
-
-              href={buildPageLink(filter, page + 1)}
-
-              className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-primary"
-
-            >
-
-              Next
-
-            </Link>
-
-          ) : (
-
-            <span className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-60">
-
-              Next
-
-            </span>
-
-          )}
-
-        </div>
-
-      </div>
-
     </div>
-
   );
-
 }

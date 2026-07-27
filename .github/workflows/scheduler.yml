@@ -3,7 +3,11 @@ name: Execute Scheduled Drafts
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"
+    # Every 15 minutes. GitHub's cron is best-effort and often runs late, so a
+    # short interval keeps posts close to their scheduled time. Re-running is
+    # safe: the scheduler records the last executed slot per account and will
+    # not publish the same slot twice.
+    - cron: "*/15 * * * *"
 
 jobs:
   run:

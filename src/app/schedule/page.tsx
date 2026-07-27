@@ -1,9 +1,21 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { DateTime } from 'luxon';
-import type { AccountDoc, DraftDoc, PostDoc, PostMetrics } from '@/lib/types';
-import { toTitleCase } from '@/lib/utils';
+import { useEffect, useMemo, useState } from "react";
+import { DateTime } from "luxon";
+import type { AccountDoc, DraftDoc, PostDoc, PostMetrics } from "@/lib/types";
+import { cn, platformLabel } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { AlertIcon, CalendarIcon, InboxIcon } from "@/components/ui/icons";
 
 interface ScheduleData {
   scheduledDrafts: DraftDoc[];
@@ -11,26 +23,40 @@ interface ScheduleData {
   accounts: AccountDoc[];
 }
 
-const PlatformBadge = ({ platform }: { platform: 'x' | 'threads' }) => {
-  const style = platform === 'x'
-    ? 'bg-black text-white'
-    : 'bg-slate-200 text-slate-800';
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${style}`}>
-      {toTitleCase(platform)}
-    </span>
-  );
-};
+/** Left-border colours used to tell accounts apart at a glance. */
+const ACCENTS = [
+  "border-l-blue-500",
+  "border-l-emerald-500",
+  "border-l-pink-500",
+  "border-l-amber-500",
+  "border-l-violet-500",
+  "border-l-cyan-500",
+  "border-l-rose-500",
+  "border-l-lime-500",
+];
 
-const MetricsDisplay = ({ metrics }: { metrics: PostMetrics }) => (
-  <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs">
-    <span className="font-semibold text-muted-foreground">Reactions:</span>
-    <span className="font-medium">Likes: {metrics.likes}</span>
-    <span className="font-medium">Replies: {metrics.replies}</span>
-    <span className="font-medium">Reposts: {metrics.reposts_or_rethreads}</span>
-    {metrics.impressions != null && <span className="font-medium">Impressions: {metrics.impressions}</span>}
-  </div>
-);
+function MetricsRow({ metrics }: { metrics: PostMetrics }) {
+  const items: Array<[string, number | null | undefined]> = [
+    ["いいね", metrics.likes],
+    ["返信", metrics.replies],
+    ["リポスト", metrics.reposts_or_rethreads],
+    ["表示", metrics.impressions],
+  ];
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items
+        .filter(([, value]) => value != null)
+        .map(([label, value]) => (
+          <span
+            key={label}
+            className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+          >
+            {label} {(value as number).toLocaleString("ja-JP")}
+          </span>
+        ))}
+    </div>
+  );
+}
 
 export default function SchedulePage() {
   const [data, setData] = useState<ScheduleData | null>(null);
@@ -38,108 +64,150 @@ export default function SchedulePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchSchedule() {
       try {
         setIsLoading(true);
-        const response = await fetch('/api/schedule');
+        const response = await fetch("/api/schedule");
         const result = await response.json();
-
+        if (cancelled) return;
         if (!result.ok) {
-          throw new Error(result.message || 'Failed to fetch schedule data.');
+          throw new Error(result.message || "スケジュールを取得できませんでした。");
         }
         setData(result);
+        setError(null);
       } catch (err) {
-        setError((err as Error).message);
+        if (!cancelled) setError((err as Error).message);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     }
 
     fetchSchedule();
-  }, []); // Empty dependency array, runs only once
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const accountMap = new Map(data?.accounts.map(acc => [acc.id, acc]));
-  const localZone = DateTime.local().zoneName;
+  const accountMap = useMemo(
+    () => new Map(data?.accounts.map((account) => [account.id, account]) ?? []),
+    [data],
+  );
 
-  const colorPalette = [
-    'border-blue-400',
-    'border-green-400',
-    'border-pink-400',
-    'border-yellow-400',
-    'border-purple-400',
-    'border-indigo-400',
-    'border-red-400',
-    'border-gray-400',
-  ];
+  const accentMap = useMemo(() => {
+    const map = new Map<string, string>();
+    data?.accounts.forEach((account, index) => {
+      map.set(account.id, ACCENTS[index % ACCENTS.length]);
+    });
+    return map;
+  }, [data]);
 
-  const accountColorMap = new Map<string, string>();
-  data?.accounts.forEach((account, index) => {
-    accountColorMap.set(account.id, colorPalette[index % colorPalette.length]);
-  });
+  const zone = DateTime.local().zoneName;
 
-  const renderPostItem = (post: DraftDoc | PostDoc, isDraft: boolean) => {
-    const accountId = isDraft ? (post as DraftDoc).target_account_id! : (post as PostDoc).account_id;
+  const renderItem = (item: DraftDoc | PostDoc, isDraft: boolean) => {
+    const accountId = isDraft
+      ? ((item as DraftDoc).target_account_id ?? "")
+      : (item as PostDoc).account_id;
     const account = accountMap.get(accountId);
-    const time = isDraft ? (post as DraftDoc).schedule_time : (post as PostDoc).created_at;
-    const formattedTime = time ? DateTime.fromISO(time).setZone(localZone).toFormat("yyyy-LL-dd HH:mm") : 'N/A';
-    const borderColor = accountColorMap.get(accountId) || 'border-border';
+    const iso = isDraft
+      ? (item as DraftDoc).schedule_time
+      : (item as PostDoc).created_at;
+    const time = iso ? DateTime.fromISO(iso) : null;
 
     return (
-      <li key={post.id} className={`rounded-lg border bg-surface p-4 space-y-3 shadow-sm transition-all hover:shadow-md border-l-4 ${borderColor}`}>
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-semibold text-foreground">
-            {account ? `@${account.handle}` : 'Unknown Account'}
+      <li
+        key={item.id}
+        className={cn(
+          "space-y-2.5 rounded-lg border border-l-4 border-border bg-surface p-4 shadow-sm transition-shadow hover:shadow-md",
+          accentMap.get(accountId) ?? "border-l-border",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-sm font-semibold">
+            {account ? `@${account.handle}` : "不明なアカウント"}
           </span>
-          {account && <PlatformBadge platform={account.platform} />}
+          {account ? (
+            <Badge variant="outline">{platformLabel(account.platform)}</Badge>
+          ) : null}
         </div>
-        <p className="text-foreground/90 whitespace-pre-wrap">{post.text}</p>
-        {!isDraft && <MetricsDisplay metrics={(post as PostDoc).metrics} />}
-        <div className="text-right text-xs text-muted-foreground pt-1">
-          <span>{formattedTime}</span>
-        </div>
+        <p className="whitespace-pre-wrap text-sm leading-relaxed">
+          {item.text}
+        </p>
+        {!isDraft ? <MetricsRow metrics={(item as PostDoc).metrics} /> : null}
+        <p className="text-right text-xs text-muted-foreground">
+          {time?.isValid
+            ? time.setZone(zone).toFormat("yyyy/MM/dd HH:mm")
+            : "日時未設定"}
+        </p>
       </li>
     );
   };
 
-  if (isLoading) {
-    return <div className="p-8 text-center">Loading schedule...</div>;
-  }
-
-  if (error) {
-    return <div className="p-8 text-center text-red-500">Error: {error}</div>;
-  }
-
   return (
-    <div className="p-4 md:p-8 space-y-6">
-      <h1 className="text-2xl font-semibold">Content Schedule (All Accounts)</h1>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Upcoming Posts</h2>
-          {data?.scheduledDrafts && data.scheduledDrafts.length > 0 ? (
-            <ul className="space-y-4">
-              {data.scheduledDrafts.map(draft => renderPostItem(draft, true))}
-            </ul>
-          ) : (
-            <div className="text-muted-foreground border border-dashed rounded-lg p-6 text-center">
-              <p>No posts scheduled.</p>
-              <p className="text-xs mt-1">Drafts with status &apos;scheduled&apos; will appear here.</p>
-            </div>
-          )}
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="投稿スケジュール"
+        description="全アカウントの予約投稿と、直近24時間の投稿実績をまとめて確認できます。"
+      />
 
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Recently Published (Last 24h)</h2>
-          {data?.recentPosts && data.recentPosts.length > 0 ? (
-            <ul className="space-y-4">
-              {data.recentPosts.map(post => renderPostItem(post, false))}
-            </ul>
-          ) : (
-            <p className="text-muted-foreground border border-dashed rounded-lg p-6 text-center">
-              No posts in the last 24 hours.
-            </p>
-          )}
+      {error ? (
+        <EmptyState
+          tone="error"
+          icon={<AlertIcon className="h-5 w-5" />}
+          title="スケジュールを読み込めませんでした"
+          description={error}
+        />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>予約中の投稿</CardTitle>
+              <CardDescription>
+                ステータスが「予約済み」の下書きが表示されます。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <SkeletonList rows={3} />
+              ) : data?.scheduledDrafts.length ? (
+                <ul className="space-y-3">
+                  {data.scheduledDrafts.map((draft) => renderItem(draft, true))}
+                </ul>
+              ) : (
+                <EmptyState
+                  icon={<CalendarIcon className="h-5 w-5" />}
+                  title="予約中の投稿はありません"
+                  description="ダッシュボードで下書きのステータスを「予約済み」にすると、ここに表示されます。"
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>直近24時間の投稿</CardTitle>
+              <CardDescription>
+                実際に公開された投稿と、その反応が表示されます。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <SkeletonList rows={3} />
+              ) : data?.recentPosts.length ? (
+                <ul className="space-y-3">
+                  {data.recentPosts.map((post) => renderItem(post, false))}
+                </ul>
+              ) : (
+                <EmptyState
+                  icon={<InboxIcon className="h-5 w-5" />}
+                  title="直近24時間の投稿はありません"
+                />
+              )}
+            </CardContent>
+          </Card>
         </div>
-      </div>
+      )}
     </div>
   );
 }

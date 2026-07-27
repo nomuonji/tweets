@@ -2,24 +2,137 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens.
+ *
+ * Colours are stored as space-separated RGB channels (not hex) so that Tailwind
+ * opacity modifiers such as `bg-primary/90` compile to
+ * `rgb(var(--primary) / 0.9)`. With a plain hex value Tailwind v3 silently drops
+ * the whole class, which is what previously broke every `/opacity` utility here.
+ */
 :root {
-  --background: #f5f7fa;
-  --foreground: #101828;
-  --surface: #ffffff;
-  --surface-hover: #eef2ff;
-  --surface-active: #e0e7ff;
-  --muted: #f2f4f7;
-  --muted-foreground: #475467;
-  --border: #d0d5dd;
-  --primary: #4f46e5;
-  --primary-foreground: #f8faff;
+  --background: 248 250 252;
+  --foreground: 15 23 42;
+
+  --surface: 255 255 255;
+  --surface-hover: 241 245 249;
+  --surface-active: 226 232 240;
+
+  --muted: 241 245 249;
+  --muted-foreground: 100 116 139;
+
+  --border: 226 232 240;
+  --input: 226 232 240;
+  --ring: 99 102 241;
+
+  --primary: 79 70 229;
+  --primary-foreground: 255 255 255;
+
+  --secondary: 241 245 249;
+  --secondary-foreground: 15 23 42;
+
+  --destructive: 220 38 38;
+  --destructive-foreground: 255 255 255;
+
+  --success: 22 163 74;
+  --success-foreground: 255 255 255;
+
+  --warning: 217 119 6;
+  --warning-foreground: 255 255 255;
+
+  --radius: 0.75rem;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+.dark {
+  --background: 9 11 17;
+  --foreground: 226 232 240;
+
+  --surface: 20 24 33;
+  --surface-hover: 30 36 48;
+  --surface-active: 39 46 61;
+
+  --muted: 30 36 48;
+  --muted-foreground: 148 163 184;
+
+  --border: 39 46 61;
+  --input: 39 46 61;
+  --ring: 129 140 248;
+
+  --primary: 129 140 248;
+  --primary-foreground: 15 23 42;
+
+  --secondary: 30 36 48;
+  --secondary-foreground: 226 232 240;
+
+  --destructive: 248 113 113;
+  --destructive-foreground: 15 23 42;
+
+  --success: 74 222 128;
+  --success-foreground: 15 23 42;
+
+  --warning: 251 191 36;
+  --warning-foreground: 15 23 42;
+}
+
+@layer base {
+  * {
+    border-color: rgb(var(--border));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    color: rgb(var(--foreground));
+    background: rgb(var(--background));
+    font-family: var(--font-geist-sans), system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP",
+      "Yu Gothic UI", Meiryo, sans-serif;
+    font-feature-settings: "palt" 1;
+  }
+
+  /* Japanese text wraps better with these off the default. */
+  p,
+  li,
+  h1,
+  h2,
+  h3 {
+    line-break: strict;
+    overflow-wrap: anywhere;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--ring));
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgb(var(--primary) / 0.25);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--muted-foreground) / 0.5);
+    background-clip: content-box;
+  }
+
+  /* Native controls follow the active theme (date/time pickers, scrollbars). */
+  .dark {
+    color-scheme: dark;
+  }
 }
 
 @layer utilities {

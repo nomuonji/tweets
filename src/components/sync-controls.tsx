@@ -1,10 +1,14 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
-
-import { SyncButton, SyncRequestPayload } from "./sync-button";
+import { useEffect, useMemo, useState } from "react";
+import { useAccountContext } from "./account/account-provider";
+import { SyncButton, type SyncRequestPayload } from "./sync-button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Field, Input } from "@/components/ui/field";
+import { cn, platformLabel } from "@/lib/utils";
 
 const SYNC_SCOPE_STORAGE_KEY = "sync-scope-account-ids";
+const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 type AccountOption = {
   id: string;
@@ -12,8 +16,6 @@ type AccountOption = {
   displayName: string;
   platform: string;
 };
-
-import { useAccountContext } from "./account/account-provider";
 
 type SyncControlsProps = {
   accounts: AccountOption[];
@@ -25,53 +27,47 @@ export function SyncControls({ accounts }: SyncControlsProps) {
 
   const [lookbackDays, setLookbackDays] = useState("");
   const [maxPosts, setMaxPosts] = useState("");
-  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [scopedAccountIds, setScopedAccountIds] = useState<string[]>([]);
 
   const currentAccount = useMemo(
-    () => accounts.find((acc) => acc.id === selectedAccountId),
+    () => accounts.find((account) => account.id === selectedAccountId),
     [accounts, selectedAccountId],
   );
 
   const defaultPostCount = currentAccount?.platform === "threads" ? 100 : 20;
-  const lookbackPlaceholder = "期間制限なし";
-  const maxPostsPlaceholder = `未指定: ${defaultPostCount}`;
 
+  // Restore the previously used scope, falling back to the active account.
   useEffect(() => {
-    let cookieValue: string[] | null = null;
+    let stored: string[] | null = null;
     try {
-      const item = document.cookie
+      const cookie = document.cookie
         .split("; ")
         .find((row) => row.startsWith(`${SYNC_SCOPE_STORAGE_KEY}=`));
-      if (item) {
-        const parsed = JSON.parse(decodeURIComponent(item.split("=")[1]));
-        if (Array.isArray(parsed)) {
-          cookieValue = parsed;
-        }
+      if (cookie) {
+        const parsed = JSON.parse(decodeURIComponent(cookie.split("=")[1]));
+        if (Array.isArray(parsed)) stored = parsed;
       }
     } catch (error) {
       console.error("Failed to parse sync scope from cookie", error);
     }
 
-    if (cookieValue && cookieValue.length > 0) {
-      setSelectedAccounts(cookieValue);
+    if (stored && stored.length > 0) {
+      setScopedAccountIds(stored);
     } else if (selectedAccountId) {
-      setSelectedAccounts([selectedAccountId]);
+      setScopedAccountIds([selectedAccountId]);
     }
   }, [selectedAccountId]);
 
   useEffect(() => {
     try {
-      const value = JSON.stringify(selectedAccounts);
-      const expires = new Date(
-        Date.now() + 30 * 24 * 60 * 60 * 1000,
-      ).toUTCString();
+      const expires = new Date(Date.now() + COOKIE_MAX_AGE_MS).toUTCString();
       document.cookie = `${SYNC_SCOPE_STORAGE_KEY}=${encodeURIComponent(
-        value,
+        JSON.stringify(scopedAccountIds),
       )}; expires=${expires}; path=/; SameSite=Lax`;
     } catch (error) {
       console.error("Failed to save sync scope to cookie", error);
     }
-  }, [selectedAccounts]);
+  }, [scopedAccountIds]);
 
   const payload = useMemo<SyncRequestPayload>(() => {
     const next: SyncRequestPayload = {};
@@ -86,109 +82,117 @@ export function SyncControls({ accounts }: SyncControlsProps) {
       next.maxPosts = maxPostsValue;
     }
 
-    if (selectedAccounts.length > 0) {
-      next.accountIds = selectedAccounts;
+    if (scopedAccountIds.length > 0) {
+      next.accountIds = scopedAccountIds;
     } else if (selectedAccountId) {
       next.accountIds = [selectedAccountId];
     }
 
     return next;
-  }, [lookbackDays, maxPosts, selectedAccounts, selectedAccountId]);
+  }, [lookbackDays, maxPosts, scopedAccountIds, selectedAccountId]);
 
   const toggleAccount = (accountId: string) => {
-    setSelectedAccounts((previous) =>
-      previous.includes(accountId)
-        ? previous.filter((id) => id !== accountId)
-        : [...previous, accountId],
+    setScopedAccountIds((prev) =>
+      prev.includes(accountId)
+        ? prev.filter((id) => id !== accountId)
+        : [...prev, accountId],
     );
   };
 
-  const clearSelection = () => setSelectedAccounts([]);
-
-  const selectionSummary =
-    selectedAccounts.length > 0
-      ? `${selectedAccounts.length} of ${accounts.length} selected`
+  const scopeSummary =
+    scopedAccountIds.length > 0
+      ? `${accounts.length}件中 ${scopedAccountIds.length}件を選択中`
       : selectedAccountId
-        ? "1 account (default)"
-        : `All ${accounts.length} accounts`;
+        ? "選択中のアカウントのみ（既定）"
+        : `全 ${accounts.length} アカウント`;
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-4">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Lookback days (optional)</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              placeholder={lookbackPlaceholder}
-              onChange={(event) => setLookbackDays(event.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Max posts per account (optional)</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              placeholder={maxPostsPlaceholder}
-              value={maxPosts}
-              onChange={(event) => setMaxPosts(event.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-            />
-          </label>
-        </div>
-        <SyncButton payload={payload} />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        標準設定では、各アカウントの最新投稿を20件まで（期間制限なし）取得します。Lookback daysやMax postsは例外的なケースでのみ入力してください。
-      </p>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Limit sync scope (optional)</span>
-          {selectedAccounts.length > 0 && (
-            <button
-              type="button"
-              onClick={clearSelection}
-              className="text-primary hover:underline"
+    <Card className="h-full">
+      <CardContent className="space-y-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid flex-1 gap-3 sm:grid-cols-2">
+            <Field label="取得期間（日数）" hint="未入力なら期間制限なし">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  placeholder="期間制限なし"
+                  value={lookbackDays}
+                  onChange={(event) => setLookbackDays(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field
+              label="1アカウントあたりの最大件数"
+              hint={`未入力なら ${defaultPostCount} 件`}
             >
-              Clear selection
-            </button>
-          )}
+              {(id) => (
+                <Input
+                  id={id}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  placeholder={String(defaultPostCount)}
+                  value={maxPosts}
+                  onChange={(event) => setMaxPosts(event.target.value)}
+                />
+              )}
+            </Field>
+          </div>
+          <SyncButton payload={payload} />
         </div>
 
-        {accounts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No connected accounts available.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {accounts.map((account) => {
-              const isSelected = selectedAccounts.includes(account.id);
-              return (
-                <button
-                  key={account.id}
-                  type="button"
-                  onClick={() => toggleAccount(account.id)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                    isSelected
-                      ? "border-primary bg-surface-active text-primary"
-                      : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground"
-                  }`}
-                >
-                  {account.displayName
-                    ? `${account.displayName} (@${account.handle})`
-                    : `@${account.handle}`}
-                </button>
-              );
-            })}
+        <div className="space-y-2 border-t border-border pt-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">
+              同期するアカウント
+            </p>
+            {scopedAccountIds.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setScopedAccountIds([])}
+                className="text-xs text-primary hover:underline"
+              >
+                選択を解除
+              </button>
+            ) : null}
           </div>
-        )}
-        <p className="text-xs text-muted-foreground">{selectionSummary}</p>
-      </div>
-    </div>
+
+          {accounts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              連携済みのアカウントがありません。
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {accounts.map((account) => {
+                const isSelected = scopedAccountIds.includes(account.id);
+                return (
+                  <button
+                    key={account.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => toggleAccount(account.id)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                      isSelected
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground",
+                    )}
+                  >
+                    @{account.handle}
+                    <span className="ml-1 opacity-70">
+                      {platformLabel(account.platform)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{scopeSummary}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

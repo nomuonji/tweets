@@ -2,6 +2,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AccountDoc } from "@/lib/types";
+import { Card, CardContent } from "@/components/ui/card";
+import { Select } from "@/components/ui/field";
 
 type RankingFiltersProps = {
   platform: string;
@@ -11,6 +13,31 @@ type RankingFiltersProps = {
   accountId: string;
   accounts: AccountDoc[];
 };
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1 text-sm">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <Select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9"
+      >
+        {children}
+      </Select>
+    </label>
+  );
+}
 
 export function RankingFilters({
   platform,
@@ -31,75 +58,62 @@ export function RankingFilters({
   };
 
   return (
-    <div className="flex flex-wrap gap-4 rounded-lg border border-border bg-surface p-4">
-      <label className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Account</span>
-        <select
+    <Card>
+      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <FilterSelect
+          label="アカウント"
           value={accountId}
-          onChange={(event) => updateParam("accountId", event.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          onChange={(value) => updateParam("accountId", value)}
         >
-          <option value="all">All Accounts</option>
+          <option value="all">すべて</option>
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>
-              {account.display_name || account.handle}
+              {account.display_name || `@${account.handle}`}
             </option>
           ))}
-        </select>
-      </label>
+        </FilterSelect>
 
-      <label className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Platform</span>
-        <select
+        <FilterSelect
+          label="プラットフォーム"
           value={platform}
-          onChange={(event) => updateParam("platform", event.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          onChange={(value) => updateParam("platform", value)}
         >
-          <option value="all">All</option>
+          <option value="all">すべて</option>
           <option value="x">X</option>
           <option value="threads">Threads</option>
-        </select>
-      </label>
+        </FilterSelect>
 
-      <label className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Media</span>
-        <select
+        <FilterSelect
+          label="メディア種別"
           value={media}
-          onChange={(event) => updateParam("media", event.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          onChange={(value) => updateParam("media", value)}
         >
-          <option value="all">All</option>
-          <option value="text">Text</option>
-          <option value="image">Image</option>
-          <option value="video">Video</option>
-        </select>
-      </label>
+          <option value="all">すべて</option>
+          <option value="text">テキスト</option>
+          <option value="image">画像</option>
+          <option value="video">動画</option>
+        </FilterSelect>
 
-      <label className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Period</span>
-        <select
+        <FilterSelect
+          label="期間"
           value={period}
-          onChange={(event) => updateParam("period", event.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          onChange={(value) => updateParam("period", value)}
         >
-          <option value="all">All</option>
-          <option value="7">7 days</option>
-          <option value="30">30 days</option>
-          <option value="90">90 days</option>
-        </select>
-      </label>
+          <option value="all">全期間</option>
+          <option value="7">過去7日</option>
+          <option value="30">過去30日</option>
+          <option value="90">過去90日</option>
+        </FilterSelect>
 
-      <label className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Sort</span>
-        <select
+        <FilterSelect
+          label="並び順"
           value={sort}
-          onChange={(event) => updateParam("sort", event.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          onChange={(value) => updateParam("sort", value)}
         >
-          <option value="top">Popular</option>
-          <option value="latest">Latest</option>
-        </select>
-      </label>
-    </div>
+          <option value="top">スコアが高い順</option>
+          <option value="latest">新しい順</option>
+        </FilterSelect>
+      </CardContent>
+    </Card>
   );
 }

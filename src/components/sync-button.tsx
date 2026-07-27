@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { RefreshIcon } from "@/components/ui/icons";
+import { cn } from "@/lib/utils";
 
 export type SyncRequestPayload = {
   lookbackDays?: number;
@@ -23,9 +26,25 @@ type SyncResultSummary = {
   debug?: string[];
 };
 
+type ResultLine = {
+  ok: boolean;
+  label: string;
+  detail: string;
+};
+
+function labelFor(item: SyncResultSummary) {
+  return (
+    item.displayName ||
+    (item.handle ? `@${item.handle}` : "") ||
+    (item.platform ? `${item.platform}:${item.accountId}` : item.accountId)
+  );
+}
+
 export function SyncButton({ payload }: SyncButtonProps) {
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [lines, setLines] = useState<ResultLine[]>([]);
+  const [failed, setFailed] = useState(false);
 
   const sanitizePayload = () => {
     const next: SyncRequestPayload = {};
@@ -55,95 +74,100 @@ export function SyncButton({ payload }: SyncButtonProps) {
 
   const handleSync = async () => {
     setLoading(true);
-    setMessage(null);
+    setSummary(null);
+    setLines([]);
+    setFailed(false);
+
     try {
-      const sanitized = sanitizePayload();
       const response = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sanitized),
+        body: JSON.stringify(sanitizePayload()),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.message ?? "Failed to sync posts");
+        throw new Error(data.message ?? "同期に失敗しました。");
       }
 
-      const summary = Array.isArray(data.result)
+      const results = Array.isArray(data.result)
         ? (data.result as SyncResultSummary[])
         : [];
-      const totalFetched = summary.reduce(
-        (sum: number, item) => sum + (item.fetched ?? 0),
+
+      if (results.length === 0) {
+        setSummary("対象のアカウントがありませんでした。");
+        return;
+      }
+
+      const totalFetched = results.reduce(
+        (sum, item) => sum + (item.fetched ?? 0),
         0,
       );
-      const totalAccounts = summary.length;
-      const failed = summary.filter((item) => item.error);
-      const successful = summary.filter((item) => !item.error);
+      const errored = results.filter((item) => item.error);
 
-      const lines: string[] = [];
-      if (failed.length > 0) {
-        lines.push(
-          `Sync finished with errors (${totalFetched} posts / ${totalAccounts} accounts).`,
-        );
-        failed.forEach((item) => {
-          const label =
-            item.displayName ||
-            item.handle ||
-            (item.platform ? `${item.platform}:${item.accountId}` : item.accountId);
-          lines.push(`✖ ${label}: ${item.error ?? "Unknown error"}`);
-        });
-      }
+      setFailed(errored.length > 0);
+      setSummary(
+        errored.length > 0
+          ? `${results.length}件中 ${errored.length}件でエラーが発生しました（取得 ${totalFetched}件）。`
+          : totalFetched > 0
+            ? `同期が完了しました（取得 ${totalFetched}件 / ${results.length}アカウント）。`
+            : "同期は完了しましたが、新しい投稿はありませんでした。",
+      );
 
-      if (successful.length > 0) {
-        lines.push(
-          failed.length === 0
-            ? totalFetched > 0
-              ? `Sync completed (${totalFetched} posts / ${totalAccounts} accounts).`
-              : "Sync completed but no new posts were stored."
-            : "Successful accounts:",
-        );
-        successful.forEach((item) => {
-          const label =
-            item.displayName ||
-            item.handle ||
-            (item.platform ? `${item.platform}:${item.accountId}` : item.accountId);
-          lines.push(
-            `✔ ${label}: fetched ${item.fetched ?? 0}, stored ${item.stored ?? 0}`,
-          );
-        });
-      }
-
-      if (lines.length === 0) {
-        lines.push("Sync completed (no accounts).");
-      }
-
-      setMessage(lines.join("\n"));
+      setLines(
+        results.map((item) => ({
+          ok: !item.error,
+          label: labelFor(item),
+          detail: item.error
+            ? item.error
+            : `取得 ${item.fetched ?? 0}件・保存 ${item.stored ?? 0}件`,
+        })),
+      );
     } catch (error) {
-      setMessage((error as Error).message);
+      setFailed(true);
+      setSummary((error as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <button
-        type="button"
-        onClick={handleSync}
-        disabled={loading}
-        className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {loading ? "Sync in progress..." : "Sync latest posts"}
-      </button>
-      {message && (
-        <div className="flex max-w-xl flex-col gap-1 text-xs text-muted-foreground">
-          {message.split("\n").map((line, index) => (
-            <div key={index}>{line}</div>
-          ))}
+    <div className="space-y-2">
+      <Button loading={loading} onClick={handleSync}>
+        {loading ? null : <RefreshIcon className="h-4 w-4" />}
+        {loading ? "同期中..." : "最新の投稿を同期"}
+      </Button>
+
+      {summary ? (
+        <div
+          className={cn(
+            "rounded-md border px-3 py-2 text-xs",
+            failed
+              ? "border-destructive/30 bg-destructive/5 text-destructive"
+              : "border-success/30 bg-success/5 text-foreground",
+          )}
+        >
+          <p className="font-medium">{summary}</p>
+          {lines.length > 0 ? (
+            <ul className="mt-1.5 space-y-0.5">
+              {lines.map((line, index) => (
+                <li
+                  key={index}
+                  className={cn(
+                    "flex gap-1.5",
+                    line.ok ? "text-muted-foreground" : "text-destructive",
+                  )}
+                >
+                  <span aria-hidden="true">{line.ok ? "✔" : "✖"}</span>
+                  <span className="min-w-0">
+                    <span className="font-medium">{line.label}</span>：
+                    {line.detail}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
-
-
-

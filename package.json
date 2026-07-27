@@ -11,7 +11,8 @@
     "sync:schedules": "tsx -r dotenv/config scripts/execute-scheduled.ts",
     "sync:refresh-tokens": "tsx -r dotenv/config scripts/refresh-tokens.ts",
     "auto:sync": "tsx -r dotenv/config scripts/auto-sync.ts",
-    "auto:generate": "tsx -r dotenv/config scripts/auto-generate-drafts.ts"
+    "auto:generate": "tsx -r dotenv/config scripts/auto-generate-drafts.ts",
+    "test:slots": "tsx scripts/test-schedule-slots.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.53",
@@ -20,6 +21,7 @@
     "ai": "^5.0.121",
     "axios": "^1.12.2",
     "cheerio": "^1.1.2",
+    "clsx": "^2.1.1",
     "cosine-similarity": "^1.0.1",
     "firebase": "^12.4.0",
     "firebase-admin": "^13.5.0",
@@ -29,6 +31,7 @@
     "puppeteer-core": "^24.26.1",
     "react": "^18",
     "react-dom": "^18",
+    "tailwind-merge": "^3.6.0",
     "twitter-api-v2": "^1.27.0",
     "zod": "^4.1.12"
   },
