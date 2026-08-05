@@ -23,6 +23,31 @@ const CATCHUP_GRACE_MINUTES = Number(
 /** A `publishing` lock older than this is assumed to be from a crashed run. */
 const PUBLISHING_LOCK_TIMEOUT_MINUTES = 30;
 
+/**
+ * Axios throws with a generic "Request failed with status code 400"; the part
+ * that actually says *why* lives in `response.data`. Without this the recorded
+ * `last_error` is useless for diagnosis.
+ */
+export function describeError(error: unknown): string {
+  const e = error as {
+    message?: string;
+    response?: { status?: number; data?: unknown };
+  };
+
+  if (e?.response) {
+    const body =
+      typeof e.response.data === "string"
+        ? e.response.data
+        : JSON.stringify(e.response.data);
+    return `HTTP ${e.response.status ?? "?"}: ${body ?? "(empty body)"}`.slice(
+      0,
+      1500,
+    );
+  }
+
+  return e?.message ?? String(error);
+}
+
 function buildPostText(draft: DraftDoc) {
   const hashtags = draft.hashtags?.length
     ? ` ${draft.hashtags.map((tag) => (tag.startsWith("#") ? tag : `#${tag}`)).join(" ")}`
@@ -87,6 +112,40 @@ async function markSlotConsumed(accountId: string, slot: DateTime) {
     .collection("accounts")
     .doc(accountId)
     .update({ lastPostExecutedAt: slot.toISO() });
+}
+
+/**
+ * Return drafts abandoned mid-publish (crashed run, cancelled Action) to the
+ * queue. `fetchNextDraft` only looks at draft/scheduled, so without this pass a
+ * stuck `publishing` doc is invisible forever and its content is stranded.
+ */
+async function reclaimStalePublishing(accountId: string, now: DateTime) {
+  const snapshot = await adminDb
+    .collection("drafts")
+    .where("target_account_id", "==", accountId)
+    .where("status", "==", "publishing")
+    .get();
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data() as DraftDoc;
+    const startedAt = data.publishing_started_at
+      ? DateTime.fromISO(data.publishing_started_at)
+      : null;
+    const isStale =
+      !startedAt ||
+      !startedAt.isValid ||
+      now.diff(startedAt, "minutes").minutes > PUBLISHING_LOCK_TIMEOUT_MINUTES;
+
+    if (!isStale) continue;
+
+    console.warn(
+      `[Scheduler] Returning stranded draft ${doc.id} from publishing to draft.`,
+    );
+    await doc.ref.update({
+      status: "draft",
+      updated_at: DateTime.utc().toISO(),
+    });
+  }
 }
 
 /** Oldest-first queue of drafts eligible for auto-posting. */
@@ -194,6 +253,8 @@ async function processAccount(
 
   const targetSlot = decision.slot;
 
+  await reclaimStalePublishing(accountId, now);
+
   const draft = await fetchNextDraft(accountId);
   if (!draft) {
     console.log(
@@ -278,7 +339,7 @@ async function processAccount(
       .update({
         status: "failed",
         last_error: {
-          message: (error as Error).message ?? String(error),
+          message: describeError(error),
           occurred_at: DateTime.utc().toISO(),
         },
         updated_at: DateTime.utc().toISO(),
