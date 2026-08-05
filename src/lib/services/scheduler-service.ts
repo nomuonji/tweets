@@ -12,12 +12,14 @@ export { SCHEDULE_TIMEZONE };
 
 /**
  * How late a slot may still be published. The scheduler runs on GitHub Actions,
- * whose cron is best-effort and frequently minutes-to-hours late, so a slot that
- * was missed should still go out — but posting a 07:00 slot at 18:00 is worse
- * than skipping it, hence the bound.
+ * whose cron is best-effort and, in practice on this repo, has been observed
+ * running 1–3h40m late despite a 15-minute schedule — a 2h grace window was
+ * dropping slots that a slower-than-expected runner queue had merely delayed,
+ * not genuinely missed. 6h covers that gap while still refusing to post a
+ * morning slot in the evening.
  */
 const CATCHUP_GRACE_MINUTES = Number(
-  process.env.SCHEDULER_CATCHUP_GRACE_MINUTES ?? 120,
+  process.env.SCHEDULER_CATCHUP_GRACE_MINUTES ?? 360,
 );
 
 /** A `publishing` lock older than this is assumed to be from a crashed run. */
