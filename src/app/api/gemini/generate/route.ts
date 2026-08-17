@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await preparePromptPayload(accountId, limit);
-    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts } = payload;
+    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts } = payload;
 
     const normalizedDrafts = new Set(drafts.map((draft) => normalizeText(draft.text ?? "")));
     const maxAttempts = 3;
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
           account.concept,
           account.minPostLength,
           account.maxPostLength,
+          externalPosts,
         );
         finalPrompt = prompt;
         suggestion = await requestGrok(prompt, xaiApiKey);
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
           account.concept,
           account.minPostLength,
           account.maxPostLength,
+          externalPosts,
         );
         finalPrompt = prompt;
         const raw = await requestGemini(prompt);
@@ -95,6 +97,24 @@ export async function POST(request: Request) {
       duplicate,
       prompt: finalPrompt,
       modelUsed: account.r18Mode ? 'grok' : 'gemini',
+      context: {
+        usedPosts: topPosts.map((post) => ({
+          id: post.id,
+          text: post.text,
+          score: post.score,
+          impressions: post.metrics.impressions ?? 0,
+          likes: post.metrics.likes,
+          reposts: post.metrics.reposts_or_rethreads,
+          replies: post.metrics.replies,
+          source: "top" as const,
+        })),
+        externalPosts: externalPosts.slice(0, 12),
+        existingDrafts: drafts.slice(0, 50).map((draft) => ({
+          id: draft.id,
+          text: draft.text,
+          updatedAt: draft.updated_at,
+        })),
+      },
     });
   } catch (error) {
     return NextResponse.json({ ok: false, message: (error as Error).message }, { status: 500 });

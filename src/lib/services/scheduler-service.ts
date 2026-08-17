@@ -73,6 +73,27 @@ async function publishDraft(draft: DraftDoc) {
   return publishThreadsPost(account, { text: buildPostText(draft) });
 }
 
+export async function recordPublishFailure(
+  draft: DraftDoc,
+  error: unknown,
+): Promise<void> {
+  const occurredAt = DateTime.utc().toISO()!;
+  const failureRef = adminDb.collection("publish_failures").doc();
+  const draftRef = adminDb.collection("drafts").doc(draft.id);
+  const batch = adminDb.batch();
+
+  batch.set(failureRef, {
+    draft_id: draft.id,
+    target_account_id: draft.target_account_id ?? null,
+    target_platform: draft.target_platform,
+    text: draft.text,
+    message: describeError(error),
+    occurred_at: occurredAt,
+  });
+  batch.delete(draftRef);
+  await batch.commit();
+}
+
 export async function hasDuplicatePost(
   accountId: string,
   text: string,
@@ -335,17 +356,7 @@ async function processAccount(
       `[Scheduler] Failed to publish draft ${claimed.id} for account ${accountId}; marking as failed.`,
       error,
     );
-    await adminDb
-      .collection("drafts")
-      .doc(claimed.id)
-      .update({
-        status: "failed",
-        last_error: {
-          message: describeError(error),
-          occurred_at: DateTime.utc().toISO(),
-        },
-        updated_at: DateTime.utc().toISO(),
-      });
+    await recordPublishFailure(claimed, error);
     return false;
   }
 }

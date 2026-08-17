@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DateTime } from "luxon";
-import type { AccountDoc, Tip } from "@/lib/types";
+import type { AccountDoc, ReferenceAccountDoc, Tip } from "@/lib/types";
 import {
   DEFAULT_SCHEDULE_TIMEZONE,
   findNextSlot,
 } from "@/lib/services/schedule-slots";
 import { platformLabel } from "@/lib/utils";
 import { TipsSelectionModal } from "@/components/tips-selection-modal";
+import { ReferenceAccountFinder } from "@/components/reference-account-finder";
 import { Badge } from "@/components/ui/badge";
 import { Button, linkButton } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,13 +25,23 @@ import { useToast } from "@/components/ui/toast";
 /** Editable per-account settings, held in React state rather than read off the DOM. */
 type SettingsDraft = {
   concept: string;
+  discoveryKeywords: string;
+  referenceHandles: string;
   autoPostEnabled: boolean;
   postSchedule: string[];
 };
 
-function toSettingsDraft(account: AccountDoc): SettingsDraft {
+function toSettingsDraft(
+  account: AccountDoc,
+  referenceAccounts: ReferenceAccountDoc[],
+): SettingsDraft {
   return {
     concept: account.concept ?? "",
+    discoveryKeywords: (account.discoveryKeywords ?? []).join(", "),
+    referenceHandles: (account.referenceAccountIds ?? [])
+      .map((id) => referenceAccounts.find((item) => item.id === id)?.handle)
+      .filter((handle): handle is string => Boolean(handle))
+      .join(", "),
     autoPostEnabled: account.autoPostEnabled ?? false,
     postSchedule: account.postSchedule ?? [],
   };
@@ -72,6 +83,7 @@ export default function AccountsIndexPage() {
 
   const [accounts, setAccounts] = useState<AccountDoc[]>([]);
   const [allTips, setAllTips] = useState<Tip[]>([]);
+  const [referenceAccounts, setReferenceAccounts] = useState<ReferenceAccountDoc[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,18 +96,23 @@ export default function AccountsIndexPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [accountsRes, tipsRes] = await Promise.all([
+      const [accountsRes, tipsRes, referenceRes] = await Promise.all([
         fetch("/api/accounts"),
         fetch("/api/tips"),
+        fetch("/api/reference-accounts"),
       ]);
       const accountsData = await accountsRes.json();
       const tipsData = await tipsRes.json();
+      const referenceData = await referenceRes.json();
 
       if (!accountsData.ok) {
         throw new Error(accountsData.message || "アカウントを取得できませんでした。");
       }
       if (!tipsData.ok) {
         throw new Error(tipsData.message || "Tips を取得できませんでした。");
+      }
+      if (!referenceData.ok) {
+        throw new Error(referenceData.message || "参考アカウントを取得できませんでした。");
       }
 
       setAccounts(
@@ -104,6 +121,7 @@ export default function AccountsIndexPage() {
         ),
       );
       setAllTips(tipsData.tips);
+      setReferenceAccounts(referenceData.accounts);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -122,7 +140,7 @@ export default function AccountsIndexPage() {
       return;
     }
     setEditingId(account.id);
-    setSettingsDraft(toSettingsDraft(account));
+    setSettingsDraft(toSettingsDraft(account, referenceAccounts));
   };
 
   const handleSaveTips = async (updatedTipIds: string[]) => {
@@ -154,8 +172,42 @@ export default function AccountsIndexPage() {
     if (!settingsDraft) return;
     setIsSaving(true);
 
+    const referenceHandles = settingsDraft.referenceHandles
+      .split(",")
+      .map((handle) => handle.trim().replace(/^@/, ""))
+      .filter(Boolean);
+    const knownReferenceAccounts = [...referenceAccounts];
+    try {
+      for (const handle of referenceHandles) {
+        if (knownReferenceAccounts.some((item) => item.handle.toLowerCase() === handle.toLowerCase())) {
+          continue;
+        }
+        const response = await fetch("/api/reference-accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handle }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || "参考アカウントを追加できませんでした。");
+        knownReferenceAccounts.push(data.account);
+      }
+    } catch (error) {
+      setIsSaving(false);
+      toast.error((error as Error).message);
+      return;
+    }
+    setReferenceAccounts(knownReferenceAccounts);
+
     const payload = {
       concept: settingsDraft.concept,
+      discoveryKeywords: settingsDraft.discoveryKeywords
+        .split(",")
+        .map((keyword) => keyword.trim())
+        .filter(Boolean),
+      generationStrategy: "external" as const,
+      referenceAccountIds: knownReferenceAccounts
+        .filter((item) => referenceHandles.some((handle) => handle.toLowerCase() === item.handle.toLowerCase()))
+        .map((item) => item.id),
       autoPostEnabled: settingsDraft.autoPostEnabled,
       postSchedule: settingsDraft.postSchedule.filter(Boolean).sort(),
     };
@@ -181,6 +233,31 @@ export default function AccountsIndexPage() {
       toast.error((err as Error).message);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleToggleAutoPost = async (account: AccountDoc) => {
+    const nextEnabled = !account.autoPostEnabled;
+    try {
+      const response = await fetch(`/api/accounts/${account.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoPostEnabled: nextEnabled }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "自動投稿の設定を更新できませんでした。");
+      }
+      setAccounts((prev) =>
+        prev.map((item) =>
+          item.id === account.id
+            ? { ...item, autoPostEnabled: nextEnabled }
+            : item,
+        ),
+      );
+      toast.success(nextEnabled ? "自動投稿をオンにしました。" : "自動投稿をオフにしました。");
+    } catch (error) {
+      toast.error((error as Error).message);
     }
   };
 
@@ -265,6 +342,13 @@ export default function AccountsIndexPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         size="sm"
+                        variant={account.autoPostEnabled ? "secondary" : "outline"}
+                        onClick={() => handleToggleAutoPost(account)}
+                      >
+                        自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
+                      </Button>
+                      <Button
+                        size="sm"
                         variant={isEditing ? "secondary" : "outline"}
                         onClick={() => startEditing(account)}
                       >
@@ -307,6 +391,62 @@ export default function AccountsIndexPage() {
                           />
                         )}
                       </Field>
+
+                      <Field
+                        label="探索キーワード"
+                        hint="外部で伸びている投稿を探す語句。カンマ区切りで最大20個まで設定できます。"
+                      >
+                        {(id) => (
+                          <Textarea
+                            id={id}
+                            rows={2}
+                            value={settingsDraft.discoveryKeywords}
+                            placeholder="例: キャリア, 読書, 副業"
+                            onChange={(event) =>
+                              setSettingsDraft((prev) =>
+                                prev
+                                  ? { ...prev, discoveryKeywords: event.target.value }
+                                  : prev,
+                              )
+                            }
+                          />
+                        )}
+                      </Field>
+
+                      <Field
+                        label="参考アカウント"
+                        hint="Xのユーザー名をカンマ区切りで登録します。投稿の型を学ぶ対象です。"
+                      >
+                        {(id) => (
+                          <Textarea
+                            id={id}
+                            rows={2}
+                            value={settingsDraft.referenceHandles}
+                            placeholder="例: @example_one, @example_two"
+                            onChange={(event) =>
+                              setSettingsDraft((prev) =>
+                                prev
+                                  ? { ...prev, referenceHandles: event.target.value }
+                                  : prev,
+                              )
+                            }
+                          />
+                        )}
+                      </Field>
+                      <ReferenceAccountFinder
+                        onAdd={(handle) =>
+                          setSettingsDraft((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  referenceHandles: prev.referenceHandles
+                                    ? `${prev.referenceHandles}, ${handle}`
+                                    : handle,
+                                }
+                              : prev,
+                          )
+                        }
+                      />
 
                       <Checkbox
                         label="自動投稿を有効にする"

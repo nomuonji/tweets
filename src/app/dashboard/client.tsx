@@ -5,9 +5,6 @@ import Link from "next/link";
 import type { AccountDoc, PostDoc, DraftDoc } from "@/lib/types";
 import { SyncControls } from "@/components/sync-controls";
 import { SmartTweetGenerator } from "@/components/smart-tweet-generator";
-import { ExemplaryPostManager } from "@/components/exemplary-post-manager";
-import { AccountTipsControl } from "@/components/account-tips-control";
-import { AccountSettingsControl } from "@/components/account-settings-control";
 import { useAccountContext } from "@/components/account/account-provider";
 import { Button, linkButton } from "@/components/ui/button";
 import {
@@ -22,7 +19,7 @@ import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader, Stat } from "@/components/ui/page-header";
 import { SkeletonList } from "@/components/ui/skeleton";
-import { AlertIcon, FlaskIcon, PlusIcon } from "@/components/ui/icons";
+import { AlertIcon, PlusIcon } from "@/components/ui/icons";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
 import { DraftList } from "./draft-list";
@@ -57,7 +54,7 @@ export function DashboardClient({
   const toast = useToast();
   const confirm = useConfirm();
 
-  const [accounts, setAccounts] = useState(initialAccounts);
+  const [accounts] = useState(initialAccounts);
   const [drafts, setDrafts] = useState(initialDrafts);
   const [accountData, setAccountData] = useState(initialAccountData);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,17 +112,6 @@ export function DashboardClient({
     };
     // `toast` is stable (memoised in ToastProvider).
   }, [selectedAccountId, toast]);
-
-  const handleAccountUpdate = useCallback(
-    (accountId: string, updated: Partial<AccountDoc>) => {
-      setAccounts((prev) =>
-        prev.map((account) =>
-          account.id === accountId ? { ...account, ...updated } : account,
-        ),
-      );
-    },
-    [],
-  );
 
   const handleDelete = useCallback(
     async (draft: DraftDoc) => {
@@ -263,10 +249,6 @@ export function DashboardClient({
         description="選択中のアカウントの状況、投稿案、パフォーマンスを確認できます。"
         actions={
           <>
-            <Link href="/admin/simulation" className={linkButton("outline")}>
-              <FlaskIcon className="h-4 w-4" />
-              プロンプト検証
-            </Link>
             <Link href="/accounts/connect" className={linkButton("primary")}>
               <PlusIcon className="h-4 w-4" />
               アカウントを追加
@@ -302,14 +284,6 @@ export function DashboardClient({
           }
         >
           <div className="space-y-6">
-            {selectedAccount ? (
-              <AccountSettingsControl
-                account={selectedAccount}
-                onAccountUpdate={handleAccountUpdate}
-                otherAccounts={accounts}
-              />
-            ) : null}
-
             <div className="grid gap-4 lg:grid-cols-3">
               <Stat
                 label="RapidAPI 呼び出し数"
@@ -326,14 +300,6 @@ export function DashboardClient({
             </div>
 
             <SmartTweetGenerator accounts={accountOptions} />
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <ExemplaryPostManager selectedAccountId={selectedAccountId} />
-              <AccountTipsControl
-                account={selectedAccount}
-                onAccountUpdate={handleAccountUpdate}
-              />
-            </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>

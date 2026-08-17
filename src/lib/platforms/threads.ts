@@ -7,6 +7,8 @@ const THREADS_API_BASE = "https://graph.threads.net";
 const THREADS_PAGE_LIMIT = 100;
 const THREADS_MAX_FETCH_PAGES = 25;
 const THREADS_DEFAULT_LIMIT = 100;
+const CONTAINER_POLL_ATTEMPTS = 12;
+const CONTAINER_POLL_INTERVAL_MS = 500;
 
 type FetchOptions = {
   since?: string;
@@ -73,6 +75,42 @@ type ThreadsResponse = {
   data?: ThreadsItem[];
   paging?: ThreadsPaging;
 };
+
+async function waitForContainer(
+  accessToken: string,
+  creationId: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= CONTAINER_POLL_ATTEMPTS; attempt += 1) {
+    const response = await axios.get<{
+      id?: string;
+      status?: "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED";
+      error_message?: string;
+    }>(`${THREADS_API_BASE}/${creationId}`, {
+      params: {
+        fields: "id,status,error_message",
+        access_token: accessToken,
+      },
+    });
+    const status = response.data?.status;
+
+    if (status === "FINISHED") return;
+    if (status === "ERROR" || status === "EXPIRED") {
+      throw new Error(
+        `Threads media container ${status.toLowerCase()}: ${response.data?.error_message ?? creationId}`,
+      );
+    }
+
+    if (attempt < CONTAINER_POLL_ATTEMPTS) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, CONTAINER_POLL_INTERVAL_MS),
+      );
+    }
+  }
+
+  throw new Error(
+    `Threads media container was not ready after ${CONTAINER_POLL_ATTEMPTS} checks: ${creationId}`,
+  );
+}
 
 function getInsightValue(item: ThreadsItem, name: "views" | "impressions" | "likes" | "replies" | "reposts"): number | null {
   if (!item.insights?.data) {
@@ -409,6 +447,8 @@ export async function publishThreadsPost(
   if (typeof creationId !== "string") {
     throw new Error("Failed to create Threads media container: creation_id not found");
   }
+
+  await waitForContainer(accessToken, creationId);
 
   // Step 2: Publish the media container
   const publishResponse = await axios.post<{ id: string }>(

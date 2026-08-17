@@ -7,6 +7,10 @@ export type DraftStatus =
   | "published"
   | "failed";
 
+export type GenerationStrategy = "external";
+
+export type ReferenceAccountStatus = "candidate" | "approved" | "excluded";
+
 export interface Tip {
   id: string;
   title: string;
@@ -32,6 +36,9 @@ export interface AccountDoc {
   minPostLength?: number;
   maxPostLength?: number;
   r18Mode?: boolean;
+  discoveryKeywords?: string[];
+  referenceAccountIds?: string[];
+  generationStrategy?: GenerationStrategy;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
@@ -82,6 +89,43 @@ export interface PostDoc {
   raw_gcs_url?: string;
   url?: string;
   fetched_at: string;
+}
+
+export interface ReferenceAccountDoc {
+  id: string;
+  platform: "x";
+  handle: string;
+  display_name?: string;
+  status: ReferenceAccountStatus;
+  source_keyword?: string;
+  created_at: string;
+  updated_at: string;
+  last_synced_at?: string;
+  error_state?: {
+    message: string;
+    occurred_at: string;
+  };
+}
+
+export interface ExternalPostDoc {
+  id: string;
+  platform: "x";
+  platform_post_id: string;
+  author_handle: string;
+  author_followers?: number | null;
+  text: string;
+  created_at: string;
+  url?: string;
+  metrics: PostMetrics;
+  search_keyword?: string;
+  source_account_id?: string;
+  fetched_at: string;
+  engagement_rate?: number | null;
+  pattern?: {
+    hook: string;
+    structure: string;
+    reaction_reason: string;
+  };
 }
 
 export interface DraftDoc {

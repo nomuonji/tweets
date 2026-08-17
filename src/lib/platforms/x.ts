@@ -862,28 +862,69 @@ export async function fetchRecentXPosts(
   return { posts: finalPosts, debug };
 }
 
+export async function fetchXSearchPosts(
+  query: string,
+  options: { limit?: number; searchType?: "Top" | "Latest" } = {},
+): Promise<SyncPostPayload[]> {
+  const apiKey = process.env.RAPIDAPI_KEY;
+  const apiHost = process.env.RAPIDAPI_HOST ?? DEFAULT_RAPID_API_HOST;
+  if (!apiKey) {
+    throw new Error("RAPIDAPI_KEY is not configured.");
+  }
+
+  const response = await axios.get<unknown>(
+    `https://${apiHost}/search.php`,
+    {
+      params: {
+        query,
+        search_type: options.searchType ?? "Top",
+        count: Math.min(Math.max(options.limit ?? 20, 1), 50),
+      },
+      headers: {
+        "X-RapidAPI-Key": apiKey,
+        "X-RapidAPI-Host": apiHost,
+      },
+    },
+  );
+  await incrementApiUsage("rapidapi_twitter").catch(() => {
+    /* Usage accounting must not make discovery fail. */
+  });
+
+  const debug: string[] = [];
+  const posts = extractSimpleTimeline(response.data, "search", debug);
+  return posts.slice(0, options.limit ?? 20);
+}
+
 export async function publishXPost(
   account: AccountDoc,
   payload: { text: string },
 ): Promise<PublishResult> {
   const { token_meta } = account;
-  if (
-    !token_meta ||
-    !token_meta.consumer_key ||
-    !token_meta.consumer_secret ||
-    !token_meta.access_token ||
-    !token_meta.access_token_secret
-  ) {
-    throw new Error("X account is missing required OAuth 1.0a credentials.");
+  if (!token_meta) {
+    throw new Error("X account has no saved credentials.");
   }
 
   try {
-    const client = new TwitterApi({
-      appKey: token_meta.consumer_key,
-      appSecret: token_meta.consumer_secret,
-      accessToken: token_meta.access_token,
-      accessSecret: token_meta.access_token_secret,
-    });
+    const client =
+      token_meta.oauth_version === "oauth2" && token_meta.access_token
+        ? new TwitterApi(token_meta.access_token)
+        : token_meta.consumer_key &&
+            token_meta.consumer_secret &&
+            token_meta.access_token &&
+            token_meta.access_token_secret
+          ? new TwitterApi({
+              appKey: token_meta.consumer_key,
+              appSecret: token_meta.consumer_secret,
+              accessToken: token_meta.access_token,
+              accessSecret: token_meta.access_token_secret,
+            })
+          : null;
+
+    if (!client) {
+      throw new Error(
+        "X account is missing a usable OAuth 2.0 user token or OAuth 1.0a credentials.",
+      );
+    }
 
     const rwClient = client.readWrite;
     const { data: createdTweet } = await rwClient.v2.tweet(payload.text);

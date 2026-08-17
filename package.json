@@ -12,6 +12,8 @@
     "sync:refresh-tokens": "tsx -r dotenv/config scripts/refresh-tokens.ts",
     "auto:sync": "tsx -r dotenv/config scripts/auto-sync.ts",
     "auto:generate": "tsx -r dotenv/config scripts/auto-generate-drafts.ts",
+    "sync:external": "tsx -r dotenv/config scripts/sync-external.ts",
+    "cleanup:failed": "tsx -r dotenv/config scripts/cleanup-failed-drafts.ts",
     "test:slots": "tsx scripts/test-schedule-slots.ts",
     "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts"
   },

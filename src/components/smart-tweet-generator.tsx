@@ -45,6 +45,14 @@ type ExistingDraftSummary = {
   updatedAt?: string;
 };
 
+type ExternalContextPost = {
+  id: string;
+  text: string;
+  author_handle: string;
+  engagement_rate?: number | null;
+  pattern?: { hook: string; structure: string; reaction_reason: string };
+};
+
 type SmartTweetGeneratorProps = {
   accounts: AccountOption[];
 };
@@ -68,6 +76,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
   const [existingDrafts, setExistingDrafts] = useState<ExistingDraftSummary[]>(
     [],
   );
+  const [externalPosts, setExternalPosts] = useState<ExternalContextPost[]>([]);
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const [lastPrompt, setLastPrompt] = useState<string | null>(null);
 
@@ -124,6 +133,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
     setDuplicateWarning(false);
     setContextPosts([]);
     setExistingDrafts([]);
+    setExternalPosts([]);
     setLastPrompt(null);
     try {
       const response = await fetch("/api/gemini/generate", {
@@ -141,6 +151,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
       setExistingDrafts(
         (data.context?.existingDrafts ?? []) as ExistingDraftSummary[],
       );
+      setExternalPosts((data.context?.externalPosts ?? []) as ExternalContextPost[]);
       setDuplicateWarning(Boolean(data.duplicate));
       if (data.prompt) setLastPrompt(data.prompt as string);
     } catch (generateError) {
@@ -193,7 +204,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
       <CardHeader>
         <CardTitle>AI 投稿案ジェネレーター</CardTitle>
         <CardDescription>
-          過去の反応を分析し、次に投稿する案を生成します。
+           外部で伸びている型を見つけ、アカウントのテーマに翻訳して投稿案を生成します。
         </CardDescription>
       </CardHeader>
 
@@ -344,6 +355,25 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
                     <span>リポスト {post.reposts.toLocaleString("ja-JP")}</span>
                     <span>返信 {post.replies.toLocaleString("ja-JP")}</span>
                   </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
+        {externalPosts.length > 0 ? (
+          <details className="rounded-lg border border-primary/20 bg-primary/5 p-3" open>
+            <summary className="cursor-pointer text-sm font-medium text-primary">
+              生成に使った外部の勝ち筋（{externalPosts.length}件）
+            </summary>
+            <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+              {externalPosts.map((post) => (
+                <li key={post.id} className="rounded-md border border-border bg-surface p-2.5">
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>@{post.author_handle}</span>
+                    {post.pattern ? <span>{post.pattern.structure}</span> : null}
+                  </div>
+                  <p className="mt-1.5 line-clamp-3 text-sm">{post.text}</p>
                 </li>
               ))}
             </ul>

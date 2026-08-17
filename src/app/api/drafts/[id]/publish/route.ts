@@ -5,6 +5,9 @@ import { publishXPost } from "@/lib/platforms/x";
 import { publishThreadsPost } from "@/lib/platforms/threads";
 import type { DraftDoc, PostDoc } from "@/lib/types";
 import { getAccounts } from "@/lib/services/firestore.server";
+import {
+  recordPublishFailure,
+} from "@/lib/services/scheduler-service";
 
 // This function is duplicated from scheduler-service.ts
 // Consider refactoring to a shared location if complexity grows.
@@ -82,6 +85,14 @@ export async function POST(
       const { hasDuplicatePost } = await import("@/lib/services/scheduler-service");
       const isDuplicate = await hasDuplicatePost(accountId, fullText);
       if (isDuplicate) {
+        await draftRef.update({
+          status: "failed",
+          last_error: {
+            message: "直近24時間以内に同じ内容の投稿があります。",
+            occurred_at: DateTime.utc().toISO(),
+          },
+          updated_at: DateTime.utc().toISO(),
+        });
         return NextResponse.json(
           { ok: false, message: "A duplicate post was recently published for this account." },
           { status: 409 },
@@ -130,6 +141,15 @@ export async function POST(
 
   } catch (error) {
     console.error("[Publish API] Error:", error);
+    const failedDraft = await adminDb.collection("drafts").doc(params.id).get();
+    if (failedDraft.exists) {
+      await recordPublishFailure(
+        { ...failedDraft.data(), id: failedDraft.id } as DraftDoc,
+        error,
+      ).catch(() => {
+        // Keep the original publish error as the API response if logging fails.
+      });
+    }
     return NextResponse.json(
       { ok: false, message: (error as Error).message },
       { status: 500 },

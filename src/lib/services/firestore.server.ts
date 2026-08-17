@@ -1,5 +1,13 @@
 import { adminDb } from "@/lib/firebase/admin";
-import { AccountDoc, PostDoc, DraftDoc, Tip, RankingFilter } from "@/lib/types";
+import {
+  AccountDoc,
+  PostDoc,
+  DraftDoc,
+  Tip,
+  RankingFilter,
+  ExternalPostDoc,
+  ReferenceAccountDoc,
+} from "@/lib/types";
 import { DateTime } from "luxon";
 
 // --- Account Functions ---
@@ -92,6 +100,66 @@ export async function fetchRecentPosts(accountId: string, limit: number): Promis
         const posts = fallbackSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as PostDoc));
         return posts.sort((a, b) => DateTime.fromISO(b.created_at).toMillis() - DateTime.fromISO(a.created_at).toMillis()).slice(0, limit);
     }
+}
+
+// --- External discovery ---
+export async function getReferenceAccounts(
+  accountIds: string[] = [],
+): Promise<ReferenceAccountDoc[]> {
+  if (accountIds.length === 0) return [];
+  const snapshot = await adminDb
+    .collection("reference_accounts")
+    .where("status", "==", "approved")
+    .get();
+  const allowed = new Set(accountIds);
+  return snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }) as ReferenceAccountDoc)
+    .filter((account) => allowed.has(account.id));
+}
+
+export async function saveReferenceAccount(
+  account: ReferenceAccountDoc,
+): Promise<void> {
+  await adminDb.collection("reference_accounts").doc(account.id).set(account, {
+    merge: true,
+  });
+}
+
+export async function getExternalPostsForAccount(
+  account: AccountDoc,
+  limit = 20,
+): Promise<ExternalPostDoc[]> {
+  const keywords = account.discoveryKeywords ?? [];
+  const referenceAccountIds = account.referenceAccountIds ?? [];
+  if (keywords.length === 0 && referenceAccountIds.length === 0) return [];
+
+  const snapshot = await adminDb.collection("external_posts").limit(300).get();
+  const keywordSet = new Set(keywords.map((keyword) => keyword.toLowerCase()));
+  const accountSet = new Set(referenceAccountIds);
+
+  return snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }) as ExternalPostDoc)
+    .filter((post) => {
+      const keywordMatch = post.search_keyword
+        ? keywordSet.has(post.search_keyword.toLowerCase())
+        : false;
+      const accountMatch = post.source_account_id
+        ? accountSet.has(post.source_account_id)
+        : false;
+      return keywordMatch || accountMatch;
+    })
+    .sort((a, b) => {
+      const scoreA = a.engagement_rate ?? 0;
+      const scoreB = b.engagement_rate ?? 0;
+      return scoreB - scoreA;
+    })
+    .slice(0, limit);
+}
+
+export async function upsertExternalPost(post: ExternalPostDoc): Promise<void> {
+  await adminDb.collection("external_posts").doc(post.id).set(post, {
+    merge: true,
+  });
 }
 
 // --- Draft Functions ---

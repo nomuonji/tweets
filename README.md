@@ -8,6 +8,7 @@ Internal tool for analysing X (Twitter) and Threads posts, generating AI-assiste
 - Draft generation powered by Gemini with similarity warnings, guided by configurable "Tips" and account-specific "Exemplary Posts". A prompt preview is available within the generator.
 - OAuth 2.0 PKCE flow for X and Threads, plus a manual registration form for pasting tokens.
 - GitHub Actions workflows for post sync, schedule execution, and token refresh.
+- External discovery collects cached X search results for configured keywords and reference accounts before draft generation.
 
 ### Authentication
 1. **OAuth 2.0 flow**  E`/accounts/connect` ↁE“認可フローを開始 Eredirects to the provider. Callback `/api/oauth/[platform]/callback` exchanges tokens and stores them in Firestore.
@@ -70,6 +71,8 @@ scripts/               # Node entry points for GitHub Actions / local runs
 - `/tips`  EGlobal knowledge base of tips for writing effective posts. Managed at `/tips`.
 - `/accounts/{accountId}/exemplary_posts`  EAccount-specific posts to guide the AI on style and tone. Managed on the dashboard.
 - `/settings/default`  Escoring configuration, generation preferences, slot templates, timezone.
+- `/reference_accounts`  Eapproved X accounts used only as external pattern sources.
+- `/external_posts`  Ecached external candidates and extracted performance signals.
 
 ### Recommended Follow-up
 1. Register OAuth apps for each platform and confirm callback URLs match `.env`.

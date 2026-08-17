@@ -4,21 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  CalendarIcon,
   DashboardIcon,
-  FlaskIcon,
-  LightbulbIcon,
   TrophyIcon,
   UsersIcon,
 } from "@/components/ui/icons";
 
 export const navItems = [
   { href: "/dashboard", label: "ダッシュボード", Icon: DashboardIcon },
-  { href: "/schedule", label: "投稿スケジュール", Icon: CalendarIcon },
-  { href: "/ranking", label: "ランキング", Icon: TrophyIcon },
+  { href: "/analytics", label: "分析", Icon: TrophyIcon },
   { href: "/accounts", label: "アカウント", Icon: UsersIcon },
-  { href: "/tips", label: "Tips", Icon: LightbulbIcon },
-  { href: "/admin/simulation", label: "シミュレーション", Icon: FlaskIcon },
 ];
 
 export function SideNav({ onNavigate }: { onNavigate?: () => void }) {

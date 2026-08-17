@@ -4,6 +4,7 @@ import { buildPrompt } from "@/lib/gemini/prompt";
 import { requestGemini } from "@/lib/gemini/client";
 import { parseGeminiResponse, type GeminiSuggestion } from "@/lib/gemini/parser";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
+import { getExternalPostsForAccount } from "./firestore.server";
 
 // --- Utility Functions ---
 function normalizeText(value: string) {
@@ -85,13 +86,14 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
   const normalizedLimit = Math.min(Math.max(limit, 6), 40);
   const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
 
-  const [topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts] = await Promise.all([
+  const [topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts] = await Promise.all([
     fetchTopPosts(accountId, 3),
     fetchReferencePosts(accountId, 3),
     fetchRecentPosts(accountId, perCategoryLimit),
     fetchExistingDrafts(accountId, 50),
     fetchSelectedTips(account.selectedTipIds || []),
     fetchExemplaryPosts(accountId),
+    getExternalPostsForAccount(account, 20),
   ]);
 
   if (recentPosts.length === 0) {
@@ -106,6 +108,7 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
     drafts,
     tips,
     exemplaryPosts,
+    externalPosts,
   };
 }
 
@@ -114,7 +117,7 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
 export async function generatePost(accountId: string, platform: Platform, limit = 15): Promise<DraftDoc> {
 
   const payload = await preparePromptPayload(accountId, limit);
-  const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts } = payload;
+  const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts } = payload;
 
   const normalizedAvoids = new Set([
     ...drafts.map((d) => d.text ?? ""),
@@ -127,7 +130,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   let duplicate = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept);
+    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts);
     const raw = await requestGemini(prompt);
     suggestion = parseGeminiResponse(raw);
     const normalizedSuggestion = normalizeText(suggestion.tweet);

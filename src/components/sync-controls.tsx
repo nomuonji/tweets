@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccountContext } from "./account/account-provider";
 import { SyncButton, type SyncRequestPayload } from "./sync-button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { cn, platformLabel } from "@/lib/utils";
 
@@ -28,6 +29,8 @@ export function SyncControls({ accounts }: SyncControlsProps) {
   const [lookbackDays, setLookbackDays] = useState("");
   const [maxPosts, setMaxPosts] = useState("");
   const [scopedAccountIds, setScopedAccountIds] = useState<string[]>([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const [discoverySummary, setDiscoverySummary] = useState<string | null>(null);
 
   const currentAccount = useMemo(
     () => accounts.find((account) => account.id === selectedAccountId),
@@ -99,6 +102,33 @@ export function SyncControls({ accounts }: SyncControlsProps) {
     );
   };
 
+  const handleDiscoverySync = async () => {
+    setDiscoveryLoading(true);
+    setDiscoverySummary(null);
+    try {
+      const response = await fetch("/api/discovery/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountIds: scopedAccountIds.length > 0 ? scopedAccountIds : undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message ?? "外部探索に失敗しました。");
+      const refreshed = data.result.reduce(
+        (count: number, item: { synced?: string[] }) => count + (item.synced?.length ?? 0),
+        0,
+      );
+      setDiscoverySummary(
+        refreshed > 0 ? `外部の参考投稿を ${refreshed} 系統更新しました。` : "外部データは新しく、追加取得を省略しました。",
+      );
+    } catch (error) {
+      setDiscoverySummary((error as Error).message);
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
   const scopeSummary =
     scopedAccountIds.length > 0
       ? `${accounts.length}件中 ${scopedAccountIds.length}件を選択中`
@@ -141,8 +171,20 @@ export function SyncControls({ accounts }: SyncControlsProps) {
               )}
             </Field>
           </div>
-          <SyncButton payload={payload} />
+          <div className="flex flex-wrap items-end gap-2">
+            <SyncButton payload={payload} />
+            <Button
+              variant="outline"
+              loading={discoveryLoading}
+              onClick={handleDiscoverySync}
+            >
+              {discoveryLoading ? "探索中..." : "外部の勝ち筋を更新"}
+            </Button>
+          </div>
         </div>
+        {discoverySummary ? (
+          <p className="text-xs text-muted-foreground">{discoverySummary}</p>
+        ) : null}
 
         <div className="space-y-2 border-t border-border pt-3">
           <div className="flex items-center justify-between">
