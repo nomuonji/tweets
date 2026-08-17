@@ -333,6 +333,7 @@ async function processAccount(
         link_clicks: 0,
       },
       score: 0,
+      pattern: claimed.pattern,
       raw: result.raw,
       url: result.url,
       fetched_at: nowStr,

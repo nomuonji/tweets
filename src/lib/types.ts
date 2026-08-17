@@ -11,6 +11,41 @@ export type GenerationStrategy = "external";
 
 export type ReferenceAccountStatus = "candidate" | "approved" | "excluded";
 
+export interface PostPattern {
+  hook: string;
+  structure: string;
+  reaction_reason: string;
+}
+
+export interface PatternStat {
+  structure: string;
+  count: number;
+  avgEngagementRate: number;
+  medianEngagementRate: number;
+  totalImpressions: number;
+  totalLikes: number;
+  totalReplies: number;
+  totalReposts: number;
+}
+
+export interface PatternAnalysis {
+  account_id: string;
+  accountMedianEngagementRate: number | null;
+  patterns: PatternStat[];
+  analyzedPosts: number;
+  updatedAt: string;
+  /** LLM-extracted content-level learnings (topics, traits, experiments). */
+  content_insights?: ContentInsight;
+}
+
+export interface ContentInsight {
+  winning_topics: string[];
+  winning_traits: string[];
+  losing_topics: string[];
+  suggested_experiment: string;
+  generatedAt: string;
+}
+
 export interface Tip {
   id: string;
   title: string;
@@ -39,6 +74,9 @@ export interface AccountDoc {
   discoveryKeywords?: string[];
   referenceAccountIds?: string[];
   generationStrategy?: GenerationStrategy;
+  /** 0..1. Probability a generation deliberately tries a new structure/topic
+   * instead of repeating the account's proven winners. Defaults to 0.2. */
+  explorationRate?: number;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
@@ -85,6 +123,7 @@ export interface PostDoc {
   has_url: boolean;
   metrics: PostMetrics;
   score: number;
+  pattern?: PostPattern;
   raw?: Record<string, unknown>;
   raw_gcs_url?: string;
   url?: string;
@@ -143,6 +182,8 @@ export interface DraftDoc {
   updated_at: string;
   similarity_warning?: boolean;
   generatedBy?: string;
+  /** The post structure type used for this draft, used by the self-improvement loop. */
+  pattern?: PostPattern;
   /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */
   publishing_started_at?: string;
   /** Set when a publish attempt failed; the draft is kept for retry. */

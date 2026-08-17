@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { saveDraft } from "@/lib/services/firestore.server";
+import { extractPattern } from "@/lib/pattern";
 import type { DraftDoc } from "@/lib/types";
 
 type CreateDraftPayload = {
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
       updated_at: now,
       similarity_warning: false,
       generatedBy: body.generatedBy,
+      pattern: extractPattern(text),
     };
 
     await saveDraft(draft);

@@ -9,6 +9,10 @@ Internal tool for analysing X (Twitter) and Threads posts, generating AI-assiste
 - OAuth 2.0 PKCE flow for X and Threads, plus a manual registration form for pasting tokens.
 - GitHub Actions workflows for post sync, schedule execution, and token refresh.
 - External discovery collects cached X search results for configured keywords and reference accounts before draft generation.
+- A self-improvement loop classifies every post into a structure type, aggregates engagement per type weekly, and feeds the best/worst patterns back into the generator.
+- Content-level learning: a weekly LLM pass extracts the topics, traits, and experiments that work per account and injects them into the prompt.
+- Exploration: each account can set an exploration rate (default 0.2) so generation periodically tries new structures/topics instead of only repeating proven winners.
+- Discovery keywords are auto-generated weekly for accounts that have none (or whose auto-generated keywords are stale); manually set keywords are left untouched.
 
 ### Authentication
 1. **OAuth 2.0 flow**  E`/accounts/connect` ↁE“認可フローを開始 Eredirects to the provider. Callback `/api/oauth/[platform]/callback` exchanges tokens and stores them in Firestore.

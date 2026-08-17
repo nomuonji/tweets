@@ -2,6 +2,7 @@ import type {
   DraftDoc,
   ExemplaryPost,
   ExternalPostDoc,
+  PatternAnalysis,
   PostDoc,
   Tip,
 } from "@/lib/types";
@@ -18,6 +19,8 @@ export function buildPrompt(
   minPostLength = 1,
   maxPostLength = 240,
   externalPosts: ExternalPostDoc[] = [],
+  patternAnalysis?: PatternAnalysis | null,
+  explorationRate = 0.15,
 ) {
   const targetLength = Math.floor(Math.random() * (maxPostLength - minPostLength + 1)) + minPostLength;
 
@@ -61,10 +64,123 @@ export function buildPrompt(
         .join("\n")}\n`
     : "";
 
+  const patternSection = patternAnalysis && patternAnalysis.patterns.length > 0
+    ? (() => {
+        const median = patternAnalysis.accountMedianEngagementRate ?? 0;
+        const fmt = (value: number) => `${(value * 100).toFixed(2)}%`;
+        const reliable = patternAnalysis.patterns
+          .filter((stat) => stat.count >= 3)
+          .sort((a, b) => b.avgEngagementRate - a.avgEngagementRate);
+        const top = reliable.slice(0, 3);
+        const worst = reliable
+          .filter((stat) => stat.avgEngagementRate < median)
+          .slice(-2)
+          .reverse();
+        const lines = [
+          `\n[This Account's Pattern Performance]`,
+          `Account median engagement: ${fmt(median)}`,
+        ];
+        if (top.length > 0) {
+          lines.push(
+            `Best patterns (prefer these):\n${top
+              .map(
+                (stat) =>
+                  `- ${stat.structure}: ${stat.count} posts, avg ${fmt(stat.avgEngagementRate)}`,
+              )
+              .join("\n")}`,
+          );
+        }
+        if (worst.length > 0) {
+          lines.push(
+            `Worst patterns (avoid repeating):\n${worst
+              .map(
+                (stat) =>
+                  `- ${stat.structure}: ${stat.count} posts, avg ${fmt(stat.avgEngagementRate)}`,
+              )
+              .join("\n")}`,
+          );
+        }
+        lines.push(
+          "Choose a structure from the best patterns. Do not reuse a worst pattern unless no better option fits.\n",
+        );
+        return lines.join("\n");
+      })()
+    : "";
+
+  const contentSection = patternAnalysis?.content_insights
+    ? (() => {
+        const insight = patternAnalysis.content_insights!;
+        const lines = [`\n[What Content Works For This Account]`];
+        if (insight.winning_topics.length > 0) {
+          lines.push(
+            `Topics that perform well:\n${insight.winning_topics
+              .map((topic) => `- ${topic}`)
+              .join("\n")}`,
+          );
+        }
+        if (insight.winning_traits.length > 0) {
+          lines.push(
+            `Content traits that perform well:\n${insight.winning_traits
+              .map((trait) => `- ${trait}`)
+              .join("\n")}`,
+          );
+        }
+        if (insight.losing_topics.length > 0) {
+          lines.push(
+            `Topics to avoid:\n${insight.losing_topics
+              .map((topic) => `- ${topic}`)
+              .join("\n")}`,
+          );
+        }
+        if (insight.suggested_experiment) {
+          lines.push(`Untried direction worth testing:\n- ${insight.suggested_experiment}`);
+        }
+        lines.push("");
+        return lines.join("\n");
+      })()
+    : "";
+
+  const explore = Math.random() < explorationRate;
+  const explorationSection =
+    explore && patternAnalysis && patternAnalysis.patterns.length > 0
+      ? (() => {
+          const topKeys = new Set(
+            patternAnalysis!.patterns
+              .slice(0, 3)
+              .map((stat) => stat.structure),
+          );
+          const underExplored = patternAnalysis!.patterns.filter(
+            (stat) => !topKeys.has(stat.structure) && stat.count < 5,
+          );
+          const pool =
+            underExplored.length > 0
+              ? underExplored
+              : patternAnalysis!.patterns.filter(
+                  (stat) => !topKeys.has(stat.structure),
+                );
+          const target =
+            pool.length > 0
+              ? pool[Math.floor(Math.random() * pool.length)].structure
+              : null;
+          const lines = [
+            `\n[Exploration Mode — try something new this time]`,
+            `The account's proven patterns may be plateauing. For THIS post, run an experiment:`,
+            target
+              ? `- Target an under-tested structure: 「${target}」`
+              : `- Use a structure NOT among the proven best patterns, or invent a new one.`,
+            `- Take a fresh topic or angle not recently posted about.`,
+            `- Do not repeat the wording or angle of past winners.`,
+            `- If it underperforms, that is useful data for the next analysis.`,
+            ``,
+          ];
+          return lines.join("\n");
+        })()
+      : "";
+
   const inputValuesBlock = `
 # 2. INPUT VALUES (SOURCE MATERIAL)
 Use these values as evidence for the new post. Learn the hook, angle, structure, and tone from them; do not copy their wording.
-${conceptSection}${performanceSection}${styleSection}${tipSection}${referenceSection}${externalSection}`;
+${conceptSection}${performanceSection}${styleSection}${tipSection}${referenceSection}${externalSection}${patternSection}${contentSection}${explorationSection}`;
 
   // --- Part 3: Past Posts (Duplication Prevention) ---
   const avoidTexts = [
@@ -98,6 +214,9 @@ Generate ONE new post that:
 5. Prefer patterns visible in the strongest-performing posts, especially their opening hook and reason to react.
 6. Add a concrete angle or observation rather than a generic summary.
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
+${explore && patternAnalysis
+  ? "8. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
+  : "8. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
 
 Output strictly in JSON:
 {

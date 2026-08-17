@@ -123,6 +123,7 @@ export async function POST(
         link_clicks: 0,
       },
       score: 0,
+      pattern: draft.pattern,
       raw: result.raw,
       url: result.url,
       fetched_at: nowStr,

@@ -14,7 +14,7 @@ import { ReferenceAccountFinder } from "@/components/reference-account-finder";
 import { Badge } from "@/components/ui/badge";
 import { Button, linkButton } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox, Field, Textarea } from "@/components/ui/field";
+import { Checkbox, Field, Input, Textarea } from "@/components/ui/field";
 import { ScheduleEditor } from "@/components/schedule/schedule-editor";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -27,6 +27,7 @@ type SettingsDraft = {
   concept: string;
   discoveryKeywords: string;
   referenceHandles: string;
+  explorationRate: string;
   autoPostEnabled: boolean;
   postSchedule: string[];
 };
@@ -42,6 +43,7 @@ function toSettingsDraft(
       .map((id) => referenceAccounts.find((item) => item.id === id)?.handle)
       .filter((handle): handle is string => Boolean(handle))
       .join(", "),
+    explorationRate: String(account.explorationRate ?? 0.2),
     autoPostEnabled: account.autoPostEnabled ?? false,
     postSchedule: account.postSchedule ?? [],
   };
@@ -205,6 +207,10 @@ export default function AccountsIndexPage() {
         .map((keyword) => keyword.trim())
         .filter(Boolean),
       generationStrategy: "external" as const,
+      explorationRate: Math.min(
+        Math.max(Number(settingsDraft.explorationRate || 0.2), 0),
+        1,
+      ),
       referenceAccountIds: knownReferenceAccounts
         .filter((item) => referenceHandles.some((handle) => handle.toLowerCase() === item.handle.toLowerCase()))
         .map((item) => item.id),
@@ -394,7 +400,7 @@ export default function AccountsIndexPage() {
 
                       <Field
                         label="探索キーワード"
-                        hint="外部で伸びている投稿を探す語句。カンマ区切りで最大20個まで設定できます。"
+                        hint="外部で伸びている投稿を探す語句。カンマ区切りで最大20個。空欄の場合は週次の分析で自動生成されます。"
                       >
                         {(id) => (
                           <Textarea
@@ -447,6 +453,29 @@ export default function AccountsIndexPage() {
                           )
                         }
                       />
+
+                      <Field
+                        label="新規性の試行率（探索率）"
+                        hint="この割合で、実績上位の型ではなく新しい型・話題を試す投稿を生成します。過去の踏襲にだけ収束しないための仕組みです（0〜0.5推奨、既定0.2）。"
+                      >
+                        {(id) => (
+                          <Input
+                            id={id}
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={settingsDraft.explorationRate}
+                            onChange={(event) =>
+                              setSettingsDraft((prev) =>
+                                prev
+                                  ? { ...prev, explorationRate: event.target.value }
+                                  : prev,
+                              )
+                            }
+                          />
+                        )}
+                      </Field>
 
                       <Checkbox
                         label="自動投稿を有効にする"

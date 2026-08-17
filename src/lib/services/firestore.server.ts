@@ -7,6 +7,7 @@ import {
   RankingFilter,
   ExternalPostDoc,
   ReferenceAccountDoc,
+  PatternAnalysis,
 } from "@/lib/types";
 import { DateTime } from "luxon";
 
@@ -160,6 +161,24 @@ export async function upsertExternalPost(post: ExternalPostDoc): Promise<void> {
   await adminDb.collection("external_posts").doc(post.id).set(post, {
     merge: true,
   });
+}
+
+export async function getPatternStats(
+  accountId: string,
+): Promise<PatternAnalysis | null> {
+  const doc = await adminDb.collection("pattern_stats").doc(accountId).get();
+  if (!doc.exists) return null;
+  return doc.data() as PatternAnalysis;
+}
+
+export async function savePatternStats(
+  accountId: string,
+  analysis: PatternAnalysis,
+): Promise<void> {
+  await adminDb
+    .collection("pattern_stats")
+    .doc(accountId)
+    .set({ ...analysis, account_id: accountId }, { merge: true });
 }
 
 // --- Draft Functions ---

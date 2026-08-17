@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await preparePromptPayload(accountId, limit);
-    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts } = payload;
+    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis } = payload;
 
     const normalizedDrafts = new Set(drafts.map((draft) => normalizeText(draft.text ?? "")));
     const maxAttempts = 3;
@@ -54,6 +54,8 @@ export async function POST(request: Request) {
           account.minPostLength,
           account.maxPostLength,
           externalPosts,
+          patternAnalysis,
+          account.explorationRate,
         );
         finalPrompt = prompt;
         suggestion = await requestGrok(prompt, xaiApiKey);
@@ -76,6 +78,8 @@ export async function POST(request: Request) {
           account.minPostLength,
           account.maxPostLength,
           externalPosts,
+          patternAnalysis,
+          account.explorationRate,
         );
         finalPrompt = prompt;
         const raw = await requestGemini(prompt);
@@ -109,6 +113,12 @@ export async function POST(request: Request) {
           source: "top" as const,
         })),
         externalPosts: externalPosts.slice(0, 12),
+        patternStats: patternAnalysis
+          ? {
+              median: patternAnalysis.accountMedianEngagementRate,
+              patterns: patternAnalysis.patterns.slice(0, 8),
+            }
+          : null,
         existingDrafts: drafts.slice(0, 50).map((draft) => ({
           id: draft.id,
           text: draft.text,

@@ -4,6 +4,9 @@ import { syncExternalDiscovery } from "@/lib/services/external-discovery-service
 async function main() {
   const accounts = await getAccounts();
   for (const account of accounts) {
+    if (account.autoPostEnabled !== true) {
+      continue;
+    }
     if (
       (account.discoveryKeywords?.length ?? 0) === 0 &&
       (account.referenceAccountIds?.length ?? 0) === 0

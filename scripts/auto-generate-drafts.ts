@@ -8,6 +8,10 @@ async function main() {
   const accounts = await getAccounts();
 
   for (const account of accounts) {
+    if (account.autoPostEnabled !== true) {
+      console.log(`[Auto-Generate] Account ${account.handle}: auto-post is off; skipping.`);
+      continue;
+    }
     try {
       const allDrafts = await getDraftsByAccountId(account.id);
       // Only drafts the scheduler can actually publish count toward the quota.

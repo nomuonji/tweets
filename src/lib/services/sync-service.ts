@@ -1,6 +1,7 @@
 ﻿import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { calculateScore } from "@/lib/scoring";
+import { extractPattern } from "@/lib/pattern";
 import { AccountDoc, PostDoc, Platform, PostMetrics } from "@/lib/types";
 import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
@@ -134,6 +135,7 @@ function toPostDocument(account: AccountDoc, payload: SyncPostPayload): PostDoc 
     has_url: payload.has_url,
     metrics: normalizedMetrics,
     score,
+    pattern: extractPattern(payload.text),
     raw: payload.raw,
     raw_gcs_url: payload.raw_gcs_url ?? null,
     url: payload.url ?? null,

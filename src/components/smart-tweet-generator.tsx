@@ -53,6 +53,12 @@ type ExternalContextPost = {
   pattern?: { hook: string; structure: string; reaction_reason: string };
 };
 
+type PatternStatSummary = {
+  structure: string;
+  count: number;
+  avgEngagementRate: number;
+};
+
 type SmartTweetGeneratorProps = {
   accounts: AccountOption[];
 };
@@ -77,6 +83,9 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
     [],
   );
   const [externalPosts, setExternalPosts] = useState<ExternalContextPost[]>([]);
+  const [patternStats, setPatternStats] = useState<PatternStatSummary[] | null>(
+    null,
+  );
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const [lastPrompt, setLastPrompt] = useState<string | null>(null);
 
@@ -134,6 +143,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
     setContextPosts([]);
     setExistingDrafts([]);
     setExternalPosts([]);
+    setPatternStats(null);
     setLastPrompt(null);
     try {
       const response = await fetch("/api/gemini/generate", {
@@ -152,6 +162,9 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
         (data.context?.existingDrafts ?? []) as ExistingDraftSummary[],
       );
       setExternalPosts((data.context?.externalPosts ?? []) as ExternalContextPost[]);
+      setPatternStats(
+        (data.context?.patternStats?.patterns ?? null) as PatternStatSummary[] | null,
+      );
       setDuplicateWarning(Boolean(data.duplicate));
       if (data.prompt) setLastPrompt(data.prompt as string);
     } catch (generateError) {
@@ -374,6 +387,27 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
                     {post.pattern ? <span>{post.pattern.structure}</span> : null}
                   </div>
                   <p className="mt-1.5 line-clamp-3 text-sm">{post.text}</p>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
+        {patternStats && patternStats.length > 0 ? (
+          <details className="rounded-lg border border-border bg-background p-3">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+              このアカウントの型別成績（自己改善データ）
+            </summary>
+            <ul className="mt-3 space-y-1.5">
+              {patternStats.slice(0, 6).map((stat) => (
+                <li
+                  key={stat.structure}
+                  className="flex items-center justify-between gap-3 text-sm"
+                >
+                  <span className="min-w-0 truncate">{stat.structure}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {stat.count}投稿・{(stat.avgEngagementRate * 100).toFixed(2)}%
+                  </span>
                 </li>
               ))}
             </ul>

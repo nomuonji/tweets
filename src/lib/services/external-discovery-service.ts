@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type { AccountDoc, ExternalPostDoc, ReferenceAccountDoc } from "@/lib/types";
+import { engagementRate, extractPattern } from "@/lib/pattern";
 import { fetchRecentXPosts, fetchXSearchPosts } from "@/lib/platforms/x";
 import {
   getExternalPostsForAccount,
@@ -10,17 +11,6 @@ import {
 const CACHE_HOURS = 24;
 const POSTS_PER_SOURCE = 20;
 
-function engagementRate(post: ExternalPostDoc): number {
-  const interactions =
-    post.metrics.likes +
-    post.metrics.replies * 2 +
-    post.metrics.reposts_or_rethreads * 3;
-  if (post.metrics.impressions && post.metrics.impressions > 0) {
-    return interactions / post.metrics.impressions;
-  }
-  return interactions / Math.max(1, Math.log10(interactions + 10));
-}
-
 function authorHandle(post: { raw?: Record<string, unknown> }): string {
   const raw = post.raw ?? {};
   const author = raw.author;
@@ -29,26 +19,6 @@ function authorHandle(post: { raw?: Record<string, unknown> }): string {
     if (typeof handle === "string" && handle.trim()) return handle;
   }
   return "unknown";
-}
-
-function extractPattern(text: string): ExternalPostDoc["pattern"] {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  const hook = normalized.slice(0, 60);
-  const structure = text.includes("？") || text.includes("?")
-    ? "問いかけで始める"
-    : /\d+[.)、]/.test(text)
-      ? "番号付きの整理"
-      : text.includes("しかし") || text.includes("でも") || text.includes("なのに")
-        ? "常識との対比"
-        : text.includes("\n")
-          ? "短文を改行で積む"
-          : "一つの観察を短く言い切る";
-  const reactionReason = text.includes("？") || text.includes("?")
-    ? "自分の経験と答えを比べたくなる"
-    : text.includes("知ら") || text.includes("意外") || text.includes("実は")
-      ? "知らなかった事実への驚き"
-      : "読者が自分ごと化しやすい具体性";
-  return { hook, structure, reaction_reason: reactionReason };
 }
 
 function shouldRefresh(posts: ExternalPostDoc[], key: string, now: DateTime) {
@@ -87,7 +57,7 @@ function toExternalPost(
   } satisfies ExternalPostDoc;
   return {
     ...external,
-    engagement_rate: engagementRate(external),
+    engagement_rate: engagementRate(external.metrics),
     pattern: extractPattern(post.text),
   };
 }
