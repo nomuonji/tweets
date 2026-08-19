@@ -3,7 +3,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { buildPrompt } from "@/lib/gemini/prompt";
 import { requestGemini } from "@/lib/gemini/client";
 import { parseGeminiResponse, type GeminiSuggestion } from "@/lib/gemini/parser";
-import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform, PatternAnalysis } from "@/lib/types";
+import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
 import { extractPattern } from "@/lib/pattern";
 
