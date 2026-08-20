@@ -81,6 +81,18 @@ explorationRate?: number;
   promoEnabled?: boolean;
   /** 0..1. Probability a single generation promotes a product. Defaults to 0. */
   promoRate?: number;
+  /** Master switch: when on, a product-promotion reply is auto-posted under posts
+   * that cross the engagement thresholds below. Runs during sync. */
+  promoReplyEnabled?: boolean;
+  /** Minimum post score (see scoring.ts) for a post to qualify for a promo reply. */
+  promoReplyMinScore?: number;
+  /** Minimum impressions for a post to qualify for a promo reply. */
+  promoReplyMinImpressions?: number;
+  /** Only posts created within this many days are eligible (avoids replying to
+   * the entire historical backlog on first sync). */
+  promoReplyLookbackDays?: number;
+  /** Minimum time between two promo replies for this account, to avoid bursts. */
+  promoReplyCooldownMinutes?: number;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
@@ -131,6 +143,23 @@ export interface ProductDoc {
   updated_at: string;
 }
 
+export interface PromoReplyDoc {
+  id: string;
+  account_id: string;
+  platform: Platform;
+  /** The original post this reply is attached to. */
+  post_id: string;
+  platform_post_id: string;
+  /** Id/ASIN of the promoted product. */
+  product_id: string;
+  product_asin: string;
+  text: string;
+  created_at: string;
+  updated_at: string;
+  /** Error message if the immediate publish failed. */
+  error?: string;
+}
+
 export interface PostMetrics {
   impressions: number | null;
   likes: number;
@@ -156,6 +185,8 @@ export interface PostDoc {
   raw_gcs_url?: string;
   url?: string;
   fetched_at: string;
+  /** Set when a product-promotion reply was posted under this post. */
+  promo_replied_at?: string;
 }
 
 export interface ReferenceAccountDoc {

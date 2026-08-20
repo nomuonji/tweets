@@ -33,6 +33,11 @@ type SettingsDraft = {
   postSchedule: string[];
   promoEnabled: boolean;
   promoRate: string;
+  promoReplyEnabled: boolean;
+  promoReplyMinScore: string;
+  promoReplyMinImpressions: string;
+  promoReplyLookbackDays: string;
+  promoReplyCooldownMinutes: string;
 };
 
 function toSettingsDraft(
@@ -51,6 +56,11 @@ function toSettingsDraft(
     postSchedule: account.postSchedule ?? [],
     promoEnabled: account.promoEnabled ?? false,
     promoRate: String(account.promoRate ?? 0.1),
+    promoReplyEnabled: account.promoReplyEnabled ?? false,
+    promoReplyMinScore: String(account.promoReplyMinScore ?? 1000),
+    promoReplyMinImpressions: String(account.promoReplyMinImpressions ?? 1000),
+    promoReplyLookbackDays: String(account.promoReplyLookbackDays ?? 3),
+    promoReplyCooldownMinutes: String(account.promoReplyCooldownMinutes ?? 60),
   };
 }
 
@@ -226,6 +236,23 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
       promoRate: Math.min(
         Math.max(Number(settingsDraft.promoRate || 0), 0),
         1,
+      ),
+      promoReplyEnabled: settingsDraft.promoReplyEnabled,
+      promoReplyMinScore: Math.max(
+        Number(settingsDraft.promoReplyMinScore || 0),
+        0,
+      ),
+      promoReplyMinImpressions: Math.max(
+        Number(settingsDraft.promoReplyMinImpressions || 0),
+        0,
+      ),
+      promoReplyLookbackDays: Math.min(
+        Math.max(Number(settingsDraft.promoReplyLookbackDays || 3), 1),
+        30,
+      ),
+      promoReplyCooldownMinutes: Math.max(
+        Number(settingsDraft.promoReplyCooldownMinutes || 0),
+        0,
       ),
     };
 
@@ -538,6 +565,122 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
                           />
                         )}
                       </Field>
+
+                      <Checkbox
+                        label="商品PRリプを自動投稿する"
+                        description="同期のたびに、反応が良くインプレッションが稼げた投稿のリプで商品紹介を自動投稿します。下のしきい値と回数制限に従います。"
+                        checked={settingsDraft.promoReplyEnabled}
+                        onChange={(event) =>
+                          setSettingsDraft((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  promoReplyEnabled: event.target.checked,
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field
+                          label="リプ対象の最低スコア"
+                          hint="このスコア以上の投稿にリプします（スコア=表示×0.1+いいね×40+RT×80+返信×70）。"
+                        >
+                          {(id) => (
+                            <Input
+                              id={id}
+                              type="number"
+                              min={0}
+                              disabled={!settingsDraft.promoReplyEnabled}
+                              value={settingsDraft.promoReplyMinScore}
+                              onChange={(event) =>
+                                setSettingsDraft((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        promoReplyMinScore: event.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                            />
+                          )}
+                        </Field>
+                        <Field label="リプ対象の最低インプレッション数">
+                          {(id) => (
+                            <Input
+                              id={id}
+                              type="number"
+                              min={0}
+                              disabled={!settingsDraft.promoReplyEnabled}
+                              value={settingsDraft.promoReplyMinImpressions}
+                              onChange={(event) =>
+                                setSettingsDraft((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        promoReplyMinImpressions:
+                                          event.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                            />
+                          )}
+                        </Field>
+                        <Field
+                          label="対象とする直近日数"
+                          hint="この日数以内に投稿されたものだけが対象です。初期同期で過去分に大量リプしないための安全策です。"
+                        >
+                          {(id) => (
+                            <Input
+                              id={id}
+                              type="number"
+                              min={1}
+                              max={30}
+                              disabled={!settingsDraft.promoReplyEnabled}
+                              value={settingsDraft.promoReplyLookbackDays}
+                              onChange={(event) =>
+                                setSettingsDraft((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        promoReplyLookbackDays:
+                                          event.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                            />
+                          )}
+                        </Field>
+                        <Field
+                          label="リプ間の最小間隔（分）"
+                          hint="前回のリプからこの分数が経過するまで次のリプは送りません。連投を防ぎます。"
+                        >
+                          {(id) => (
+                            <Input
+                              id={id}
+                              type="number"
+                              min={0}
+                              disabled={!settingsDraft.promoReplyEnabled}
+                              value={settingsDraft.promoReplyCooldownMinutes}
+                              onChange={(event) =>
+                                setSettingsDraft((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        promoReplyCooldownMinutes:
+                                          event.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                            />
+                          )}
+                        </Field>
+                      </div>
 
                       <Checkbox
                         label="自動投稿を有効にする"

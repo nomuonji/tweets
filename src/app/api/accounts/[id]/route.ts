@@ -16,6 +16,11 @@ const payloadSchema = z.object({
   explorationRate: z.number().min(0).max(1).optional(),
   promoEnabled: z.boolean().optional(),
   promoRate: z.number().min(0).max(1).optional(),
+  promoReplyEnabled: z.boolean().optional(),
+  promoReplyMinScore: z.number().min(0).optional(),
+  promoReplyMinImpressions: z.number().min(0).optional(),
+  promoReplyLookbackDays: z.number().min(1).max(30).optional(),
+  promoReplyCooldownMinutes: z.number().min(0).optional(),
 });
 
 export async function PATCH(

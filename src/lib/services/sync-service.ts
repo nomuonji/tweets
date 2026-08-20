@@ -7,6 +7,7 @@ import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
 import { getAccounts, upsertPost } from "./firestore.server";
+import { maybePromoReply } from "./promo-reply-service";
 
 type SyncOptions = {
   lookbackDays?: number;
@@ -27,6 +28,7 @@ type SyncResult = {
   platform: Platform;
   fetched: number;
   stored: number;
+  promoReplies?: number;
   error?: string;
   debug: string[];
 };
@@ -180,8 +182,13 @@ export async function syncPostsForAllAccounts(
       );
       const posts = payloads.map((item) => toPostDocument(account, item));
 
+      let promoReplies = 0;
       for (const post of posts) {
         await upsertPost(post);
+        // Auto-post a product-promotion reply under any post that crossed the
+        // engagement thresholds. Runs after the post's fresh metrics are stored.
+        const reply = await maybePromoReply(account, post);
+        if (reply) promoReplies += 1;
       }
 
       if (payloads.length > 0) {
@@ -201,10 +208,12 @@ export async function syncPostsForAllAccounts(
         platform: account.platform,
         fetched: payloads.length,
         stored: posts.length,
+        promoReplies,
         debug: [
           ...debug,
           `Fetched payloads: ${payloads.length}`,
           `Stored posts: ${posts.length}`,
+          `Promo replies posted: ${promoReplies}`,
         ],
       });
 

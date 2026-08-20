@@ -895,38 +895,42 @@ export async function fetchXSearchPosts(
   return posts.slice(0, options.limit ?? 20);
 }
 
-export async function publishXPost(
-  account: AccountDoc,
-  payload: { text: string },
-): Promise<PublishResult> {
+function buildXClient(account: AccountDoc) {
   const { token_meta } = account;
   if (!token_meta) {
     throw new Error("X account has no saved credentials.");
   }
 
+  const client =
+    token_meta.oauth_version === "oauth2" && token_meta.access_token
+      ? new TwitterApi(token_meta.access_token)
+      : token_meta.consumer_key &&
+          token_meta.consumer_secret &&
+          token_meta.access_token &&
+          token_meta.access_token_secret
+        ? new TwitterApi({
+            appKey: token_meta.consumer_key,
+            appSecret: token_meta.consumer_secret,
+            accessToken: token_meta.access_token,
+            accessSecret: token_meta.access_token_secret,
+          })
+        : null;
+
+  if (!client) {
+    throw new Error(
+      "X account is missing a usable OAuth 2.0 user token or OAuth 1.0a credentials.",
+    );
+  }
+
+  return client.readWrite;
+}
+
+export async function publishXPost(
+  account: AccountDoc,
+  payload: { text: string },
+): Promise<PublishResult> {
   try {
-    const client =
-      token_meta.oauth_version === "oauth2" && token_meta.access_token
-        ? new TwitterApi(token_meta.access_token)
-        : token_meta.consumer_key &&
-            token_meta.consumer_secret &&
-            token_meta.access_token &&
-            token_meta.access_token_secret
-          ? new TwitterApi({
-              appKey: token_meta.consumer_key,
-              appSecret: token_meta.consumer_secret,
-              accessToken: token_meta.access_token,
-              accessSecret: token_meta.access_token_secret,
-            })
-          : null;
-
-    if (!client) {
-      throw new Error(
-        "X account is missing a usable OAuth 2.0 user token or OAuth 1.0a credentials.",
-      );
-    }
-
-    const rwClient = client.readWrite;
+    const rwClient = buildXClient(account);
     const { data: createdTweet } = await rwClient.v2.tweet(payload.text);
 
     if (!createdTweet) {
@@ -941,6 +945,31 @@ export async function publishXPost(
   } catch (e) {
     console.error("[publishXPost] Error:", e);
     // Re-throw to be caught by the scheduler service
+    throw e;
+  }
+}
+
+export async function publishXReply(
+  account: AccountDoc,
+  payload: { text: string; replyToId: string },
+): Promise<PublishResult> {
+  try {
+    const rwClient = buildXClient(account);
+    const { data: createdTweet } = await rwClient.v2.tweet(payload.text, {
+      reply: { in_reply_to_tweet_id: payload.replyToId },
+    });
+
+    if (!createdTweet) {
+      throw new Error("Failed to create reply using v2 API.");
+    }
+
+    return {
+      platform_post_id: createdTweet.id,
+      url: `https://twitter.com/${account.handle}/status/${createdTweet.id}`,
+      raw: createdTweet as unknown as Record<string, unknown>,
+    };
+  } catch (e) {
+    console.error("[publishXReply] Error:", e);
     throw e;
   }
 }
