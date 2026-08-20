@@ -8,7 +8,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   findNextSlot,
 } from "@/lib/services/schedule-slots";
-import { platformLabel } from "@/lib/utils";
+import { platformLabel, sortAccountsByAutoPost } from "@/lib/utils";
 import { TipsSelectionModal } from "@/components/tips-selection-modal";
 import { ProductManagerModal } from "@/components/product-manager-modal";
 import { ReferenceAccountFinder } from "@/components/reference-account-finder";
@@ -134,9 +134,7 @@ export default function AccountsIndexPage() {
       }
 
       setAccounts(
-        [...accountsData.accounts].sort((a: AccountDoc, b: AccountDoc) =>
-          a.handle.localeCompare(b.handle),
-        ),
+        sortAccountsByAutoPost(accountsData.accounts),
       );
       setAllTips(tipsData.tips);
       setReferenceAccounts(referenceData.accounts);
@@ -266,8 +264,10 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
       if (!data.ok) throw new Error(data.message || "設定を更新できませんでした。");
 
       setAccounts((prev) =>
-        prev.map((account) =>
-          account.id === accountId ? { ...account, ...payload } : account,
+        sortAccountsByAutoPost(
+          prev.map((account) =>
+            account.id === accountId ? { ...account, ...payload } : account,
+          ),
         ),
       );
       setEditingId(null);
@@ -293,10 +293,12 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
         throw new Error(data.message || "自動投稿の設定を更新できませんでした。");
       }
       setAccounts((prev) =>
-        prev.map((item) =>
-          item.id === account.id
-            ? { ...item, autoPostEnabled: nextEnabled }
-            : item,
+        sortAccountsByAutoPost(
+          prev.map((item) =>
+            item.id === account.id
+              ? { ...item, autoPostEnabled: nextEnabled }
+              : item,
+          ),
         ),
       );
       toast.success(nextEnabled ? "自動投稿をオンにしました。" : "自動投稿をオフにしました。");
@@ -380,9 +382,9 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
                         >
                           {account.connected ? "接続中" : "未接続"}
                         </Badge>
-                        {account.autoPostEnabled ? (
-                          <Badge variant="primary">自動投稿 ON</Badge>
-                        ) : null}
+                        <Badge variant={account.autoPostEnabled ? "primary" : "outline"}>
+                          自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
+                        </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
                         {account.concept || "コンセプト未設定"}

@@ -15,7 +15,7 @@ import { Field, Select, Textarea } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { AlertIcon } from "@/components/ui/icons";
-import { cn } from "@/lib/utils";
+import { cn, sortAccountsByAutoPost } from "@/lib/utils";
 
 type AccountDetails = Omit<SimulateRequestBody, "prompt">;
 
@@ -71,7 +71,7 @@ export default function SimulationPage() {
       try {
         const res = await fetch("/api/accounts");
         const data = await res.json();
-        if (data.ok) setAccounts(data.accounts);
+        if (data.ok) setAccounts(sortAccountsByAutoPost(data.accounts));
         else setError(data.message);
       } catch {
         setError("アカウントを取得できませんでした。");
@@ -225,7 +225,7 @@ export default function SimulationPage() {
                   <option value="">選択しない（空の状態から作る）</option>
                   {accounts.map((account) => (
                     <option key={account.id} value={account.id}>
-                      @{account.handle}
+                      @{account.handle} · 自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
                     </option>
                   ))}
                 </Select>

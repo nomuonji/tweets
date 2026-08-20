@@ -231,6 +231,7 @@ export function DashboardClient({
         handle: account.handle,
         displayName: account.display_name,
         platform: account.platform,
+        autoPostEnabled: account.autoPostEnabled,
       })),
     [accounts],
   );

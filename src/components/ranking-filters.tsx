@@ -68,7 +68,7 @@ export function RankingFilters({
           <option value="all">すべて</option>
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>
-              {account.display_name || `@${account.handle}`}
+              {account.display_name || `@${account.handle}`} · 自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
             </option>
           ))}
         </FilterSelect>

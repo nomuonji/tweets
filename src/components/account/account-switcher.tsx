@@ -116,6 +116,16 @@ export function AccountSwitcher() {
                 </span>
                 <span
                   className={cn(
+                    "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                    account.autoPostEnabled
+                      ? "bg-primary/10 text-primary"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
+                </span>
+                <span
+                  className={cn(
                     "h-2 w-2 shrink-0 rounded-full",
                     account.connected ? "bg-success" : "bg-muted-foreground/40",
                   )}

@@ -16,6 +16,7 @@ type AccountOption = {
   handle: string;
   displayName: string;
   platform: string;
+  autoPostEnabled?: boolean;
 };
 
 type SyncControlsProps = {
@@ -225,7 +226,7 @@ export function SyncControls({ accounts }: SyncControlsProps) {
                   >
                     @{account.handle}
                     <span className="ml-1 opacity-70">
-                      {platformLabel(account.platform)}
+                      {platformLabel(account.platform)} · 自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
                     </span>
                   </button>
                 );

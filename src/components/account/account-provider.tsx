@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { AccountDoc } from "@/lib/types";
+import { sortAccountsByAutoPost } from "@/lib/utils";
 
 type AccountContextValue = {
   accounts: AccountDoc[];
@@ -55,9 +56,11 @@ export function AccountProvider({
 }: AccountProviderProps) {
   const sanitizedAccounts = useMemo(
     () =>
-      accounts
-        .filter((account) => Boolean(account?.id))
-        .map((account) => ({ ...account })),
+      sortAccountsByAutoPost(
+        accounts
+          .filter((account) => Boolean(account?.id))
+          .map((account) => ({ ...account })),
+      ),
     [accounts],
   );
 

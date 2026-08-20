@@ -21,6 +21,7 @@ type AccountOption = {
   handle: string;
   displayName: string;
   platform: "x" | "threads";
+  autoPostEnabled?: boolean;
 };
 
 type SuggestionResult = {
@@ -247,7 +248,7 @@ setContextPosts([]);
             >
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  @{account.handle}
+                  @{account.handle} · 自動投稿 {account.autoPostEnabled ? "ON" : "OFF"}
                 </option>
               ))}
             </Select>

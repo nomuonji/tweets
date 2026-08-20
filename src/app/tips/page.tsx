@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { Tip, AccountDoc, Platform } from "@/lib/types";
-import { platformLabel } from "@/lib/utils";
+import { platformLabel, sortAccountsByAutoPost } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button, linkButton } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,7 +56,7 @@ export default function TipsPage() {
       }
 
       setTips(tipsData.tips);
-      setAccounts(accountsData.accounts);
+      setAccounts(sortAccountsByAutoPost(accountsData.accounts));
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -312,7 +312,7 @@ export default function TipsPage() {
                       <Checkbox
                         key={account.id}
                         label={`@${account.handle}`}
-                        description={platformLabel(account.platform)}
+                        description={`${platformLabel(account.platform)} · 自動投稿 ${account.autoPostEnabled ? "ON" : "OFF"}`}
                         checked={
                           currentTip.account_ids?.includes(account.id) ?? false
                         }
