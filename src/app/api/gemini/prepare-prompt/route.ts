@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
 import type { SimulateRequestBody } from "@/app/api/gemini/simulate/route";
+import type { ProductDoc } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as SimulateRequestBody;
+    const body = (await request.json()) as SimulateRequestBody & {
+      promoProduct?: ProductDoc | null;
+    };
 
     const prompt = buildPrompt(
       body.topPosts ?? [],
@@ -14,7 +17,13 @@ export async function POST(request: Request) {
       [], // extraAvoid is not needed for preview
       body.tips ?? [],
       body.exemplaryPosts ?? [],
-      body.concept
+      body.concept,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      body.promoProduct ?? null,
     );
 
     return NextResponse.json({ ok: true, prompt });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { saveDraft } from "@/lib/services/firestore.server";
+import { markProductUsed } from "@/lib/services/product-service";
 import { extractPattern } from "@/lib/pattern";
 import type { DraftDoc } from "@/lib/types";
 
@@ -11,6 +12,8 @@ type CreateDraftPayload = {
   text?: string;
   createdBy?: string;
   generatedBy?: string;
+  promoProductId?: string;
+  promoProductAsin?: string;
 };
 
 function normalizeText(value: string) {
@@ -77,9 +80,20 @@ export async function POST(request: Request) {
       similarity_warning: false,
       generatedBy: body.generatedBy,
       pattern: extractPattern(text),
+      ...(body.promoProductId
+        ? {
+            promo_product_id: body.promoProductId,
+            ...(body.promoProductAsin
+              ? { promo_product_asin: body.promoProductAsin }
+              : {}),
+          }
+        : {}),
     };
 
     await saveDraft(draft);
+    if (body.promoProductId) {
+      await markProductUsed(accountId, body.promoProductId).catch(() => {});
+    }
 
     return NextResponse.json({ ok: true, draft });
   } catch (error) {

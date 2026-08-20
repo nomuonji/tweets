@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await preparePromptPayload(accountId, limit);
-    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis } = payload;
+    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct } = payload;
 
     const normalizedDrafts = new Set(drafts.map((draft) => normalizeText(draft.text ?? "")));
     const maxAttempts = 3;
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
           externalPosts,
           patternAnalysis,
           account.explorationRate,
+          promoProduct,
         );
         finalPrompt = prompt;
         suggestion = await requestGrok(prompt, xaiApiKey);
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
           externalPosts,
           patternAnalysis,
           account.explorationRate,
+          promoProduct,
         );
         finalPrompt = prompt;
         const raw = await requestGemini(prompt);
@@ -95,12 +97,20 @@ export async function POST(request: Request) {
       throw new Error("Failed to generate suggestion.");
     }
 
-    return NextResponse.json({
+return NextResponse.json({
       ok: true,
       suggestion,
       duplicate,
       prompt: finalPrompt,
       modelUsed: account.r18Mode ? 'grok' : 'gemini',
+      promo: promoProduct
+        ? {
+            productId: promoProduct.id,
+            asin: promoProduct.asin,
+            title: promoProduct.title,
+            url: promoProduct.url ?? `https://www.amazon.co.jp/dp/${promoProduct.asin}/`,
+          }
+        : null,
       context: {
         usedPosts: topPosts.map((post) => ({
           id: post.id,

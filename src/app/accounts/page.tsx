@@ -10,6 +10,7 @@ import {
 } from "@/lib/services/schedule-slots";
 import { platformLabel } from "@/lib/utils";
 import { TipsSelectionModal } from "@/components/tips-selection-modal";
+import { ProductManagerModal } from "@/components/product-manager-modal";
 import { ReferenceAccountFinder } from "@/components/reference-account-finder";
 import { Badge } from "@/components/ui/badge";
 import { Button, linkButton } from "@/components/ui/button";
@@ -30,6 +31,8 @@ type SettingsDraft = {
   explorationRate: string;
   autoPostEnabled: boolean;
   postSchedule: string[];
+  promoEnabled: boolean;
+  promoRate: string;
 };
 
 function toSettingsDraft(
@@ -46,6 +49,8 @@ function toSettingsDraft(
     explorationRate: String(account.explorationRate ?? 0.2),
     autoPostEnabled: account.autoPostEnabled ?? false,
     postSchedule: account.postSchedule ?? [],
+    promoEnabled: account.promoEnabled ?? false,
+    promoRate: String(account.promoRate ?? 0.1),
   };
 }
 
@@ -93,6 +98,7 @@ export default function AccountsIndexPage() {
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [tipsTarget, setTipsTarget] = useState<AccountDoc | null>(null);
+  const [productsTarget, setProductsTarget] = useState<AccountDoc | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -214,8 +220,13 @@ export default function AccountsIndexPage() {
       referenceAccountIds: knownReferenceAccounts
         .filter((item) => referenceHandles.some((handle) => handle.toLowerCase() === item.handle.toLowerCase()))
         .map((item) => item.id),
-      autoPostEnabled: settingsDraft.autoPostEnabled,
+autoPostEnabled: settingsDraft.autoPostEnabled,
       postSchedule: settingsDraft.postSchedule.filter(Boolean).sort(),
+      promoEnabled: settingsDraft.promoEnabled,
+      promoRate: Math.min(
+        Math.max(Number(settingsDraft.promoRate || 0), 0),
+        1,
+      ),
     };
 
     try {
@@ -286,6 +297,13 @@ export default function AccountsIndexPage() {
           allTips={allTips}
           onClose={() => setTipsTarget(null)}
           onSave={handleSaveTips}
+        />
+      ) : null}
+
+      {productsTarget ? (
+        <ProductManagerModal
+          account={productsTarget}
+          onClose={() => setProductsTarget(null)}
         />
       ) : null}
 
@@ -366,6 +384,13 @@ export default function AccountsIndexPage() {
                         onClick={() => setTipsTarget(account)}
                       >
                         Tips ({account.selectedTipIds?.length ?? 0})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setProductsTarget(account)}
+                      >
+                        商品PR
                       </Button>
                       <Link
                         href={`/accounts/connect?handle=${encodeURIComponent(account.handle)}`}
@@ -470,6 +495,43 @@ export default function AccountsIndexPage() {
                               setSettingsDraft((prev) =>
                                 prev
                                   ? { ...prev, explorationRate: event.target.value }
+                                  : prev,
+                              )
+                            }
+                          />
+                        )}
+                      </Field>
+
+                      <Checkbox
+                        label="商品PRを有効にする"
+                        description="PR商品を登録すると、下のPR率に従って時々生成される投稿に商品紹介とリンクが含まれます。"
+                        checked={settingsDraft.promoEnabled}
+                        onChange={(event) =>
+                          setSettingsDraft((prev) =>
+                            prev
+                              ? { ...prev, promoEnabled: event.target.checked }
+                              : prev,
+                          )
+                        }
+                      />
+
+                      <Field
+                        label="PR率（0〜1）"
+                        hint="1回の生成で商品PRになる確率です（例: 0.1なら10%の確率でPR投稿が生成されます）。"
+                      >
+                        {(id) => (
+                          <Input
+                            id={id}
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            disabled={!settingsDraft.promoEnabled}
+                            value={settingsDraft.promoRate}
+                            onChange={(event) =>
+                              setSettingsDraft((prev) =>
+                                prev
+                                  ? { ...prev, promoRate: event.target.value }
                                   : prev,
                               )
                             }

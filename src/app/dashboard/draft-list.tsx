@@ -98,6 +98,9 @@ export function DraftList({
               <Badge variant={DRAFT_STATUS_VARIANTS[draft.status]}>
                 {DRAFT_STATUS_LABELS[draft.status]}
               </Badge>
+              {draft.promo_product_id ? (
+                <Badge variant="primary">PR商品</Badge>
+              ) : null}
               <span className="text-xs text-muted-foreground">
                 {account
                   ? `${platformLabel(account.platform)} · @${account.handle}`

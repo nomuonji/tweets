@@ -4,6 +4,7 @@ import type {
   ExternalPostDoc,
   PatternAnalysis,
   PostDoc,
+  ProductDoc,
   Tip,
 } from "@/lib/types";
 
@@ -21,8 +22,14 @@ export function buildPrompt(
   externalPosts: ExternalPostDoc[] = [],
   patternAnalysis?: PatternAnalysis | null,
   explorationRate = 0.15,
+  promoProduct: ProductDoc | null = null,
 ) {
-  const targetLength = Math.floor(Math.random() * (maxPostLength - minPostLength + 1)) + minPostLength;
+  const effectiveMin = promoProduct
+    ? Math.max(minPostLength, 90)
+    : minPostLength;
+  const targetLength =
+    Math.floor(Math.random() * (maxPostLength - effectiveMin + 1)) +
+    effectiveMin;
 
   const compact = (value: string, max = 180) =>
     value.replace(/\s+/g, " ").trim().slice(0, max);
@@ -177,10 +184,37 @@ export function buildPrompt(
         })()
       : "";
 
+  const promoSection = promoProduct
+    ? (() => {
+        const lines = [
+          `\n[Promotion Target — THIS POST MUST NATURALLY INTRODUCE THIS PRODUCT]`,
+          `Write this post as a product introduction that fits the account's usual topic, voice, and style. It should read like a helpful recommendation, not a banner ad.`,
+          `- 商品名: ${promoProduct.title}`,
+        ];
+        if (promoProduct.price) lines.push(`- 価格: ${promoProduct.price}`);
+        if (promoProduct.category) lines.push(`- カテゴリ: ${promoProduct.category}`);
+        if (promoProduct.description) {
+          lines.push(`- ターゲット層に刺さる理由: ${promoProduct.description}`);
+        }
+        if (promoProduct.promo_hook) {
+          lines.push(`- おすすめの切り口: ${promoProduct.promo_hook}`);
+        }
+        lines.push(
+          `- 掲載するURL: ${promoProduct.url ?? `https://www.amazon.co.jp/dp/${promoProduct.asin}/`}`,
+          `Rules:`,
+          `- The URL MUST be included in the post body.`,
+          `- Lead with value to the reader (a pain/desire the account's audience has), then present the product as the solution.`,
+          `- Stay in the account's normal tone and length. Do not write like a sales pitch.`,
+          `- Do not fabricate facts about the product; use only the provided info.`,
+        );
+        return lines.join("\n");
+      })()
+    : "";
+
   const inputValuesBlock = `
 # 2. INPUT VALUES (SOURCE MATERIAL)
 Use these values as evidence for the new post. Learn the hook, angle, structure, and tone from them; do not copy their wording.
-${conceptSection}${performanceSection}${styleSection}${tipSection}${referenceSection}${externalSection}${patternSection}${contentSection}${explorationSection}`;
+${conceptSection}${performanceSection}${styleSection}${tipSection}${referenceSection}${externalSection}${patternSection}${contentSection}${explorationSection}${promoSection}`;
 
   // --- Part 3: Past Posts (Duplication Prevention) ---
   const avoidTexts = [
@@ -214,9 +248,10 @@ Generate ONE new post that:
 5. Prefer patterns visible in the strongest-performing posts, especially their opening hook and reason to react.
 6. Add a concrete angle or observation rather than a generic summary.
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
+${promoProduct ? "8. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
 ${explore && patternAnalysis
-  ? "8. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
-  : "8. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
+  ? "9. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
+  : "9. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
 
 Output strictly in JSON:
 {

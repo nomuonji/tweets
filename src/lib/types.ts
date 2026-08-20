@@ -76,7 +76,11 @@ export interface AccountDoc {
   generationStrategy?: GenerationStrategy;
   /** 0..1. Probability a generation deliberately tries a new structure/topic
    * instead of repeating the account's proven winners. Defaults to 0.2. */
-  explorationRate?: number;
+explorationRate?: number;
+  /** Master switch: when on, generated posts may occasionally promote a product. */
+  promoEnabled?: boolean;
+  /** 0..1. Probability a single generation promotes a product. Defaults to 0. */
+  promoRate?: number;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
@@ -101,6 +105,30 @@ export interface AccountDoc {
     message: string;
     occurred_at: string;
   };
+}
+
+export interface ProductDoc {
+  id: string;
+  /** Amazon ASIN identifying the product (e.g. B0XXXXX). */
+  asin: string;
+  title: string;
+  /** Affiliate/plain Amazon product URL. */
+  url?: string;
+  /** Display price string, e.g. "1,980円". */
+  price?: string;
+  image_url?: string;
+  category?: string;
+  /** Why this product suits the account's audience / selling points. */
+  description?: string;
+  /** A suggested angle for pitching it naturally. */
+  promo_hook?: string;
+  /** False keeps the product in the DB but excludes it from generation. */
+  enabled: boolean;
+  /** How many times the product has been selected for a promo. Used for rotation. */
+  times_used: number;
+  last_used_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PostMetrics {
@@ -182,6 +210,9 @@ export interface DraftDoc {
   updated_at: string;
   similarity_warning?: boolean;
   generatedBy?: string;
+  /** Set when this draft is a product-promotion post. */
+  promo_product_id?: string;
+  promo_product_asin?: string;
   /** The post structure type used for this draft, used by the self-improvement loop. */
   pattern?: PostPattern;
   /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */

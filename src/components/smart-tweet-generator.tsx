@@ -59,6 +59,13 @@ type PatternStatSummary = {
   avgEngagementRate: number;
 };
 
+type PromoContext = {
+  productId: string;
+  asin: string;
+  title: string;
+  url: string;
+};
+
 type SmartTweetGeneratorProps = {
   accounts: AccountOption[];
 };
@@ -88,6 +95,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
   );
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const [lastPrompt, setLastPrompt] = useState<string | null>(null);
+  const [promo, setPromo] = useState<PromoContext | null>(null);
 
   // Keep the local picker in step with the global account switcher.
   useEffect(() => {
@@ -140,11 +148,12 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
     setError(null);
     setSuggestion(null);
     setDuplicateWarning(false);
-    setContextPosts([]);
+setContextPosts([]);
     setExistingDrafts([]);
     setExternalPosts([]);
     setPatternStats(null);
     setLastPrompt(null);
+    setPromo(null);
     try {
       const response = await fetch("/api/gemini/generate", {
         method: "POST",
@@ -167,6 +176,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
       );
       setDuplicateWarning(Boolean(data.duplicate));
       if (data.prompt) setLastPrompt(data.prompt as string);
+      if (data.promo) setPromo(data.promo as PromoContext);
     } catch (generateError) {
       setError((generateError as Error).message);
     } finally {
@@ -187,6 +197,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
           accountId: selectedAccount.id,
           platform: selectedAccount.platform,
           generatedBy: modelUsed,
+          ...(promo ? { promoProductId: promo.productId, promoProductAsin: promo.asin } : {}),
         }),
       });
       const data = await response.json();
@@ -293,6 +304,12 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
               </p>
             </div>
 
+            {promo ? (
+              <p className="rounded-md border border-primary/30 bg-primary/5 p-2.5 text-xs text-primary">
+                この投稿は商品PRです（{promo.asin}）。リンクが本文に含まれていることを確認してから保存してください。
+              </p>
+            ) : null}
+
             {duplicateWarning ? (
               <p className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5 text-xs text-warning">
                 <AlertIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -301,11 +318,14 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
             ) : null}
 
             <div className="flex items-center justify-between gap-2 border-t border-dashed border-border pt-3">
-              {modelUsed ? (
-                <Badge variant="outline">{modelUsed}</Badge>
-              ) : (
-                <span />
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {modelUsed ? (
+                  <Badge variant="outline">{modelUsed}</Badge>
+                ) : null}
+                {promo ? (
+                  <Badge variant="primary">PR: {promo.title}</Badge>
+                ) : null}
+              </div>
               <Button loading={saving} onClick={handleSave}>
                 {saving ? null : <PlusIcon className="h-4 w-4" />}
                 下書きとして保存

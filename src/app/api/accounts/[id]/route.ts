@@ -14,6 +14,8 @@ const payloadSchema = z.object({
   referenceAccountIds: z.array(z.string()).max(50).optional(),
   generationStrategy: z.literal("external").optional(),
   explorationRate: z.number().min(0).max(1).optional(),
+  promoEnabled: z.boolean().optional(),
+  promoRate: z.number().min(0).max(1).optional(),
 });
 
 export async function PATCH(

@@ -74,6 +74,7 @@ scripts/               # Node entry points for GitHub Actions / local runs
 - `/drafts`  Egenerated drafts with status (`draft`/`scheduled`/`published`) and schedule slot.
 - `/tips`  EGlobal knowledge base of tips for writing effective posts. Managed at `/tips`.
 - `/accounts/{accountId}/exemplary_posts`  EAccount-specific posts to guide the AI on style and tone. Managed on the dashboard.
+- `/accounts/{accountId}/products`  EAmazon products tailored to the account's audience. With `promoEnabled` / `promoRate` on the account, one is occasionally picked to be introduced in a generated post. Managed on the accounts page (「商品PR」).
 - `/settings/default`  Escoring configuration, generation preferences, slot templates, timezone.
 - `/reference_accounts`  Eapproved X accounts used only as external pattern sources.
 - `/external_posts`  Ecached external candidates and extracted performance signals.

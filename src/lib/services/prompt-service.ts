@@ -3,9 +3,10 @@ import { adminDb } from "@/lib/firebase/admin";
 import { buildPrompt } from "@/lib/gemini/prompt";
 import { requestGemini } from "@/lib/gemini/client";
 import { parseGeminiResponse, type GeminiSuggestion } from "@/lib/gemini/parser";
-import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform, PatternAnalysis } from "@/lib/types";
+import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
 import { extractPattern } from "@/lib/pattern";
+import { markProductUsed, pickPromoProduct } from "./product-service";
 
 // --- Utility Functions ---
 function normalizeText(value: string) {
@@ -102,6 +103,15 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
     throw new Error("No posts found for this account yet. Run a sync first.");
   }
 
+  // Product promotion: roll once per generation. `時々` = a probability,
+  // defaulting to off (0) unless the account owner enables it.
+  const promoRate = Math.min(Math.max(account.promoRate ?? 0, 0), 1);
+  const shouldPromo =
+    account.promoEnabled === true &&
+    promoRate > 0 &&
+    Math.random() < promoRate;
+  const promoProduct = shouldPromo ? await pickPromoProduct(accountId) : null;
+
   return {
     account,
     topPosts,
@@ -112,15 +122,15 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
     exemplaryPosts,
     externalPosts,
     patternAnalysis,
+    promoProduct,
   };
 }
 
 
 
 export async function generatePost(accountId: string, platform: Platform, limit = 15): Promise<DraftDoc> {
-
   const payload = await preparePromptPayload(accountId, limit);
-  const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis } = payload;
+  const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct } = payload;
 
   const normalizedAvoids = new Set([
     ...drafts.map((d) => d.text ?? ""),
@@ -133,7 +143,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   let duplicate = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate);
+    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate, promoProduct);
     const raw = await requestGemini(prompt);
     suggestion = parseGeminiResponse(raw);
     const normalizedSuggestion = normalizeText(suggestion.tweet);
@@ -162,8 +172,14 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     updated_at: now,
     similarity_warning: duplicate,
     pattern: extractPattern(suggestion.tweet),
+    ...(promoProduct
+      ? { promo_product_id: promoProduct.id, promo_product_asin: promoProduct.asin }
+      : {}),
   };
 
   await adminDb.collection("drafts").doc(draftId).set(newDraft);
+  if (promoProduct) {
+    await markProductUsed(accountId, promoProduct.id);
+  }
   return newDraft;
 }
