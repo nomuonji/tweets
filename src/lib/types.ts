@@ -121,6 +121,8 @@ explorationRate?: number;
 
 export interface ProductDoc {
   id: string;
+  /** Canonical product catalog key when this is an account assignment. */
+  catalog_id?: string;
   /** Amazon ASIN identifying the product (e.g. B0XXXXX). */
   asin: string;
   title: string;
@@ -142,6 +144,32 @@ export interface ProductDoc {
   created_at: string;
   updated_at: string;
 }
+
+export type ProductPoolStatus = "candidate" | "approved" | "archived";
+
+export interface ProductCatalogDoc {
+  id: string;
+  asin: string;
+  title: string;
+  url?: string;
+  price?: string;
+  image_url?: string;
+  category?: string;
+  theme?: string;
+  role?: string;
+  description?: string;
+  promo_hook?: string;
+  score?: number;
+  status: ProductPoolStatus;
+  account_ids?: string[];
+  source_url?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Backward-compatible name used by the product pool UI. */
+export type ProductPoolDoc = ProductCatalogDoc;
 
 export interface PromoReplyDoc {
   id: string;

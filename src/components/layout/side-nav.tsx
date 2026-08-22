@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   DashboardIcon,
+  InboxIcon,
   TrophyIcon,
   UsersIcon,
 } from "@/components/ui/icons";
@@ -12,6 +13,7 @@ import {
 export const navItems = [
   { href: "/dashboard", label: "ダッシュボード", Icon: DashboardIcon },
   { href: "/analytics", label: "分析", Icon: TrophyIcon },
+  { href: "/products", label: "商品カタログ", Icon: InboxIcon },
   { href: "/accounts", label: "アカウント", Icon: UsersIcon },
 ];
 
