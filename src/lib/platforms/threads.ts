@@ -566,6 +566,8 @@ export async function publishThreadsReply(
     throw new Error("Failed to create Threads reply container: creation_id not found");
   }
 
+  await waitForContainer(accessToken, creationId);
+
   // Step 2: Publish the media container
   const publishResponse = await axios.post<{ id: string }>(
     `${THREADS_API_BASE}/${userId}/threads_publish`,
