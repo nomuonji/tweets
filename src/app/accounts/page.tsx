@@ -11,6 +11,7 @@ import {
 import { platformLabel, sortAccountsByAutoPost } from "@/lib/utils";
 import { TipsSelectionModal } from "@/components/tips-selection-modal";
 import { ProductManagerModal } from "@/components/product-manager-modal";
+import { CharacterSheetHistoryModal } from "@/components/character-sheet-history-modal";
 import { ReferenceAccountFinder } from "@/components/reference-account-finder";
 import { Badge } from "@/components/ui/badge";
 import { Button, linkButton } from "@/components/ui/button";
@@ -109,6 +110,7 @@ export default function AccountsIndexPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [tipsTarget, setTipsTarget] = useState<AccountDoc | null>(null);
   const [productsTarget, setProductsTarget] = useState<AccountDoc | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<AccountDoc | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -336,6 +338,27 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
         />
       ) : null}
 
+      {historyTarget ? (
+        <CharacterSheetHistoryModal
+          account={historyTarget}
+          onClose={() => setHistoryTarget(null)}
+          onRestored={(concept, characterVersion) => {
+            setAccounts((prev) =>
+              prev.map((account) =>
+                account.id === historyTarget.id
+                  ? {
+                      ...account,
+                      concept,
+                      character_version: characterVersion,
+                      character_updated_at: new Date().toISOString(),
+                    }
+                  : account,
+              ),
+            );
+          }}
+        />
+      ) : null}
+
       {isLoading ? (
         <SkeletonList rows={3} />
       ) : error ? (
@@ -420,6 +443,13 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
                         onClick={() => setProductsTarget(account)}
                       >
                         商品PR
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setHistoryTarget(account)}
+                      >
+                        シート履歴
                       </Button>
                       <Link
                         href={`/accounts/connect?handle=${encodeURIComponent(account.handle)}`}

@@ -150,6 +150,16 @@ export interface ProductDoc {
   updated_at: string;
 }
 
+/** Immutable snapshot of a previously active character sheet. */
+export interface CharacterSheetRevision {
+  id: string;
+  account_id: string;
+  character_version: number;
+  concept: string;
+  activated_at?: string;
+  archived_at: string;
+}
+
 export type ProductPoolStatus = "candidate" | "approved" | "archived";
 
 export interface ProductCatalogDoc {

@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import type { AccountDoc } from "@/lib/types";
+import type { AccountDoc, CharacterSheetRevision } from "@/lib/types";
 import {
   characterSheetChanged,
   getCharacterVersion,
@@ -89,6 +89,80 @@ type UpdateAccountParams = Partial<{
   r18Mode: boolean;
 }>;
 
+function historyRef(accountId: string, version: number) {
+  return adminDb
+    .collection("accounts")
+    .doc(accountId)
+    .collection("character_sheet_history")
+    .doc(`v${version}`);
+}
+
+function archiveCharacterSheet(
+  transaction: FirebaseFirestore.Transaction,
+  accountId: string,
+  account: AccountDoc,
+  archivedAt: string,
+) {
+  const concept = normalizeCharacterSheet(account.concept);
+  if (!concept) return;
+  const version = getCharacterVersion(account);
+  const revision: Omit<CharacterSheetRevision, "id"> = {
+    account_id: accountId,
+    character_version: version,
+    concept,
+    activated_at: account.character_updated_at ?? account.updated_at,
+    archived_at: archivedAt,
+  };
+  transaction.set(historyRef(accountId, version), revision, { merge: true });
+}
+
+export async function listCharacterSheetHistory(
+  accountId: string,
+): Promise<CharacterSheetRevision[]> {
+  const snapshot = await adminDb
+    .collection("accounts")
+    .doc(accountId)
+    .collection("character_sheet_history")
+    .orderBy("character_version", "desc")
+    .get();
+  return snapshot.docs.map(
+    (doc) => ({ id: doc.id, ...doc.data() }) as CharacterSheetRevision,
+  );
+}
+
+export async function restoreCharacterSheet(
+  accountId: string,
+  revisionId: string,
+): Promise<{ characterVersion: number; concept: string }> {
+  const now = DateTime.utc().toISO()!;
+  const accountRef = adminDb.collection("accounts").doc(accountId);
+  const revisionRef = accountRef.collection("character_sheet_history").doc(revisionId);
+
+  return adminDb.runTransaction(async (transaction) => {
+    const [accountSnapshot, revisionSnapshot] = await Promise.all([
+      transaction.get(accountRef),
+      transaction.get(revisionRef),
+    ]);
+    if (!accountSnapshot.exists) throw new Error("Account not found.");
+    if (!revisionSnapshot.exists) throw new Error("Character sheet revision not found.");
+
+    const account = { id: accountSnapshot.id, ...accountSnapshot.data() } as AccountDoc;
+    const revision = revisionSnapshot.data() as CharacterSheetRevision;
+    const concept = normalizeCharacterSheet(revision.concept);
+    if (!concept) throw new Error("Character sheet revision is empty.");
+
+    archiveCharacterSheet(transaction, accountId, account, now);
+    const nextVersion = getCharacterVersion(account) + 1;
+    transaction.update(accountRef, {
+      concept,
+      character_version: nextVersion,
+      character_updated_at: now,
+      updated_at: now,
+    });
+    return { characterVersion: nextVersion, concept };
+  });
+}
+
 export async function updateAccount(
   accountId: string,
   params: UpdateAccountParams,
@@ -110,6 +184,7 @@ export async function updateAccount(
       typeof params.concept === "string" &&
       characterSheetChanged(current.concept, params.concept)
     ) {
+      archiveCharacterSheet(transaction, accountId, current, now);
       updateData.concept = normalizeCharacterSheet(params.concept);
       const hasEstablishedCharacter =
         current.character_version != null ||
