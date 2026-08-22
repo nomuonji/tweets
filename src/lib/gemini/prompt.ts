@@ -33,16 +33,36 @@ export function buildPrompt(
 
   const compact = (value: string, max = 180) =>
     value.replace(/\s+/g, " ").trim().slice(0, max);
-  const postExample = (post: PostDoc) => {
+  const performanceSignal = (post: PostDoc) => {
     const metrics = post.metrics;
-    return `- ${compact(post.text)} (表示:${metrics.impressions ?? "不明"}, いいね:${metrics.likes}, リポスト:${metrics.reposts_or_rethreads}, 返信:${metrics.replies})`;
+    const structure = post.pattern?.structure ?? "未分類";
+    const reactionReason = post.pattern?.reaction_reason ?? "不明";
+    return `- 構成:${compact(structure, 80)} / 反応理由:${compact(reactionReason, 100)} (表示:${metrics.impressions ?? "不明"}, いいね:${metrics.likes}, リポスト:${metrics.reposts_or_rethreads}, 返信:${metrics.replies})`;
   };
 
   // --- Part 2: Input Values (Source Material) ---
-  const conceptSection = concept ? `\n[Account Concept]\n${concept}\n` : "";
+  // The character sheet is a specification, not an example. Keep it in its
+  // own high-priority block so that the model does not reconstruct the persona
+  // from old posts when the sheet has been edited.
+  const characterSheetSection = concept
+    ? `
+[CHARACTER SHEET — HIGHEST PRIORITY]
+${concept}
+
+Treat the character sheet above as the current and authoritative definition of
+the account. It may intentionally differ from all past posts and examples.
+Do not infer, preserve, or restore old personality traits, opinions, speaking
+habits, values, or topics from the examples when they conflict with this sheet.
+If any source material conflicts with the character sheet, follow the
+character sheet and use the source only for an abstract writing technique.
+`
+    : `
+[CHARACTER SHEET — HIGHEST PRIORITY]
+(No character sheet is configured.)
+`;
 
   const performanceSection = topPosts.length > 0
-    ? `\n[Past Posts With Strongest Results]\n${topPosts.map(postExample).join("\n")}\n`
+    ? `\n[Past Performance Signals — technique only]\n${topPosts.map(performanceSignal).join("\n")}\nUse only these abstract structure/reaction signals. The original post text is intentionally omitted so its old topic and wording cannot leak into the new post.\n`
     : "";
   const styleSection = exemplaryPosts.length > 0
     ? `\n[Account Style Samples]\n${exemplaryPosts
@@ -213,8 +233,10 @@ export function buildPrompt(
 
   const inputValuesBlock = `
 # 2. INPUT VALUES (SOURCE MATERIAL)
-Use these values as evidence for the new post. Learn the hook, angle, structure, and tone from them; do not copy their wording.
-${conceptSection}${performanceSection}${styleSection}${tipSection}${referenceSection}${externalSection}${patternSection}${contentSection}${explorationSection}${promoSection}`;
+First apply the character sheet. Then use the following material only as
+secondary evidence for topic selection, structure, and originality. Examples
+are not a definition of the character and must not override the sheet.
+${characterSheetSection}${performanceSection}${styleSection}${tipSection}${referenceSection}${externalSection}${patternSection}${contentSection}${explorationSection}${promoSection}`;
 
   // --- Part 3: Past Posts (Duplication Prevention) ---
   const avoidTexts = [
@@ -224,7 +246,7 @@ ${conceptSection}${performanceSection}${styleSection}${tipSection}${referenceSec
   ].filter(Boolean);
 
   // Deduplicate and limit
-  const uniqueAvoid = Array.from(new Set(avoidTexts)).slice(0, 30);
+  const uniqueAvoid = Array.from(new Set(avoidTexts)).slice(0, 20);
 
   const avoidanceBlock = uniqueAvoid.length > 0
       ? `\n# 3. PAST POSTS (DUPLICATION PREVENTION)\nAVOID repeating the content or phrasing of these posts:\n${uniqueAvoid.map(t => `- ${t.replace(/\s+/g, " ").slice(0, 100)}`).join("\n")}\n`
@@ -239,19 +261,25 @@ Target: ${targetLength} characters (Absolute Max: ${maxPostLength})
 ${inputValuesBlock}
 ${avoidanceBlock}
 
+# 4. FINAL CHARACTER CHECK
+Before writing, reread the CHARACTER SHEET. The generated post must sound like
+the current character sheet even if that means abandoning the voice, opinions,
+or recurring subjects in every past post listed above.
+
 # TASK
 Generate ONE new post that:
 1. Matches the length in #1.
-2. Uses the persona/style/ideas from #2.
+2. Obeys the CHARACTER SHEET above as the source of truth for persona, voice, values, opinions, and boundaries.
 3. Is NOT similar to any post in #3.
 4. Language: Japanese.
 5. Prefer patterns visible in the strongest-performing posts, especially their opening hook and reason to react.
 6. Add a concrete angle or observation rather than a generic summary.
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
-${promoProduct ? "8. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
+8. Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.
+${promoProduct ? "9. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
 ${explore && patternAnalysis
-  ? "9. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
-  : "9. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
+  ? "10. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
+  : "10. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
 
 Output strictly in JSON:
 {

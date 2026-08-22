@@ -1,6 +1,22 @@
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
+import type { DraftDoc } from "@/lib/types";
+import { getCharacterVersion } from "@/lib/character-version";
+
+async function currentVersionForDraft(draftId: string): Promise<number | null> {
+  const draftSnapshot = await adminDb.collection("drafts").doc(draftId).get();
+  if (!draftSnapshot.exists) return null;
+  const draft = draftSnapshot.data() as DraftDoc;
+  if (!draft.target_account_id) return null;
+  const accountSnapshot = await adminDb
+    .collection("accounts")
+    .doc(draft.target_account_id)
+    .get();
+  return accountSnapshot.exists
+    ? getCharacterVersion(accountSnapshot.data() ?? {})
+    : null;
+}
 
 export async function PUT(
   request: Request,
@@ -18,12 +34,17 @@ export async function PUT(
     const body = await request.json();
     const { text, status } = body;
 
-    const updateData: { [key: string]: string } = {
+    const updateData: Record<string, unknown> = {
       updated_at: DateTime.utc().toISO(),
     };
 
     if (text) {
       updateData.text = text;
+      const characterVersion = await currentVersionForDraft(id);
+      if (characterVersion != null) {
+        updateData.character_version = characterVersion;
+        updateData.last_error = null;
+      }
     }
 
     if (status) {
@@ -56,6 +77,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     if (typeof body.text === "string") {
       updates.text = body.text;
+      const characterVersion = await currentVersionForDraft(params.id);
+      if (characterVersion != null) {
+        updates.character_version = characterVersion;
+        updates.last_error = null;
+      }
     }
     if (Array.isArray(body.hashtags)) {
       updates.hashtags = body.hashtags;

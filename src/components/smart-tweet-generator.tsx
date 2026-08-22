@@ -97,6 +97,7 @@ export function SmartTweetGenerator({ accounts }: SmartTweetGeneratorProps) {
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const [lastPrompt, setLastPrompt] = useState<string | null>(null);
   const [promo, setPromo] = useState<PromoContext | null>(null);
+  const [characterVersion, setCharacterVersion] = useState<number | null>(null);
 
   // Keep the local picker in step with the global account switcher.
   useEffect(() => {
@@ -155,6 +156,7 @@ setContextPosts([]);
     setPatternStats(null);
     setLastPrompt(null);
     setPromo(null);
+    setCharacterVersion(null);
     try {
       const response = await fetch("/api/gemini/generate", {
         method: "POST",
@@ -178,6 +180,9 @@ setContextPosts([]);
       setDuplicateWarning(Boolean(data.duplicate));
       if (data.prompt) setLastPrompt(data.prompt as string);
       if (data.promo) setPromo(data.promo as PromoContext);
+      if (Number.isInteger(data.context?.characterVersion)) {
+        setCharacterVersion(data.context.characterVersion as number);
+      }
     } catch (generateError) {
       setError((generateError as Error).message);
     } finally {
@@ -198,6 +203,7 @@ setContextPosts([]);
           accountId: selectedAccount.id,
           platform: selectedAccount.platform,
           generatedBy: modelUsed,
+          characterVersion,
           ...(promo ? { promoProductId: promo.productId, promoProductAsin: promo.asin } : {}),
         }),
       });

@@ -5,6 +5,7 @@ import { saveDraft } from "@/lib/services/firestore.server";
 import { markProductUsed } from "@/lib/services/product-service";
 import { extractPattern } from "@/lib/pattern";
 import type { DraftDoc } from "@/lib/types";
+import { getCharacterVersion } from "@/lib/character-version";
 
 type CreateDraftPayload = {
   accountId?: string;
@@ -14,6 +15,7 @@ type CreateDraftPayload = {
   generatedBy?: string;
   promoProductId?: string;
   promoProductAsin?: string;
+  characterVersion?: number;
 };
 
 function normalizeText(value: string) {
@@ -43,6 +45,27 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { ok: false, message: "accountId と text は必須です。" },
         { status: 400 },
+      );
+    }
+
+    const accountSnapshot = await adminDb.collection("accounts").doc(accountId).get();
+    if (!accountSnapshot.exists) {
+      return NextResponse.json(
+        { ok: false, message: "アカウントが見つかりません。" },
+        { status: 404 },
+      );
+    }
+    const currentCharacterVersion = getCharacterVersion(accountSnapshot.data() ?? {});
+    if (
+      body.characterVersion != null &&
+      body.characterVersion !== currentCharacterVersion
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "生成後にキャラクターシートが変更されました。投稿案を再生成してください。",
+        },
+        { status: 409 },
       );
     }
 
@@ -78,6 +101,7 @@ export async function POST(request: Request) {
       created_at: now,
       updated_at: now,
       similarity_warning: false,
+      character_version: currentCharacterVersion,
       generatedBy: body.generatedBy,
       pattern: extractPattern(text),
       ...(body.promoProductId

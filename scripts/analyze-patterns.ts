@@ -23,6 +23,10 @@ import {
   savePatternStats,
 } from "@/lib/services/firestore.server";
 import { DateTime } from "luxon";
+import {
+  belongsToCharacterVersion,
+  getCharacterVersion,
+} from "@/lib/character-version";
 
 const LOOKBACK_DAYS = 30;
 const MIN_POSTS = 5;
@@ -95,18 +99,25 @@ async function main() {
 
   for (const account of accounts) {
     try {
-      const posts = await fetchRecentPostsForAccount(account.id, LOOKBACK_DAYS);
+      const characterVersion = getCharacterVersion(account);
+      const posts = (await fetchRecentPostsForAccount(account.id, LOOKBACK_DAYS))
+        .filter((post) => belongsToCharacterVersion(post, characterVersion));
       if (posts.length < MIN_POSTS) {
         console.log(
-          `[Pattern] ${account.handle}: only ${posts.length} posts in ${LOOKBACK_DAYS}d; skipping.`,
+          `[Pattern] ${account.handle}: only ${posts.length} posts for character v${characterVersion} in ${LOOKBACK_DAYS}d; skipping.`,
         );
         continue;
       }
       const analysis = computePatternAnalysis(posts, account.id);
+      analysis.character_version = characterVersion;
 
       if (!skipInsights && posts.length >= MIN_POSTS_FOR_INSIGHTS) {
         const existing = await getPatternStats(account.id);
-        if (existing && insightsAreFresh(existing)) {
+        if (
+          existing &&
+          getCharacterVersion(existing) === characterVersion &&
+          insightsAreFresh(existing)
+        ) {
           analysis.content_insights = existing.content_insights;
         } else {
           try {
@@ -159,7 +170,7 @@ async function main() {
       await savePatternStats(account.id, analysis);
       updated += 1;
       console.log(
-        `[Pattern] ${account.handle}: ${analysis.patterns.length} patterns over ${analysis.analyzedPosts} posts (median ${(analysis.accountMedianEngagementRate ?? 0) * 100}%)${analysis.content_insights ? " +content insights" : ""}.`,
+        `[Pattern] ${account.handle} v${characterVersion}: ${analysis.patterns.length} patterns over ${analysis.analyzedPosts} posts (median ${(analysis.accountMedianEngagementRate ?? 0) * 100}%)${analysis.content_insights ? " +content insights" : ""}.`,
       );
     } catch (error) {
       console.error(`[Pattern] Failed for ${account.handle}:`, error);

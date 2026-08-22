@@ -19,6 +19,7 @@ export interface PatternStat {
 
 export interface PatternAnalysis {
   account_id: string;
+  character_version?: number;
   accountMedianEngagementRate: number | null;
   patterns: PatternStat[];
   analyzedPosts: number;

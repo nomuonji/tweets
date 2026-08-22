@@ -1,5 +1,9 @@
 import { getAccounts, getDraftsByAccountId } from "@/lib/services/firestore.server";
 import { generatePost } from "@/lib/services/prompt-service";
+import {
+  belongsToCharacterVersion,
+  getCharacterVersion,
+} from "@/lib/character-version";
 
 const DRAFT_THRESHOLD = 5;
 
@@ -14,11 +18,14 @@ async function main() {
     }
     try {
       const allDrafts = await getDraftsByAccountId(account.id);
+      const characterVersion = getCharacterVersion(account);
       // Only drafts the scheduler can actually publish count toward the quota.
       // Counting `failed` ones too caused a deadlock: once 5 publishes failed,
       // generation stopped forever and the scheduler had nothing to post.
       const usableDrafts = allDrafts.filter(
-        (draft) => draft.status === "draft" || draft.status === "scheduled",
+        (draft) =>
+          (draft.status === "draft" || draft.status === "scheduled") &&
+          belongsToCharacterVersion(draft, characterVersion),
       );
       const blocked = allDrafts.length - usableDrafts.length;
 

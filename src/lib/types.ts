@@ -30,6 +30,8 @@ export interface PatternStat {
 
 export interface PatternAnalysis {
   account_id: string;
+  /** Character-sheet generation whose posts produced this analysis. */
+  character_version?: number;
   accountMedianEngagementRate: number | null;
   patterns: PatternStat[];
   analyzedPosts: number;
@@ -66,6 +68,9 @@ export interface AccountDoc {
   connected: boolean;
   scopes: string[];
   concept?: string;
+  /** Incremented whenever the character sheet changes. Legacy accounts are v1. */
+  character_version?: number;
+  character_updated_at?: string;
   autoPostEnabled?: boolean;
   postSchedule?: string[];
   minPostLength?: number;
@@ -208,6 +213,8 @@ export interface PostDoc {
   has_url: boolean;
   metrics: PostMetrics;
   score: number;
+  /** Character-sheet generation used to create this post. */
+  character_version?: number;
   pattern?: PostPattern;
   raw?: Record<string, unknown>;
   raw_gcs_url?: string;
@@ -268,6 +275,8 @@ export interface DraftDoc {
   created_at: string;
   updated_at: string;
   similarity_warning?: boolean;
+  /** Character-sheet generation used to create this draft. */
+  character_version?: number;
   generatedBy?: string;
   /** Set when this draft is a product-promotion post. */
   promo_product_id?: string;

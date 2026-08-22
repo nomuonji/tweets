@@ -7,6 +7,10 @@ import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
 import { extractPattern } from "@/lib/pattern";
 import { markProductUsed, pickPromoProduct } from "./product-service";
+import {
+  belongsToCharacterVersion,
+  getCharacterVersion,
+} from "@/lib/character-version";
 
 // --- Utility Functions ---
 function normalizeText(value: string) {
@@ -14,9 +18,19 @@ function normalizeText(value: string) {
 }
 
 // --- Data Fetching Functions ---
-async function fetchTopPosts(accountId: string, limit: number) {
-  const snapshot = await adminDb.collection("posts").where("account_id", "==", accountId).orderBy("score", "desc").limit(30).get();
-  const posts = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })) as PostDoc[];
+async function fetchTopPosts(
+  accountId: string,
+  limit: number,
+  characterVersion: number,
+) {
+  // Fetch by account and filter in memory so legacy v1 documents (without an
+  // explicit version field) remain usable without a Firestore migration.
+  const snapshot = await adminDb.collection("posts").where("account_id", "==", accountId).get();
+  const posts = snapshot.docs
+    .map((doc) => ({ ...doc.data(), id: doc.id }) as PostDoc)
+    .filter((post) => belongsToCharacterVersion(post, characterVersion))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30);
   for (let i = posts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [posts[i], posts[j]] = [posts[j], posts[i]];
@@ -87,16 +101,21 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
 
   const normalizedLimit = Math.min(Math.max(limit, 6), 40);
   const perCategoryLimit = Math.min(Math.max(Math.ceil(normalizedLimit / 2), 3), 20);
+  const characterVersion = getCharacterVersion(account);
 
   const [topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis] = await Promise.all([
-    fetchTopPosts(accountId, 3),
+    fetchTopPosts(accountId, 3, characterVersion),
     fetchReferencePosts(accountId, 3),
     fetchRecentPosts(accountId, perCategoryLimit),
     fetchExistingDrafts(accountId, 50),
     fetchSelectedTips(account.selectedTipIds || []),
     fetchExemplaryPosts(accountId),
     getExternalPostsForAccount(account, 20),
-    getPatternStats(accountId),
+    getPatternStats(accountId).then((analysis) =>
+      analysis && getCharacterVersion(analysis) === characterVersion
+        ? analysis
+        : null,
+    ),
   ]);
 
   if (recentPosts.length === 0) {
@@ -123,6 +142,7 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
     externalPosts,
     patternAnalysis,
     promoProduct,
+    characterVersion,
   };
 }
 
@@ -130,7 +150,7 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
 
 export async function generatePost(accountId: string, platform: Platform, limit = 15): Promise<DraftDoc> {
   const payload = await preparePromptPayload(accountId, limit);
-  const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct } = payload;
+  const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct, characterVersion } = payload;
 
   const normalizedAvoids = new Set([
     ...drafts.map((d) => d.text ?? ""),
@@ -171,6 +191,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     created_at: now,
     updated_at: now,
     similarity_warning: duplicate,
+    character_version: characterVersion,
     pattern: extractPattern(suggestion.tweet),
     ...(promoProduct
       ? { promo_product_id: promoProduct.id, promo_product_asin: promoProduct.asin }

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await preparePromptPayload(accountId, limit);
-    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct } = payload;
+    const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct, characterVersion } = payload;
 
     const normalizedDrafts = new Set(drafts.map((draft) => normalizeText(draft.text ?? "")));
     const maxAttempts = 3;
@@ -112,6 +112,7 @@ return NextResponse.json({
           }
         : null,
       context: {
+        characterVersion,
         usedPosts: topPosts.map((post) => ({
           id: post.id,
           text: post.text,

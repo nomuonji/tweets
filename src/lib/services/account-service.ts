@@ -1,6 +1,11 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import type { AccountDoc } from "@/lib/types";
+import {
+  characterSheetChanged,
+  getCharacterVersion,
+  normalizeCharacterSheet,
+} from "@/lib/character-version";
 
 type TokenParams = {
   accessToken: string;
@@ -88,11 +93,35 @@ export async function updateAccount(
   accountId: string,
   params: UpdateAccountParams,
 ) {
-  const now = DateTime.utc().toISO();
-  const updateData: Record<string, unknown> = {
-    ...params,
-    updated_at: now,
-  };
+  const now = DateTime.utc().toISO()!;
+  const accountRef = adminDb.collection("accounts").doc(accountId);
 
-  await adminDb.collection("accounts").doc(accountId).update(updateData);
+  await adminDb.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(accountRef);
+    if (!snapshot.exists) throw new Error("Account not found.");
+
+    const current = { id: snapshot.id, ...snapshot.data() } as AccountDoc;
+    const updateData: Record<string, unknown> = {
+      ...params,
+      updated_at: now,
+    };
+
+    if (
+      typeof params.concept === "string" &&
+      characterSheetChanged(current.concept, params.concept)
+    ) {
+      updateData.concept = normalizeCharacterSheet(params.concept);
+      const hasEstablishedCharacter =
+        current.character_version != null ||
+        normalizeCharacterSheet(current.concept).length > 0;
+      updateData.character_version = hasEstablishedCharacter
+        ? getCharacterVersion(current) + 1
+        : 1;
+      updateData.character_updated_at = now;
+    } else if (current.character_version == null) {
+      updateData.character_version = 1;
+    }
+
+    transaction.update(accountRef, updateData);
+  });
 }

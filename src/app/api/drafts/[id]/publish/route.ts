@@ -8,6 +8,10 @@ import { getAccounts } from "@/lib/services/firestore.server";
 import {
   recordPublishFailure,
 } from "@/lib/services/scheduler-service";
+import {
+  belongsToCharacterVersion,
+  getCharacterVersion,
+} from "@/lib/character-version";
 
 // This function is duplicated from scheduler-service.ts
 // Consider refactoring to a shared location if complexity grows.
@@ -82,6 +86,30 @@ export async function POST(
     const fullText = buildPostText(draft);
 
     if (accountId) {
+      const accountSnapshot = await adminDb.collection("accounts").doc(accountId).get();
+      if (!accountSnapshot.exists) {
+        throw new Error("Account not found.");
+      }
+      const currentCharacterVersion = getCharacterVersion(
+        accountSnapshot.data() ?? {},
+      );
+      if (!belongsToCharacterVersion(draft, currentCharacterVersion)) {
+        await draftRef.update({
+          status: "draft",
+          updated_at: DateTime.utc().toISO(),
+          last_error: {
+            message: "キャラクターシート変更前の下書きです。内容を確認するか再生成してください。",
+            occurred_at: DateTime.utc().toISO(),
+          },
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "キャラクターシート変更前の下書きはそのまま投稿できません。",
+          },
+          { status: 409 },
+        );
+      }
       const { hasDuplicatePost } = await import("@/lib/services/scheduler-service");
       const isDuplicate = await hasDuplicatePost(accountId, fullText);
       if (isDuplicate) {
@@ -123,6 +151,7 @@ export async function POST(
         link_clicks: 0,
       },
       score: 0,
+      character_version: draft.character_version,
       pattern: draft.pattern,
       raw: result.raw,
       url: result.url,

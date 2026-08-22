@@ -7,6 +7,10 @@ import { publishThreadsPost } from "@/lib/platforms/threads";
 import { publishXPost } from "@/lib/platforms/x";
 
 import { findDueSlots, selectSlot, SCHEDULE_TIMEZONE } from "./schedule-slots";
+import {
+  belongsToCharacterVersion,
+  getCharacterVersion,
+} from "@/lib/character-version";
 
 export { SCHEDULE_TIMEZONE };
 
@@ -172,16 +176,21 @@ async function reclaimStalePublishing(accountId: string, now: DateTime) {
 }
 
 /** Oldest-first queue of drafts eligible for auto-posting. */
-async function fetchNextDraft(accountId: string): Promise<DraftDoc | null> {
+async function fetchNextDraft(
+  accountId: string,
+  characterVersion: number,
+): Promise<DraftDoc | null> {
   try {
     const snapshot = await adminDb
       .collection("drafts")
       .where("target_account_id", "==", accountId)
       .where("status", "in", ["scheduled", "draft"])
       .orderBy("created_at", "asc")
-      .limit(1)
       .get();
-    return snapshot.empty ? null : mapDraft(snapshot.docs[0]);
+    const candidate = snapshot.docs
+      .map((doc) => mapDraft(doc))
+      .find((draft) => belongsToCharacterVersion(draft, characterVersion));
+    return candidate ?? null;
   } catch (error) {
     // The `status in [...] + orderBy` combination needs a composite index. If it
     // is missing, fall back to an unordered scan rather than failing the run.
@@ -192,7 +201,6 @@ async function fetchNextDraft(accountId: string): Promise<DraftDoc | null> {
     const snapshot = await adminDb
       .collection("drafts")
       .where("target_account_id", "==", accountId)
-      .limit(50)
       .get();
 
     const candidates = snapshot.docs
@@ -200,6 +208,7 @@ async function fetchNextDraft(accountId: string): Promise<DraftDoc | null> {
       .filter(
         (draft) => draft.status === "scheduled" || draft.status === "draft",
       )
+      .filter((draft) => belongsToCharacterVersion(draft, characterVersion))
       .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
 
     return candidates[0] ?? null;
@@ -278,7 +287,8 @@ async function processAccount(
 
   await reclaimStalePublishing(accountId, now);
 
-  const draft = await fetchNextDraft(accountId);
+  const characterVersion = getCharacterVersion(account);
+  const draft = await fetchNextDraft(accountId, characterVersion);
   if (!draft) {
     console.log(
       `[Scheduler] Account ${accountId}: slot ${targetSlot.toISO()} is due but no draft is available.`,
@@ -333,6 +343,7 @@ async function processAccount(
         link_clicks: 0,
       },
       score: 0,
+      character_version: claimed.character_version ?? characterVersion,
       pattern: claimed.pattern,
       raw: result.raw,
       url: result.url,
