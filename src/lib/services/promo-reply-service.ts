@@ -136,6 +136,7 @@ export async function maybePromoReply(
   account: AccountDoc,
   post: PostDoc,
   now: DateTime = DateTime.utc(),
+  options: { ignoreCooldown?: boolean } = {},
 ): Promise<PromoReplyDoc | null> {
   try {
     if (!isEligible(account, post, now)) return null;
@@ -148,7 +149,7 @@ export async function maybePromoReply(
 
     const cooldownMinutes =
       account.promoReplyCooldownMinutes ?? DEFAULT_COOLDOWN_MINUTES;
-    if (lastReply && now.diff(lastReply, "minutes").minutes < cooldownMinutes) {
+    if (!options.ignoreCooldown && lastReply && now.diff(lastReply, "minutes").minutes < cooldownMinutes) {
       return null;
     }
 

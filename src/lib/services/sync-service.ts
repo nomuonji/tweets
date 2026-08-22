@@ -33,6 +33,8 @@ type SyncResult = {
   debug: string[];
 };
 
+const MAX_PROMO_REPLIES_PER_SYNC = 2;
+
 function parsePositiveNumber(value?: string | null): number | undefined {
   if (!value) {
     return undefined;
@@ -182,12 +184,23 @@ export async function syncPostsForAllAccounts(
       );
       const posts = payloads.map((item) => toPostDocument(account, item));
 
-      let promoReplies = 0;
       for (const post of posts) {
         await upsertPost(post);
-        // Auto-post a product-promotion reply under any post that crossed the
-        // engagement thresholds. Runs after the post's fresh metrics are stored.
-        const reply = await maybePromoReply(account, post);
+      }
+
+      // Process the strongest posts first, while still storing every fetched post.
+      // The second reply in the same sync bypasses the normal inter-sync cooldown;
+      // the per-sync cap prevents a burst larger than two replies per account.
+      let promoReplies = 0;
+      const promoCandidates = [...posts].sort((a, b) =>
+        b.score - a.score ||
+        (b.metrics.impressions ?? 0) - (a.metrics.impressions ?? 0),
+      );
+      for (const post of promoCandidates) {
+        if (promoReplies >= MAX_PROMO_REPLIES_PER_SYNC) break;
+        const reply = await maybePromoReply(account, post, DateTime.utc(), {
+          ignoreCooldown: promoReplies > 0,
+        });
         if (reply) promoReplies += 1;
       }
 
