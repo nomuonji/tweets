@@ -7,7 +7,11 @@ import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
 import { getAccounts, upsertPost } from "./firestore.server";
-import { maybePromoReply } from "./promo-reply-service";
+import {
+  getLastSuccessfulPromoReplyTime,
+  isPromoReplyEligible,
+  maybePromoReply,
+} from "./promo-reply-service";
 
 type SyncOptions = {
   lookbackDays?: number;
@@ -21,7 +25,7 @@ type FetchPostsResult = {
   debug: string[];
 };
 
-type SyncResult = {
+export type SyncResult = {
   accountId: string;
   handle: string;
   displayName?: string;
@@ -29,6 +33,9 @@ type SyncResult = {
   fetched: number;
   stored: number;
   promoReplies?: number;
+  promoAttempts?: number;
+  promoFailures?: number;
+  promoHaltedReason?: string;
   error?: string;
   debug: string[];
 };
@@ -192,16 +199,35 @@ export async function syncPostsForAllAccounts(
       // The second reply in the same sync bypasses the normal inter-sync cooldown;
       // the per-sync cap prevents a burst larger than two replies per account.
       let promoReplies = 0;
-      const promoCandidates = [...posts].sort((a, b) =>
-        b.score - a.score ||
-        (b.metrics.impressions ?? 0) - (a.metrics.impressions ?? 0),
-      );
+      let promoAttempts = 0;
+      let promoFailures = 0;
+      let promoHaltedReason: string | undefined;
+      const promoNow = DateTime.utc();
+      const promoCandidates = posts
+        .filter((post) => isPromoReplyEligible(account, post, promoNow))
+        .sort((a, b) =>
+          b.score - a.score ||
+          (b.metrics.impressions ?? 0) - (a.metrics.impressions ?? 0),
+        );
+      const lastSuccessfulReplyAt = promoCandidates.length > 0
+        ? await getLastSuccessfulPromoReplyTime(account)
+        : null;
       for (const post of promoCandidates) {
-        if (promoReplies >= MAX_PROMO_REPLIES_PER_SYNC) break;
-        const reply = await maybePromoReply(account, post, DateTime.utc(), {
+        if (
+          promoReplies >= MAX_PROMO_REPLIES_PER_SYNC ||
+          promoAttempts >= MAX_PROMO_REPLIES_PER_SYNC ||
+          promoHaltedReason
+        ) break;
+        const attempt = await maybePromoReply(account, post, promoNow, {
           ignoreCooldown: promoReplies > 0,
+          lastSuccessfulReplyAt,
         });
-        if (reply) promoReplies += 1;
+        if (attempt.attempted) promoAttempts += 1;
+        if (attempt.outcome === "posted") promoReplies += 1;
+        if (attempt.outcome === "failed") promoFailures += 1;
+        if (attempt.haltAccount) {
+          promoHaltedReason = attempt.reason ?? "provider_unavailable";
+        }
       }
 
       if (payloads.length > 0) {
@@ -222,11 +248,19 @@ export async function syncPostsForAllAccounts(
         fetched: payloads.length,
         stored: posts.length,
         promoReplies,
+        promoAttempts,
+        promoFailures,
+        promoHaltedReason,
         debug: [
           ...debug,
           `Fetched payloads: ${payloads.length}`,
           `Stored posts: ${posts.length}`,
           `Promo replies posted: ${promoReplies}`,
+          `Promo reply attempts: ${promoAttempts}`,
+          `Promo reply failures: ${promoFailures}`,
+          ...(promoHaltedReason
+            ? [`Promo replies halted: ${promoHaltedReason}`]
+            : []),
         ],
       });
 

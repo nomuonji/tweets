@@ -1,43 +1,87 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import { requestGemini } from "@/lib/gemini/client";
+import {
+  GeminiUnavailableError,
+  requestGemini,
+} from "@/lib/gemini/client";
 import { requestGrok } from "@/lib/grok/client";
 import { parseGeminiResponse } from "@/lib/gemini/parser";
 import { publishXReply } from "@/lib/platforms/x";
 import { publishThreadsReply } from "@/lib/platforms/threads";
 import { getEligibleProducts, markProductUsed, pickPromoProduct } from "./product-service";
+import {
+  isSuccessfulReply,
+  summarizePostAttemptHistory,
+  type PostAttemptState,
+} from "./promo-reply-policy";
 import type { AccountDoc, PostDoc, PromoReplyDoc, ProductDoc } from "@/lib/types";
 
 const DEFAULT_MIN_SCORE = 1000;
 const DEFAULT_MIN_IMPRESSIONS = 1000;
 const DEFAULT_LOOKBACK_DAYS = 3;
 const DEFAULT_COOLDOWN_MINUTES = 60;
+const DEFAULT_FAILURE_RETRY_MINUTES = 180;
+const MAX_FAILURES_PER_POST = 3;
+const MAX_GENERATION_ATTEMPTS = 3;
+
+export type PromoReplyAttemptResult = {
+  outcome: "posted" | "skipped" | "failed";
+  attempted: boolean;
+  haltAccount: boolean;
+  reply?: PromoReplyDoc;
+  reason?: string;
+};
 
 function replyCollection(accountId: string) {
   return adminDb.collection("accounts").doc(accountId).collection("promo_replies");
 }
 
 /** How recently the account last posted a promo reply (for cooldown). */
-async function lastReplyTime(accountId: string): Promise<DateTime | null> {
-  const snapshot = await replyCollection(accountId)
+export async function getLastSuccessfulPromoReplyTime(
+  account: AccountDoc,
+): Promise<DateTime | null> {
+  const accountLastReply = account.lastPromoReplyAt;
+  if (typeof accountLastReply === "string") {
+    const parsed = DateTime.fromISO(accountLastReply);
+    if (parsed.isValid) return parsed;
+  }
+
+  // Backward-compatible fallback for accounts created before lastPromoReplyAt.
+  const snapshot = await replyCollection(account.id)
     .orderBy("created_at", "desc")
-    .limit(1)
+    .limit(50)
     .get();
-  if (snapshot.empty) return null;
-  const created = DateTime.fromISO((snapshot.docs[0].data() as PromoReplyDoc).created_at);
+  const latestSuccess = snapshot.docs
+    .map((doc) => doc.data() as PromoReplyDoc)
+    .find(isSuccessfulReply);
+  if (!latestSuccess) return null;
+  const created = DateTime.fromISO(latestSuccess.created_at);
+  if (created.isValid) {
+    // Backfill the account-level marker once so future syncs avoid scanning
+    // reply history for cooldown checks.
+    await adminDb.collection("accounts").doc(account.id).set({
+      lastPromoReplyAt: latestSuccess.created_at,
+    }, { merge: true }).catch(() => {});
+  }
   return created.isValid ? created : null;
 }
 
-/** True if this post already has a promo reply recorded. */
-async function hasPromoReply(accountId: string, postId: string): Promise<boolean> {
+async function getPostAttemptState(
+  accountId: string,
+  postId: string,
+): Promise<PostAttemptState> {
   const snapshot = await replyCollection(accountId)
     .where("post_id", "==", postId)
-    .limit(1)
     .get();
-  return !snapshot.empty;
+  const replies = snapshot.docs.map((doc) => doc.data() as PromoReplyDoc);
+  return summarizePostAttemptHistory(replies);
 }
 
-function isEligible(account: AccountDoc, post: PostDoc, now: DateTime): boolean {
+export function isPromoReplyEligible(
+  account: AccountDoc,
+  post: PostDoc,
+  now: DateTime,
+): boolean {
   if (account.promoReplyEnabled !== true) return false;
 
   const minScore = account.promoReplyMinScore ?? DEFAULT_MIN_SCORE;
@@ -100,23 +144,46 @@ async function generateReplyText(
 ): Promise<string> {
   const prompt = buildReplyPrompt(post, product);
 
-  let suggestion: { tweet: string };
   if (account.r18Mode) {
     const xaiApiKey = process.env.XAI_API_KEY;
     if (!xaiApiKey) {
       throw new Error("XAI_API_KEY environment variable is not configured.");
     }
-    suggestion = await requestGrok(prompt, xaiApiKey);
-  } else {
-    const raw = await requestGemini(prompt);
-    suggestion = parseGeminiResponse(raw);
+    const suggestion = await requestGrok(prompt, xaiApiKey);
+    const text = suggestion.tweet.trim();
+    if (!text.includes("http")) {
+      throw new Error("Generated reply does not contain a URL; skipping to avoid a product post without a link.");
+    }
+    return text;
   }
 
-  const text = suggestion.tweet.trim();
-  if (!text.includes("http")) {
-    throw new Error("Generated reply does not contain a URL; skipping to avoid a product post without a link.");
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+    try {
+      const raw = await requestGemini(prompt);
+      const suggestion = parseGeminiResponse(raw);
+      const text = suggestion.tweet.trim();
+      if (!text.includes("http")) {
+        throw new Error("Generated reply does not contain a URL.");
+      }
+      return text;
+    } catch (error) {
+      // HTTP 429/503 already received bounded retries inside requestGemini.
+      // Treat it as a run-level outage and preserve this post for the next sync.
+      if (error instanceof GeminiUnavailableError) throw error;
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < MAX_GENERATION_ATTEMPTS) {
+        console.warn(
+          `[PromoReply] Invalid Gemini generation (attempt ${attempt}/${MAX_GENERATION_ATTEMPTS}). Retrying...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      }
+    }
   }
-  return text;
+
+  throw new Error(
+    `Gemini generation remained invalid after ${MAX_GENERATION_ATTEMPTS} attempts: ${lastError?.message ?? "Unknown error"}`,
+  );
 }
 
 async function publishReply(account: AccountDoc, text: string, post: PostDoc) {
@@ -129,35 +196,65 @@ async function publishReply(account: AccountDoc, text: string, post: PostDoc) {
 /**
  * Attempt to auto-post a product-promotion reply under `post` if it qualifies.
  * Returns the created reply doc, or null if the post was not eligible / no
- * product was available. Any failure is recorded on the reply doc but does not
- * throw, so sync continues for the rest of the account.
+ * product was available. Post-specific failures are recorded; provider outages
+ * halt this account for the current sync without changing post eligibility.
  */
 export async function maybePromoReply(
   account: AccountDoc,
   post: PostDoc,
   now: DateTime = DateTime.utc(),
-  options: { ignoreCooldown?: boolean } = {},
-): Promise<PromoReplyDoc | null> {
+  options: {
+    ignoreCooldown?: boolean;
+    lastSuccessfulReplyAt?: DateTime | null;
+  } = {},
+): Promise<PromoReplyAttemptResult> {
+  let product: ProductDoc | null = null;
+  let generatedText = "";
   try {
-    if (!isEligible(account, post, now)) return null;
+    if (!isPromoReplyEligible(account, post, now)) {
+      return { outcome: "skipped", attempted: false, haltAccount: false };
+    }
 
-    const [already, lastReply] = await Promise.all([
-      hasPromoReply(account.id, post.id),
-      lastReplyTime(account.id),
+    const lastReplyPromise = "lastSuccessfulReplyAt" in options
+      ? Promise.resolve(options.lastSuccessfulReplyAt ?? null)
+      : getLastSuccessfulPromoReplyTime(account);
+    const [postState, lastReply] = await Promise.all([
+      getPostAttemptState(account.id, post.id),
+      lastReplyPromise,
     ]);
-    if (already) return null;
+    if (postState.alreadyPosted) {
+      return { outcome: "skipped", attempted: false, haltAccount: false };
+    }
+    if (postState.failureCount >= MAX_FAILURES_PER_POST) {
+      return {
+        outcome: "skipped",
+        attempted: false,
+        haltAccount: false,
+        reason: "max_failures_reached",
+      };
+    }
+    if (postState.retryAfter && postState.retryAfter.toMillis() > now.toMillis()) {
+      return {
+        outcome: "skipped",
+        attempted: false,
+        haltAccount: false,
+        reason: "failure_backoff",
+      };
+    }
 
     const cooldownMinutes =
       account.promoReplyCooldownMinutes ?? DEFAULT_COOLDOWN_MINUTES;
     if (!options.ignoreCooldown && lastReply && now.diff(lastReply, "minutes").minutes < cooldownMinutes) {
-      return null;
+      return { outcome: "skipped", attempted: false, haltAccount: false, reason: "cooldown" };
     }
 
-    const product = await pickPromoProduct(account.id);
-    if (!product) return null;
+    product = await pickPromoProduct(account.id);
+    if (!product) {
+      return { outcome: "skipped", attempted: false, haltAccount: false, reason: "no_product" };
+    }
 
-    const text = await generateReplyText(account, post, product);
-    const result = await publishReply(account, text, post);
+    generatedText = await generateReplyText(account, post, product);
+    const result = await publishReply(account, generatedText, post);
 
     const replyId = `promo_reply_${Date.now().toString(36)}_${Math.random()
       .toString(36)
@@ -170,7 +267,8 @@ export async function maybePromoReply(
       platform_post_id: result.platform_post_id,
       product_id: product.id,
       product_asin: product.asin,
-      text,
+      text: generatedText,
+      status: "posted",
       created_at: now.toISO() ?? DateTime.utc().toISO()!,
       updated_at: now.toISO() ?? DateTime.utc().toISO()!,
     };
@@ -180,16 +278,42 @@ export async function maybePromoReply(
     batch.update(adminDb.collection("posts").doc(post.id), {
       promo_replied_at: reply.created_at,
     });
+    batch.set(adminDb.collection("accounts").doc(account.id), {
+      lastPromoReplyAt: reply.created_at,
+      updated_at: reply.updated_at,
+    }, { merge: true });
     await batch.commit();
     await markProductUsed(account.id, product.id);
 
     console.log(
       `[PromoReply] Posted reply ${result.platform_post_id} under post ${post.id} for account ${account.id} promoting ${product.asin}.`,
     );
-    return reply;
+    return {
+      outcome: "posted",
+      attempted: true,
+      haltAccount: false,
+      reply,
+    };
   } catch (error) {
     console.error(`[PromoReply] Failed for post ${post.id} account ${account.id}:`, error);
     const err = error as Error;
+    const providerUnavailable = error instanceof GeminiUnavailableError;
+    if (providerUnavailable) {
+      // Do not attach transient provider state to the post. The account is
+      // halted for this sync and the same post remains eligible next time.
+      return {
+        outcome: "failed",
+        attempted: true,
+        haltAccount: true,
+        reason: "provider_unavailable",
+      };
+    }
+    const failureKind: PromoReplyDoc["failure_kind"] = generatedText
+      ? "publish"
+      : "generation";
+    const retryAfter = now
+      .plus({ minutes: DEFAULT_FAILURE_RETRY_MINUTES })
+      .toISO() ?? DateTime.utc().plus({ minutes: DEFAULT_FAILURE_RETRY_MINUTES }).toISO()!;
     const replyId = `promo_reply_${Date.now().toString(36)}_${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -199,16 +323,26 @@ export async function maybePromoReply(
       platform: post.platform,
       post_id: post.id,
       platform_post_id: "",
-      product_id: "",
-      product_asin: "",
-      text: "",
+      product_id: product?.id ?? "",
+      product_asin: product?.asin ?? "",
+      text: generatedText,
+      status: "failed",
+      failure_kind: failureKind,
+      retry_after_at: retryAfter,
       created_at: DateTime.utc().toISO(),
       updated_at: DateTime.utc().toISO(),
       error: err.message,
     };
-    // Record the failure so we do not keep retrying the same post every sync.
+    // Keep failure history for bounded retries and monitoring. Failed records
+    // never count as a successful reply or start the normal success cooldown.
     await replyCollection(account.id).doc(replyId).set(failed).catch(() => {});
-    return null;
+    return {
+      outcome: "failed",
+      attempted: true,
+      haltAccount: providerUnavailable,
+      reply: failed,
+      reason: failureKind,
+    };
   }
 }
 

@@ -4,6 +4,10 @@ import { DraftDoc, PostDoc, AccountDoc } from "@/lib/types";
 import { DateTime } from "luxon";
 import { SCHEDULE_TIMEZONE } from "@/lib/services/schedule-slots";
 
+// This endpoint reads live Firestore state and must never be evaluated during
+// `next build`; build-time evaluation consumed database quota on every deploy.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const twentyFourHoursAgo = DateTime.now().minus({ hours: 24 }).toISO();

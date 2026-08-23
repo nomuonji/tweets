@@ -98,6 +98,8 @@ explorationRate?: number;
   promoReplyLookbackDays?: number;
   /** Minimum time between two promo replies for this account, to avoid bursts. */
   promoReplyCooldownMinutes?: number;
+  /** Last successfully published promo reply. Failures never update this value. */
+  lastPromoReplyAt?: string;
   lastPostExecutedAt?: string;
   selectedTipIds?: string[];
   token_meta?: {
@@ -197,6 +199,12 @@ export interface PromoReplyDoc {
   product_id: string;
   product_asin: string;
   text: string;
+  /** Explicit lifecycle state. Legacy records are inferred from error/platform_post_id. */
+  status?: "posted" | "failed";
+  /** Stable category used by retry and monitoring logic. */
+  failure_kind?: "provider_unavailable" | "generation" | "publish" | "unknown";
+  /** Failed attempts are not retried before this timestamp. */
+  retry_after_at?: string;
   created_at: string;
   updated_at: string;
   /** Error message if the immediate publish failed. */

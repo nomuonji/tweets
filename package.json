@@ -17,6 +17,7 @@
     "analyze:patterns": "tsx -r dotenv/config scripts/analyze-patterns.ts",
     "test:slots": "tsx scripts/test-schedule-slots.ts",
     "test:character-version": "tsx scripts/test-character-version.ts",
+    "test:promo-reliability": "tsx scripts/test-promo-reliability.ts",
     "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts"
   },
   "dependencies": {
