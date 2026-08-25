@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { publishXPost } from "@/lib/platforms/x";
 import { publishThreadsPost } from "@/lib/platforms/threads";
-import type { DraftDoc, PostDoc } from "@/lib/types";
+import type { AccountDoc, DraftDoc, PostDoc } from "@/lib/types";
 import { getAccounts } from "@/lib/services/firestore.server";
 import {
   recordPublishFailure,
@@ -23,9 +23,10 @@ function buildPostText(draft: DraftDoc) {
 }
 
 // This function is duplicated from scheduler-service.ts
-async function publishDraft(draft: DraftDoc) {
-  const accounts = await getAccounts();
+async function publishDraft(draft: DraftDoc, knownAccount?: AccountDoc) {
+  const accounts = knownAccount ? [] : await getAccounts();
   const account =
+    knownAccount ??
     accounts.find((item) => item.id === draft.target_account_id) ??
     accounts.find((item) => item.platform === draft.target_platform);
 
@@ -84,6 +85,7 @@ export async function POST(
     // --- Start of logic duplicated from scheduler-service.ts ---
     const accountId = draft.target_account_id;
     const fullText = buildPostText(draft);
+    let targetAccount: AccountDoc | undefined;
 
     if (accountId) {
       const accountSnapshot = await adminDb.collection("accounts").doc(accountId).get();
@@ -93,6 +95,10 @@ export async function POST(
       const currentCharacterVersion = getCharacterVersion(
         accountSnapshot.data() ?? {},
       );
+      targetAccount = {
+        id: accountSnapshot.id,
+        ...accountSnapshot.data(),
+      } as AccountDoc;
       if (!belongsToCharacterVersion(draft, currentCharacterVersion)) {
         await draftRef.update({
           status: "draft",
@@ -128,7 +134,7 @@ export async function POST(
       }
     }
 
-    const result = await publishDraft(draft);
+    const result = await publishDraft(draft, targetAccount);
     const nowStr = DateTime.utc().toISO();
 
     const prefixedId = `${draft.target_platform}_${result.platform_post_id}`;

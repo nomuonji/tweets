@@ -26,6 +26,7 @@ async function findDuplicateDraft(accountId: string, normalized: string) {
   const snapshot = await adminDb
     .collection("drafts")
     .where("target_account_id", "==", accountId)
+    .limit(100)
     .get();
 
   return snapshot.docs.find((doc) => {

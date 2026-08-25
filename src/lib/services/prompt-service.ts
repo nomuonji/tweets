@@ -23,14 +23,35 @@ async function fetchTopPosts(
   limit: number,
   characterVersion: number,
 ) {
-  // Fetch by account and filter in memory so legacy v1 documents (without an
-  // explicit version field) remain usable without a Firestore migration.
-  const snapshot = await adminDb.collection("posts").where("account_id", "==", accountId).get();
+  const candidateLimit = Math.max(limit, 30);
+  let snapshot: FirebaseFirestore.QuerySnapshot;
+  try {
+    let query = adminDb
+      .collection("posts")
+      .where("account_id", "==", accountId) as FirebaseFirestore.Query;
+    if (characterVersion > 1) {
+      query = query.where("character_version", "==", characterVersion);
+    }
+    snapshot = await query.orderBy("score", "desc").limit(candidateLimit).get();
+  } catch (error) {
+    // Missing composite indexes must never turn prompt generation into an
+    // unbounded account-wide scan. A bounded sample is less precise but keeps
+    // Firestore free-tier usage predictable until the index is deployed.
+    console.warn(
+      `[Prompt] Top-post query failed for ${accountId}; using a bounded sample.`,
+      error,
+    );
+    snapshot = await adminDb
+      .collection("posts")
+      .where("account_id", "==", accountId)
+      .limit(candidateLimit * 2)
+      .get();
+  }
   const posts = snapshot.docs
     .map((doc) => ({ ...doc.data(), id: doc.id }) as PostDoc)
     .filter((post) => belongsToCharacterVersion(post, characterVersion))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 30);
+    .slice(0, candidateLimit);
   for (let i = posts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [posts[i], posts[j]] = [posts[j], posts[i]];
@@ -55,7 +76,11 @@ async function fetchRecentPosts(accountId: string, limit: number): Promise<PostD
   } catch (error) {
     const message = (error as Error).message ?? "";
     if (!message.includes("requires an index")) throw error;
-    const fallbackSnapshot = await adminDb.collection("posts").where("account_id", "==", accountId).get();
+    const fallbackSnapshot = await adminDb
+      .collection("posts")
+      .where("account_id", "==", accountId)
+      .limit(Math.max(limit * 2, 20))
+      .get();
     const posts = fallbackSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as PostDoc));
     return posts.sort((a, b) => DateTime.fromISO(b.created_at).toMillis() - DateTime.fromISO(a.created_at).toMillis()).slice(0, limit);
   }
@@ -68,7 +93,11 @@ async function fetchExistingDrafts(accountId: string, limit: number): Promise<Dr
   } catch (error) {
     const message = (error as Error).message ?? "";
     if (!message.includes("requires an index")) throw error;
-    const fallbackSnapshot = await adminDb.collection("drafts").where("target_account_id", "==", accountId).get();
+    const fallbackSnapshot = await adminDb
+      .collection("drafts")
+      .where("target_account_id", "==", accountId)
+      .limit(Math.max(limit, 20))
+      .get();
     const drafts = fallbackSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as DraftDoc));
     return drafts.sort((a, b) => DateTime.fromISO(b.updated_at).toMillis() - DateTime.fromISO(a.updated_at).toMillis()).slice(0, limit);
   }
@@ -107,7 +136,7 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
     fetchTopPosts(accountId, 3, characterVersion),
     fetchReferencePosts(accountId, 3),
     fetchRecentPosts(accountId, perCategoryLimit),
-    fetchExistingDrafts(accountId, 50),
+    fetchExistingDrafts(accountId, 20),
     fetchSelectedTips(account.selectedTipIds || []),
     fetchExemplaryPosts(accountId),
     getExternalPostsForAccount(account, 20),

@@ -19,6 +19,7 @@ async function main() {
     await recordPublishFailure(
       { ...doc.data(), id: doc.id } as DraftDoc,
       new Error((doc.data() as DraftDoc).last_error?.message ?? "Unknown publish failure"),
+      { deleteDraft: true },
     );
   }
   console.log(`Archived and removed ${snapshot.size} failed drafts.`);

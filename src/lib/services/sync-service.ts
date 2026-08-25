@@ -12,6 +12,10 @@ import {
   isPromoReplyEligible,
   maybePromoReply,
 } from "./promo-reply-service";
+import {
+  DEFAULT_STEADY_STATE_FETCH_LIMIT,
+  selectPostsForPersistence,
+} from "./sync-policy";
 
 type SyncOptions = {
   lookbackDays?: number;
@@ -86,7 +90,10 @@ async function fetchPostsForAccount(
       ? lookbackInput
       : undefined;
 
-  const platformDefault = account.platform === "threads" ? 100 : 20;
+  const platformDefault =
+    account.platform === "threads" && !account.sync_cursor
+      ? 100
+      : DEFAULT_STEADY_STATE_FETCH_LIMIT;
   const requestedMax = options.maxPosts;
   let maxPosts =
     typeof requestedMax === "number" && requestedMax > 0
@@ -189,7 +196,10 @@ export async function syncPostsForAllAccounts(
         account,
         options,
       );
-      const posts = payloads.map((item) => toPostDocument(account, item));
+      const payloadsToPersist = selectPostsForPersistence(account, payloads);
+      const posts = payloadsToPersist.map((item) =>
+        toPostDocument(account, item),
+      );
 
       for (const post of posts) {
         await upsertPost(post);
@@ -235,7 +245,7 @@ export async function syncPostsForAllAccounts(
           .map((item) => item.created_at)
           .sort()
           .at(-1);
-        if (latest) {
+        if (latest && (!account.sync_cursor || latest > account.sync_cursor)) {
           await updateAccountCursor(account, latest);
         }
       }
@@ -254,6 +264,7 @@ export async function syncPostsForAllAccounts(
         debug: [
           ...debug,
           `Fetched payloads: ${payloads.length}`,
+          `Selected for persistence: ${payloadsToPersist.length}`,
           `Stored posts: ${posts.length}`,
           `Promo replies posted: ${promoReplies}`,
           `Promo reply attempts: ${promoAttempts}`,

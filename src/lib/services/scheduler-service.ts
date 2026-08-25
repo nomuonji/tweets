@@ -2,7 +2,6 @@ import { DateTime } from "luxon";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import type { DraftDoc, AccountDoc, PostDoc } from "@/lib/types";
-import { getAccounts } from "./firestore.server";
 import { publishThreadsPost } from "@/lib/platforms/threads";
 import { publishXPost } from "@/lib/platforms/x";
 
@@ -61,16 +60,7 @@ function buildPostText(draft: DraftDoc) {
   return `${draft.text}${hashtags}`;
 }
 
-async function publishDraft(draft: DraftDoc) {
-  const accounts = await getAccounts();
-  const account =
-    accounts.find((item) => item.id === draft.target_account_id) ??
-    accounts.find((item) => item.platform === draft.target_platform);
-
-  if (!account) {
-    throw new Error(`Account not found for draft ${draft.id}`);
-  }
-
+async function publishDraft(account: AccountDoc, draft: DraftDoc) {
   if (draft.target_platform === "x") {
     return publishXPost(account, { text: buildPostText(draft) });
   }
@@ -80,6 +70,7 @@ async function publishDraft(draft: DraftDoc) {
 export async function recordPublishFailure(
   draft: DraftDoc,
   error: unknown,
+  options: { deleteDraft?: boolean } = {},
 ): Promise<void> {
   const occurredAt = DateTime.utc().toISO()!;
   const failureRef = adminDb.collection("publish_failures").doc();
@@ -94,7 +85,19 @@ export async function recordPublishFailure(
     message: describeError(error),
     occurred_at: occurredAt,
   });
-  batch.delete(draftRef);
+  if (options.deleteDraft) {
+    batch.delete(draftRef);
+  } else {
+    batch.update(draftRef, {
+      status: "failed",
+      publishing_started_at: null,
+      updated_at: occurredAt,
+      last_error: {
+        message: describeError(error),
+        occurred_at: occurredAt,
+      },
+    });
+  }
   await batch.commit();
 }
 
@@ -201,6 +204,7 @@ async function fetchNextDraft(
     const snapshot = await adminDb
       .collection("drafts")
       .where("target_account_id", "==", accountId)
+      .limit(20)
       .get();
 
     const candidates = snapshot.docs
@@ -306,10 +310,6 @@ async function processAccount(
     return false;
   }
 
-  // One slot triggers at most one publish attempt, success or failure, so a
-  // failing draft cannot burn through the whole queue in a single window.
-  await markSlotConsumed(accountId, targetSlot);
-
   try {
     const fullText = buildPostText(claimed);
 
@@ -317,11 +317,16 @@ async function processAccount(
       console.warn(
         `[Scheduler] Skipping duplicate post for account ${accountId}: "${fullText.substring(0, 30)}..."`,
       );
-      await adminDb.collection("drafts").doc(claimed.id).delete();
+      const batch = adminDb.batch();
+      batch.delete(adminDb.collection("drafts").doc(claimed.id));
+      batch.update(adminDb.collection("accounts").doc(accountId), {
+        lastPostExecutedAt: targetSlot.toISO(),
+      });
+      await batch.commit();
       return false;
     }
 
-    const result = await publishDraft(claimed);
+    const result = await publishDraft(account, claimed);
     const nowStr = now.toISO() ?? DateTime.utc().toISO()!;
     const prefixedId = `${claimed.target_platform}_${result.platform_post_id}`;
 
@@ -353,6 +358,9 @@ async function processAccount(
     const batch = adminDb.batch();
     batch.set(adminDb.collection("posts").doc(prefixedId), newPost);
     batch.delete(adminDb.collection("drafts").doc(claimed.id));
+    batch.update(adminDb.collection("accounts").doc(accountId), {
+      lastPostExecutedAt: targetSlot.toISO(),
+    });
     await batch.commit();
 
     console.log(
@@ -360,10 +368,9 @@ async function processAccount(
     );
     return true;
   } catch (error) {
-    // Keep the draft. A publish failure is often transient (rate limit,
-    // network, expired token) and deleting it would silently destroy the
-    // user's content. Park it in `failed`: it is excluded from the draft query,
-    // so it will not retry in a loop, and it stays visible on the dashboard.
+    // Keep the draft and leave the slot unconsumed. A later draft can fill the
+    // slot after the failure is inspected, while the failed content remains
+    // visible and recoverable on the dashboard.
     console.error(
       `[Scheduler] Failed to publish draft ${claimed.id} for account ${accountId}; marking as failed.`,
       error,

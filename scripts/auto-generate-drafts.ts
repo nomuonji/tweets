@@ -1,9 +1,9 @@
-import { getAccounts, getDraftsByAccountId } from "@/lib/services/firestore.server";
-import { generatePost } from "@/lib/services/prompt-service";
 import {
-  belongsToCharacterVersion,
-  getCharacterVersion,
-} from "@/lib/character-version";
+  getAccounts,
+  getUsableDraftsByAccountId,
+} from "@/lib/services/firestore.server";
+import { generatePost } from "@/lib/services/prompt-service";
+import { getCharacterVersion } from "@/lib/character-version";
 
 const DRAFT_THRESHOLD = 5;
 
@@ -17,25 +17,16 @@ async function main() {
       continue;
     }
     try {
-      const allDrafts = await getDraftsByAccountId(account.id);
       const characterVersion = getCharacterVersion(account);
-      // Only drafts the scheduler can actually publish count toward the quota.
-      // Counting `failed` ones too caused a deadlock: once 5 publishes failed,
-      // generation stopped forever and the scheduler had nothing to post.
-      const usableDrafts = allDrafts.filter(
-        (draft) =>
-          (draft.status === "draft" || draft.status === "scheduled") &&
-          belongsToCharacterVersion(draft, characterVersion),
+      const usableDrafts = await getUsableDraftsByAccountId(
+        account.id,
+        characterVersion,
+        DRAFT_THRESHOLD,
       );
-      const blocked = allDrafts.length - usableDrafts.length;
 
       if (usableDrafts.length >= DRAFT_THRESHOLD) {
         console.log(`[Auto-Generate] Account ${account.handle} has enough drafts (${usableDrafts.length}). Skipping.`);
         continue;
-      }
-
-      if (blocked > 0) {
-        console.warn(`[Auto-Generate] Account ${account.handle} has ${blocked} draft(s) in a non-publishable state (failed/publishing).`);
       }
 
       console.log(`[Auto-Generate] Account ${account.handle} has ${usableDrafts.length} usable drafts. Generating a new one...`);

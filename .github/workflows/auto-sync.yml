@@ -2,8 +2,6 @@ name: Auto Sync Posts
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 20 * * *" # Runs at 20:00 UTC (5:00 AM JST)
 
 jobs:
   run:

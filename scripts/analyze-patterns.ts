@@ -53,6 +53,7 @@ async function fetchRecentPostsForAccount(
     const fallback = await adminDb
       .collection("posts")
       .where("account_id", "==", accountId)
+      .limit(350)
       .get();
     const threshold = DateTime.fromISO(start).toMillis();
     return fallback.docs

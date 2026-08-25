@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { RankingFilters } from "@/components/ranking-filters";
-import { getAccounts } from "@/lib/services/firestore.server";
+import { getAccountsForRequest } from "@/lib/services/server-cache";
 import type { RankingFilter, PostDoc } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
 import { RankingClient } from "./client";
@@ -80,7 +80,7 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
     accountId: initialFilter.accountId ?? storedAccountId ?? "all",
   };
 
-  const accounts = sortAccountsByAutoPost(await getAccounts());
+  const accounts = sortAccountsByAutoPost(await getAccountsForRequest());
 
   // Posts are fetched client-side by RankingClient so the list can react to
   // the account switcher without a full navigation.

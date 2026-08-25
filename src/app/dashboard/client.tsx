@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { AccountDoc, PostDoc, DraftDoc } from "@/lib/types";
+import type { PostDoc, DraftDoc } from "@/lib/types";
 import { SyncControls } from "@/components/sync-controls";
 import { SmartTweetGenerator } from "@/components/smart-tweet-generator";
 import { useAccountContext } from "@/components/account/account-provider";
@@ -31,7 +31,6 @@ type AccountData = {
 };
 
 type DashboardClientProps = {
-  initialAccounts: AccountDoc[];
   initialApiUsage: { month: string; count: number };
   initialDrafts: DraftDoc[];
   initialAccountData: AccountData | null;
@@ -44,17 +43,15 @@ type DashboardClientProps = {
 };
 
 export function DashboardClient({
-  initialAccounts,
   initialApiUsage,
   initialDrafts,
   initialAccountData,
   errors,
 }: DashboardClientProps) {
-  const { selectedAccount } = useAccountContext();
+  const { accounts, selectedAccount } = useAccountContext();
   const toast = useToast();
   const confirm = useConfirm();
 
-  const [accounts] = useState(initialAccounts);
   const [drafts, setDrafts] = useState(initialDrafts);
   const [accountData, setAccountData] = useState(initialAccountData);
   const [isLoading, setIsLoading] = useState(false);
@@ -63,6 +60,7 @@ export function DashboardClient({
   const [editedText, setEditedText] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const lastFetchAtRef = useRef(0);
 
   const setPending = useCallback((id: string, pending: boolean) => {
     setPendingIds((prev) => {
@@ -80,7 +78,9 @@ export function DashboardClient({
 
     let cancelled = false;
 
-    const fetchAccountData = async () => {
+    const fetchAccountData = async (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastFetchAtRef.current < 5 * 60 * 1000) return;
       setIsLoading(true);
       try {
         const response = await fetch(
@@ -91,6 +91,7 @@ export function DashboardClient({
         if (data.ok) {
           setAccountData(data.accountData);
           setDrafts(data.drafts);
+          lastFetchAtRef.current = Date.now();
         } else {
           toast.error("ダッシュボードの更新に失敗しました。");
         }
@@ -101,10 +102,10 @@ export function DashboardClient({
       }
     };
 
-    fetchAccountData();
+    fetchAccountData(true);
 
     // Refresh when the tab regains focus so metrics stay current.
-    const handleFocus = () => fetchAccountData();
+    const handleFocus = () => fetchAccountData(false);
     window.addEventListener("focus", handleFocus);
     return () => {
       cancelled = true;

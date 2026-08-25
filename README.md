@@ -63,8 +63,8 @@ scripts/               # Node entry points for GitHub Actions / local runs
 - Threads sync uses the official Graph API with pagination (100 items per page) until the configured limit is reached.
 
 ### GitHub Actions
-- `sync.yml`  Eevery 3 hours (and manual) to import posts.
-- `scheduler.yml`  Ehourly execution of scheduled drafts.
+- `sync.yml`  Eevery 6 hours (and manual) to import posts incrementally.
+- `scheduler.yml`  Eevery 15 minutes, with bounded Firestore reads and slot idempotency.
 - `refresh-tokens.yml`  Edaily token refresh.  
   Configure repository secrets (`FIREBASE_SERVICE_ACCOUNT`, `OPENAI_API_KEY`, `X_CLIENT_ID`, `X_CLIENT_SECRET`, `THREADS_APP_ID`, `THREADS_APP_SECRET`, etc.).
 

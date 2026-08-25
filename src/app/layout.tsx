@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import localFont from "next/font/local";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
-import { getAccounts } from "@/lib/services/firestore.server";
+import { getAccountsForRequest } from "@/lib/services/server-cache";
 import { themeInitScript } from "@/lib/theme";
 import type { AccountDoc } from "@/lib/types";
 
@@ -35,7 +35,7 @@ export default async function RootLayout({
   let accounts: AccountDoc[] = [];
   let quotaWarning = false;
   try {
-    accounts = await getAccounts();
+    accounts = await getAccountsForRequest();
   } catch (error) {
     const code = (error as { code?: string }).code;
     const message = (error as Error).message ?? "";

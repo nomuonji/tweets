@@ -10,6 +10,7 @@ import {
   PatternAnalysis,
 } from "@/lib/types";
 import { DateTime } from "luxon";
+import { belongsToCharacterVersion } from "@/lib/character-version";
 
 // --- Account Functions ---
 export async function getAccounts(): Promise<AccountDoc[]> {
@@ -84,7 +85,11 @@ export async function fetchTopPosts(accountId: string, limit: number): Promise<P
     } catch (error) {
         const message = (error as Error).message ?? "";
         if (!message.includes("requires an index")) throw error;
-        const fallbackSnapshot = await adminDb.collection("posts").where("account_id", "==", accountId).get();
+        const fallbackSnapshot = await adminDb
+          .collection("posts")
+          .where("account_id", "==", accountId)
+          .limit(Math.max(limit * 3, 30))
+          .get();
         const posts = fallbackSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as PostDoc));
         return posts.sort((a, b) => b.score - a.score).slice(0, limit);
     }
@@ -97,7 +102,11 @@ export async function fetchRecentPosts(accountId: string, limit: number): Promis
     } catch (error) {
         const message = (error as Error).message ?? "";
         if (!message.includes("requires an index")) throw error;
-        const fallbackSnapshot = await adminDb.collection("posts").where("account_id", "==", accountId).get();
+        const fallbackSnapshot = await adminDb
+          .collection("posts")
+          .where("account_id", "==", accountId)
+          .limit(Math.max(limit * 3, 20))
+          .get();
         const posts = fallbackSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as PostDoc));
         return posts.sort((a, b) => DateTime.fromISO(b.created_at).toMillis() - DateTime.fromISO(a.created_at).toMillis()).slice(0, limit);
     }
@@ -134,21 +143,40 @@ export async function getExternalPostsForAccount(
   const referenceAccountIds = account.referenceAccountIds ?? [];
   if (keywords.length === 0 && referenceAccountIds.length === 0) return [];
 
-  const snapshot = await adminDb.collection("external_posts").limit(300).get();
-  const keywordSet = new Set(keywords.map((keyword) => keyword.toLowerCase()));
-  const accountSet = new Set(referenceAccountIds);
+  const chunk = <T,>(values: T[], size: number) =>
+    Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
+      values.slice(index * size, (index + 1) * size),
+    );
+  const queryLimit = Math.max(limit * 3, 30);
+  const queries: Promise<FirebaseFirestore.QuerySnapshot>[] = [];
+  for (const group of chunk(keywords, 10)) {
+    queries.push(
+      adminDb
+        .collection("external_posts")
+        .where("search_keyword", "in", group)
+        .limit(queryLimit)
+        .get(),
+    );
+  }
+  for (const group of chunk(referenceAccountIds, 10)) {
+    queries.push(
+      adminDb
+        .collection("external_posts")
+        .where("source_account_id", "in", group)
+        .limit(queryLimit)
+        .get(),
+    );
+  }
 
-  return snapshot.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }) as ExternalPostDoc)
-    .filter((post) => {
-      const keywordMatch = post.search_keyword
-        ? keywordSet.has(post.search_keyword.toLowerCase())
-        : false;
-      const accountMatch = post.source_account_id
-        ? accountSet.has(post.source_account_id)
-        : false;
-      return keywordMatch || accountMatch;
-    })
+  const snapshots = await Promise.all(queries);
+  const unique = new Map<string, ExternalPostDoc>();
+  for (const snapshot of snapshots) {
+    for (const doc of snapshot.docs) {
+      unique.set(doc.id, { id: doc.id, ...doc.data() } as ExternalPostDoc);
+    }
+  }
+
+  return Array.from(unique.values())
     .sort((a, b) => {
       const scoreA = a.engagement_rate ?? 0;
       const scoreB = b.engagement_rate ?? 0;
@@ -192,6 +220,47 @@ export async function saveDraft(draft: Omit<DraftDoc, 'id'> & { id?: string }): 
 export async function getDraftsByAccountId(accountId: string): Promise<DraftDoc[]> {
     const snapshot = await adminDb.collection("drafts").where("target_account_id", "==", accountId).get();
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DraftDoc));
+}
+
+export async function getUsableDraftsByAccountId(
+  accountId: string,
+  characterVersion: number,
+  limit = 5,
+): Promise<DraftDoc[]> {
+  const boundedLimit = Math.max(1, limit);
+  const statuses: DraftDoc["status"][] = ["scheduled", "draft"];
+  let snapshots: FirebaseFirestore.QuerySnapshot[];
+  try {
+    snapshots = await Promise.all(
+      statuses.map((status) =>
+        adminDb
+          .collection("drafts")
+          .where("target_account_id", "==", accountId)
+          .where("status", "==", status)
+          .limit(boundedLimit)
+          .get(),
+      ),
+    );
+  } catch (error) {
+    console.warn(
+      `[Firestore] Usable-draft query failed for ${accountId}; using a bounded sample.`,
+      error,
+    );
+    snapshots = [
+      await adminDb
+        .collection("drafts")
+        .where("target_account_id", "==", accountId)
+        .limit(boundedLimit * 4)
+        .get(),
+    ];
+  }
+
+  return snapshots
+    .flatMap((snapshot) =>
+      snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as DraftDoc),
+    )
+    .filter((draft) => belongsToCharacterVersion(draft, characterVersion))
+    .slice(0, boundedLimit);
 }
 
 export async function listDrafts(accountId?: string): Promise<DraftDoc[]> {
