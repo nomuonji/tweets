@@ -262,9 +262,17 @@ async function claimDraft(
 async function processAccount(
   account: AccountDoc,
   now: DateTime,
-): Promise<boolean> {
+): Promise<
+  | "published"
+  | "duplicate"
+  | "not_due"
+  | "stale_skipped"
+  | "no_draft"
+  | "locked"
+  | "failed"
+> {
   const { postSchedule, id: accountId } = account;
-  if (!postSchedule || postSchedule.length === 0) return false;
+  if (!postSchedule || postSchedule.length === 0) return "not_due";
 
   const lastExecutedAt = account.lastPostExecutedAt
     ? DateTime.fromISO(account.lastPostExecutedAt).setZone(SCHEDULE_TIMEZONE)
@@ -277,14 +285,14 @@ async function processAccount(
   );
   const decision = selectSlot(dueSlots, now, CATCHUP_GRACE_MINUTES);
 
-  if (decision.action === "none") return false;
+  if (decision.action === "none") return "not_due";
 
   if (decision.action === "skip") {
     console.log(
       `[Scheduler] Account ${accountId}: skipping ${dueSlots.length} stale slot(s) older than ${CATCHUP_GRACE_MINUTES}min (through ${decision.consumeThrough.toISO()}).`,
     );
     await markSlotConsumed(accountId, decision.consumeThrough);
-    return false;
+    return "stale_skipped";
   }
 
   const targetSlot = decision.slot;
@@ -299,7 +307,7 @@ async function processAccount(
     );
     // Do not consume the slot — a draft created shortly after should still be
     // able to fill it while it is within the grace window.
-    return false;
+    return "no_draft";
   }
 
   const claimed = await claimDraft(draft.id, now);
@@ -307,7 +315,7 @@ async function processAccount(
     console.log(
       `[Scheduler] Draft ${draft.id} is locked by another run; skipping.`,
     );
-    return false;
+    return "locked";
   }
 
   try {
@@ -323,7 +331,7 @@ async function processAccount(
         lastPostExecutedAt: targetSlot.toISO(),
       });
       await batch.commit();
-      return false;
+      return "duplicate";
     }
 
     const result = await publishDraft(account, claimed);
@@ -366,7 +374,7 @@ async function processAccount(
     console.log(
       `[Scheduler] Published draft ${claimed.id} for slot ${targetSlot.toISO()} as ${result.platform_post_id}.`,
     );
-    return true;
+    return "published";
   } catch (error) {
     // Keep the draft and leave the slot unconsumed. A later draft can fill the
     // slot after the failure is inspected, while the failed content remains
@@ -376,17 +384,33 @@ async function processAccount(
       error,
     );
     await recordPublishFailure(claimed, error);
-    return false;
+    return "failed";
   }
+}
+
+export interface ScheduleExecutionResult {
+  publishedCount: number;
+  duplicateCount: number;
+  staleSkippedCount: number;
+  noDraftAccountIds: string[];
+  lockedAccountIds: string[];
+  failedAccountIds: string[];
 }
 
 export async function executeDueSchedules(
   nowIso: string | null = DateTime.utc().toISO(),
-) {
+): Promise<ScheduleExecutionResult> {
   const now = DateTime.fromISO(nowIso ?? DateTime.utc().toISO()!).setZone(
     SCHEDULE_TIMEZONE,
   );
-  let publishedCount = 0;
+  const result: ScheduleExecutionResult = {
+    publishedCount: 0,
+    duplicateCount: 0,
+    staleSkippedCount: 0,
+    noDraftAccountIds: [],
+    lockedAccountIds: [],
+    failedAccountIds: [],
+  };
 
   const accountsSnapshot = await adminDb
     .collection("accounts")
@@ -395,7 +419,7 @@ export async function executeDueSchedules(
 
   if (accountsSnapshot.empty) {
     console.log("[Scheduler] No accounts with auto-post enabled.");
-    return 0;
+    return result;
   }
 
   const accounts = accountsSnapshot.docs.map(
@@ -406,16 +430,23 @@ export async function executeDueSchedules(
     // Isolate failures per account: previously one thrown error aborted the
     // whole run and every remaining account was skipped for that cycle.
     try {
-      if (await processAccount(account, now)) publishedCount++;
+      const outcome = await processAccount(account, now);
+      if (outcome === "published") result.publishedCount++;
+      if (outcome === "duplicate") result.duplicateCount++;
+      if (outcome === "stale_skipped") result.staleSkippedCount++;
+      if (outcome === "no_draft") result.noDraftAccountIds.push(account.id);
+      if (outcome === "locked") result.lockedAccountIds.push(account.id);
+      if (outcome === "failed") result.failedAccountIds.push(account.id);
     } catch (error) {
       console.error(
         `[Scheduler] Unhandled error while processing account ${account.id}.`,
         error,
       );
+      result.failedAccountIds.push(account.id);
     }
   }
 
-  return publishedCount;
+  return result;
 }
 
 function mapDraft(doc: QueryDocumentSnapshot<DocumentData>): DraftDoc {

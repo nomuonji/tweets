@@ -1,6 +1,4 @@
 import { adminDb } from "@/lib/firebase/admin";
-import type { DraftDoc } from "@/lib/types";
-import { recordPublishFailure } from "@/lib/services/scheduler-service";
 
 async function main() {
   const apply = process.argv.includes("--apply");
@@ -15,12 +13,17 @@ async function main() {
     return;
   }
 
+  const archivedAt = new Date().toISOString();
   for (const doc of snapshot.docs) {
-    await recordPublishFailure(
-      { ...doc.data(), id: doc.id } as DraftDoc,
-      new Error((doc.data() as DraftDoc).last_error?.message ?? "Unknown publish failure"),
-      { deleteDraft: true },
-    );
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("failed_draft_archive").doc(doc.id), {
+      ...doc.data(),
+      id: doc.id,
+      archived_at: archivedAt,
+      archive_reason: "removed_from_active_queue_after_publish_failure",
+    });
+    batch.delete(doc.ref);
+    await batch.commit();
   }
   console.log(`Archived and removed ${snapshot.size} failed drafts.`);
 }

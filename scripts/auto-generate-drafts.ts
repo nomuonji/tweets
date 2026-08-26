@@ -10,6 +10,7 @@ const DRAFT_THRESHOLD = 5;
 async function main() {
   console.log("[Auto-Generate] Starting periodic draft generation check.");
   const accounts = await getAccounts();
+  const failedAccounts: string[] = [];
 
   for (const account of accounts) {
     if (account.autoPostEnabled !== true) {
@@ -35,9 +36,16 @@ async function main() {
 
     } catch (error) {
       console.error(`[Auto-Generate] Failed to process account ${account.handle}:`, error);
+      failedAccounts.push(account.id);
     }
   }
   console.log("[Auto-Generate] Periodic draft generation check finished.");
+  if (failedAccounts.length > 0) {
+    console.error(
+      `::error title=Draft generation failed::${failedAccounts.join(", ")}`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {
