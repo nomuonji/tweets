@@ -349,7 +349,7 @@ async function processAccount(
       },
       score: 0,
       character_version: claimed.character_version ?? characterVersion,
-      pattern: claimed.pattern,
+      ...(claimed.pattern ? { pattern: claimed.pattern } : {}),
       raw: result.raw,
       url: result.url,
       fetched_at: nowStr,

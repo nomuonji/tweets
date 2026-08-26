@@ -158,7 +158,7 @@ export async function POST(
       },
       score: 0,
       character_version: draft.character_version,
-      pattern: draft.pattern,
+      ...(draft.pattern ? { pattern: draft.pattern } : {}),
       raw: result.raw,
       url: result.url,
       fetched_at: nowStr,
