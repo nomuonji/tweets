@@ -10,6 +10,11 @@ import {
   summarizePostAttemptHistory,
 } from "@/lib/services/promo-reply-policy";
 import type { PromoReplyDoc } from "@/lib/types";
+import axios from "axios";
+import {
+  describeThreadsApiError,
+  shouldRetryThreadsContainerCreation,
+} from "@/lib/platforms/threads";
 
 function reply(overrides: Partial<PromoReplyDoc>): PromoReplyDoc {
   return {
@@ -118,6 +123,25 @@ async function main() {
     );
     assert.equal(fetchCalls, 4);
 
+    const transientThreadsError = new axios.AxiosError(
+      "bad request",
+      "ERR_BAD_REQUEST",
+      undefined,
+      undefined,
+      {
+        status: 400,
+        statusText: "Bad Request",
+        headers: {},
+        config: { headers: {} } as never,
+        data: { error: { code: 1, message: "Temporary Threads failure" } },
+      },
+    );
+    assert.equal(shouldRetryThreadsContainerCreation(transientThreadsError), true);
+    assert.match(
+      describeThreadsApiError("Threads test", transientThreadsError).message,
+      /HTTP 400.*Temporary Threads failure/,
+    );
+
     fetchCalls = 0;
     globalThis.fetch = async () => {
       fetchCalls += 1;
@@ -178,7 +202,7 @@ async function main() {
     else process.env.GEMINI_RETRY_BASE_MS = previousRetryBase;
   }
 
-  console.log("Promo reliability tests passed (23 assertions).\n");
+  console.log("Promo reliability tests passed (25 assertions).\n");
 }
 
 main().catch((error) => {

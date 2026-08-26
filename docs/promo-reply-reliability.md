@@ -22,6 +22,9 @@ a partially failed monetization run as successful.
 - Each account performs at most two promo generation/publish attempts per sync and posts at most two replies.
 - Only successfully published replies count as duplicates or start the account cooldown.
 - Post-specific generation/publish failures wait three hours before retrying and stop after three failures for the same post.
+- A transient Threads container-creation 400/429/5xx is retried once before the post is marked failed.
+- Threads failures record the operation, HTTP status, and Meta response body instead of Axios's generic message.
+- The final publish call is never automatically retried because an ambiguous response could create a duplicate visible reply.
 - GitHub Actions adds an account-by-account summary and exits non-zero when a promo attempt fails.
 - Legacy successful reply records without an explicit status remain valid.
 - Production builds do not execute the live schedule endpoint or spend Firestore read quota.
@@ -34,6 +37,7 @@ a partially failed monetization run as successful.
 - ✅ Per-account attempt and post caps
 - ✅ Success-only duplicate and cooldown policy
 - ✅ Failure backoff and bounded retries
+- ✅ Safe Threads container retry and detailed API diagnostics
 - ✅ GitHub Actions summary and monetization failure status
 - ✅ Build-time Firestore schedule reads disabled
 - ✅ Automated policy/failover regression test

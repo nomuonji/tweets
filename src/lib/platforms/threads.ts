@@ -9,6 +9,7 @@ const THREADS_MAX_FETCH_PAGES = 25;
 const THREADS_DEFAULT_LIMIT = 100;
 const CONTAINER_POLL_ATTEMPTS = 12;
 const CONTAINER_POLL_INTERVAL_MS = 500;
+const CONTAINER_CREATE_ATTEMPTS = 2;
 
 type FetchOptions = {
   since?: string;
@@ -76,21 +77,55 @@ type ThreadsResponse = {
   paging?: ThreadsPaging;
 };
 
+export function describeThreadsApiError(
+  operation: string,
+  error: unknown,
+): Error {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error
+      ? error
+      : new Error(`${operation}: ${String(error)}`);
+  }
+
+  const status = error.response?.status;
+  const detail =
+    typeof error.response?.data === "string"
+      ? error.response.data
+      : JSON.stringify(error.response?.data ?? {});
+  return new Error(
+    `${operation}${status ? ` (HTTP ${status})` : ""}: ${detail || error.message}`,
+  );
+}
+
+export function shouldRetryThreadsContainerCreation(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const status = error.response?.status;
+  // Container creation is not public and is safe to retry once. Threads has
+  // occasionally returned a transient 400 for an unchanged valid payload, in
+  // addition to conventional rate-limit and server errors.
+  return status === 400 || status === 429 || (typeof status === "number" && status >= 500);
+}
+
 async function waitForContainer(
   accessToken: string,
   creationId: string,
 ): Promise<void> {
   for (let attempt = 1; attempt <= CONTAINER_POLL_ATTEMPTS; attempt += 1) {
-    const response = await axios.get<{
-      id?: string;
-      status?: "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED";
-      error_message?: string;
-    }>(`${THREADS_API_BASE}/${creationId}`, {
-      params: {
-        fields: "id,status,error_message",
-        access_token: accessToken,
-      },
-    });
+    let response;
+    try {
+      response = await axios.get<{
+        id?: string;
+        status?: "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED";
+        error_message?: string;
+      }>(`${THREADS_API_BASE}/${creationId}`, {
+        params: {
+          fields: "id,status,error_message",
+          access_token: accessToken,
+        },
+      });
+    } catch (error) {
+      throw describeThreadsApiError("Threads container status check failed", error);
+    }
     const status = response.data?.status;
 
     if (status === "FINISHED") return;
@@ -550,16 +585,43 @@ export async function publishThreadsReply(
     throw new Error("Threads user ID is not configured");
   }
 
-  // Step 1: Create a media container with reply_to_id
-  const containerResponse = await axios.post<{ id: string }>(
-    `${THREADS_API_BASE}/${userId}/threads`,
-    {
-      media_type: "TEXT",
-      text: payload.text,
-      reply_to_id: payload.replyToId,
-      access_token: accessToken,
-    },
-  );
+  // Step 1: Create a media container with reply_to_id. This operation is not
+  // public, so retrying it once cannot create a duplicate visible reply.
+  let containerResponse: { data?: { id?: string } } | null = null;
+  let lastContainerError: unknown;
+  for (let attempt = 1; attempt <= CONTAINER_CREATE_ATTEMPTS; attempt += 1) {
+    try {
+      containerResponse = await axios.post<{ id: string }>(
+        `${THREADS_API_BASE}/${userId}/threads`,
+        {
+          media_type: "TEXT",
+          text: payload.text,
+          reply_to_id: payload.replyToId.replace(/^threads_/, ""),
+          access_token: accessToken,
+        },
+      );
+      break;
+    } catch (error) {
+      lastContainerError = error;
+      if (
+        attempt === CONTAINER_CREATE_ATTEMPTS ||
+        !shouldRetryThreadsContainerCreation(error)
+      ) {
+        throw describeThreadsApiError(
+          "Threads reply container creation failed",
+          error,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  }
+
+  if (!containerResponse) {
+    throw describeThreadsApiError(
+      "Threads reply container creation failed",
+      lastContainerError,
+    );
+  }
 
   const creationId = containerResponse.data?.id;
   if (typeof creationId !== "string") {
@@ -569,13 +631,20 @@ export async function publishThreadsReply(
   await waitForContainer(accessToken, creationId);
 
   // Step 2: Publish the media container
-  const publishResponse = await axios.post<{ id: string }>(
-    `${THREADS_API_BASE}/${userId}/threads_publish`,
-    {
-      creation_id: creationId,
-      access_token: accessToken,
-    },
-  );
+  let publishResponse;
+  try {
+    publishResponse = await axios.post<{ id: string }>(
+      `${THREADS_API_BASE}/${userId}/threads_publish`,
+      {
+        creation_id: creationId,
+        access_token: accessToken,
+      },
+    );
+  } catch (error) {
+    // Publishing is intentionally not retried: if the response was lost after
+    // Meta accepted it, retrying could create a duplicate visible reply.
+    throw describeThreadsApiError("Threads reply publish failed", error);
+  }
 
   const publishedPostId = publishResponse.data?.id;
   if (typeof publishedPostId !== "string") {
