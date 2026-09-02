@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { publishXPost } from "@/lib/platforms/x";
-import { publishThreadsPost } from "@/lib/platforms/threads";
+import {
+  classifyThreadsApiError,
+  publishThreadsPost,
+  reconcileThreadsPost,
+  type ThreadsPublishProgress,
+} from "@/lib/platforms/threads";
 import type { AccountDoc, DraftDoc, PostDoc } from "@/lib/types";
 import { getAccounts } from "@/lib/services/firestore.server";
 import {
@@ -23,7 +28,11 @@ function buildPostText(draft: DraftDoc) {
 }
 
 // This function is duplicated from scheduler-service.ts
-async function publishDraft(draft: DraftDoc, knownAccount?: AccountDoc) {
+async function publishDraft(
+  draft: DraftDoc,
+  startedAt: string,
+  knownAccount?: AccountDoc,
+) {
   const accounts = knownAccount ? [] : await getAccounts();
   const account =
     knownAccount ??
@@ -37,7 +46,24 @@ async function publishDraft(draft: DraftDoc, knownAccount?: AccountDoc) {
   if (draft.target_platform === "x") {
     return publishXPost(account, { text: buildPostText(draft) });
   }
-  return publishThreadsPost(account, { text: buildPostText(draft) });
+  const onProgress = async (progress: ThreadsPublishProgress) => {
+    if (
+      progress.stage !== "container_created" &&
+      progress.stage !== "publishing" &&
+      progress.stage !== "reconciling"
+    ) return;
+    await adminDb.collection("drafts").doc(draft.id).update({
+      publish_stage: progress.stage,
+      publish_attempt_count: progress.attempt,
+      publish_creation_id: progress.creationId ?? null,
+      publish_stage_updated_at: DateTime.utc().toISO(),
+    });
+  };
+  return publishThreadsPost(
+    account,
+    { text: buildPostText(draft) },
+    { startedAt, onProgress },
+  );
 }
 
 export async function POST(
@@ -64,9 +90,20 @@ export async function POST(
         }
         const data = doc.data() as DraftDoc;
         if (data.status === "publishing") {
-          throw new Error("Draft is already being published");
+          const startedAt = data.publishing_started_at
+            ? DateTime.fromISO(data.publishing_started_at)
+            : null;
+          if (
+            startedAt?.isValid &&
+            DateTime.utc().diff(startedAt, "minutes").minutes <= 30
+          ) {
+            throw new Error("Draft is already being published");
+          }
         }
-        transaction.update(draftRef, { status: "publishing" });
+        transaction.update(draftRef, {
+          status: "publishing",
+          publishing_started_at: DateTime.utc().toISO(),
+        });
         return { ...data, id: doc.id } as DraftDoc;
       });
     } catch (err: unknown) {
@@ -134,7 +171,17 @@ export async function POST(
       }
     }
 
-    const result = await publishDraft(draft, targetAccount);
+    const startedAt = draft.publishing_started_at ?? DateTime.utc().toISO()!;
+    let result = null;
+    if (
+      targetAccount &&
+      draft.target_platform === "threads" &&
+      (draft.publish_stage === "publishing" ||
+        draft.publish_stage === "reconciling")
+    ) {
+      result = await reconcileThreadsPost(targetAccount, fullText, startedAt);
+    }
+    result ??= await publishDraft(draft, startedAt, targetAccount);
     const nowStr = DateTime.utc().toISO();
 
     const prefixedId = `${draft.target_platform}_${result.platform_post_id}`;
@@ -179,10 +226,20 @@ export async function POST(
     console.error("[Publish API] Error:", error);
     const failedDraft = await adminDb.collection("drafts").doc(params.id).get();
     if (failedDraft.exists) {
-      await recordPublishFailure(
-        { ...failedDraft.data(), id: failedDraft.id } as DraftDoc,
-        error,
-      ).catch(() => {
+      const currentDraft = {
+        ...failedDraft.data(),
+        id: failedDraft.id,
+      } as DraftDoc;
+      const failure =
+        currentDraft.target_platform === "threads"
+          ? classifyThreadsApiError("publish", error)
+          : null;
+      const retryable =
+        failure?.kind === "media_not_found" ||
+        failure?.kind === "rate_limited" ||
+        failure?.kind === "transient" ||
+        failure?.kind === "ambiguous_publish";
+      await recordPublishFailure(currentDraft, error, { retryable }).catch(() => {
         // Keep the original publish error as the API response if logging fails.
       });
     }

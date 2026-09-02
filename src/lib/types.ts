@@ -303,6 +303,18 @@ export interface DraftDoc {
   pattern?: PostPattern;
   /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */
   publishing_started_at?: string;
+  /** Durable checkpoint for crash recovery of multi-step platform publishing. */
+  publish_stage?:
+    | "creating_container"
+    | "container_created"
+    | "container_ready"
+    | "publishing"
+    | "reconciling";
+  publish_attempt_count?: number;
+  publish_creation_id?: string | null;
+  publish_stage_updated_at?: string;
+  publish_failure_count?: number;
+  next_publish_attempt_at?: string | null;
   /** Set when a publish attempt failed; the draft is kept for retry. */
   last_error?: {
     message: string;

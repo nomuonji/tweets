@@ -2,7 +2,12 @@ import { DateTime } from "luxon";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import type { DraftDoc, AccountDoc, PostDoc } from "@/lib/types";
-import { publishThreadsPost } from "@/lib/platforms/threads";
+import {
+  classifyThreadsApiError,
+  publishThreadsPost,
+  reconcileThreadsPost,
+  type ThreadsPublishProgress,
+} from "@/lib/platforms/threads";
 import { publishXPost } from "@/lib/platforms/x";
 
 import { findDueSlots, selectSlot, SCHEDULE_TIMEZONE } from "./schedule-slots";
@@ -27,6 +32,8 @@ const CATCHUP_GRACE_MINUTES = Number(
 
 /** A `publishing` lock older than this is assumed to be from a crashed run. */
 const PUBLISHING_LOCK_TIMEOUT_MINUTES = 30;
+const RETRY_DELAY_MINUTES = 15;
+const MAX_PUBLISH_FAILURES = 3;
 
 /**
  * Axios throws with a generic "Request failed with status code 400"; the part
@@ -60,22 +67,60 @@ function buildPostText(draft: DraftDoc) {
   return `${draft.text}${hashtags}`;
 }
 
-async function publishDraft(account: AccountDoc, draft: DraftDoc) {
+async function persistThreadsProgress(
+  draftId: string,
+  progress: ThreadsPublishProgress,
+) {
+  // Persist only the checkpoints needed after a crash. Omitting the two
+  // transitional stages saves two Firestore writes per successful post.
+  if (
+    progress.stage !== "container_created" &&
+    progress.stage !== "publishing" &&
+    progress.stage !== "reconciling"
+  ) {
+    return;
+  }
+  await adminDb.collection("drafts").doc(draftId).update({
+    publish_stage: progress.stage,
+    publish_attempt_count: progress.attempt,
+    publish_creation_id: progress.creationId ?? null,
+    publish_stage_updated_at: DateTime.utc().toISO(),
+  });
+}
+
+async function publishDraft(
+  account: AccountDoc,
+  draft: DraftDoc,
+  startedAt: string,
+) {
   if (draft.target_platform === "x") {
     return publishXPost(account, { text: buildPostText(draft) });
   }
-  return publishThreadsPost(account, { text: buildPostText(draft) });
+  return publishThreadsPost(
+    account,
+    { text: buildPostText(draft) },
+    {
+      startedAt,
+      onProgress: (progress) => persistThreadsProgress(draft.id, progress),
+    },
+  );
 }
 
 export async function recordPublishFailure(
   draft: DraftDoc,
   error: unknown,
-  options: { deleteDraft?: boolean } = {},
+  options: { deleteDraft?: boolean; retryable?: boolean } = {},
 ): Promise<void> {
   const occurredAt = DateTime.utc().toISO()!;
+  const failureCount = (draft.publish_failure_count ?? 0) + 1;
+  const willRetry = options.retryable === true && failureCount < MAX_PUBLISH_FAILURES;
   const failureRef = adminDb.collection("publish_failures").doc();
   const draftRef = adminDb.collection("drafts").doc(draft.id);
   const batch = adminDb.batch();
+  const threadsDetails =
+    draft.target_platform === "threads"
+      ? classifyThreadsApiError("publish", error)
+      : null;
 
   batch.set(failureRef, {
     draft_id: draft.id,
@@ -84,14 +129,29 @@ export async function recordPublishFailure(
     text: draft.text,
     message: describeError(error),
     occurred_at: occurredAt,
+    failure_count: failureCount,
+    will_retry: willRetry,
+    ...(threadsDetails
+      ? {
+          error_stage: threadsDetails.stage,
+          error_kind: threadsDetails.kind,
+          http_status: threadsDetails.status ?? null,
+          meta_code: threadsDetails.code ?? null,
+          meta_subcode: threadsDetails.subcode ?? null,
+        }
+      : {}),
   });
   if (options.deleteDraft) {
     batch.delete(draftRef);
   } else {
     batch.update(draftRef, {
-      status: "failed",
+      status: willRetry ? "scheduled" : "failed",
       publishing_started_at: null,
       updated_at: occurredAt,
+      publish_failure_count: failureCount,
+      next_publish_attempt_at: willRetry
+        ? DateTime.utc().plus({ minutes: RETRY_DELAY_MINUTES }).toISO()
+        : null,
       last_error: {
         message: describeError(error),
         occurred_at: occurredAt,
@@ -190,8 +250,14 @@ async function fetchNextDraft(
       .where("status", "in", ["scheduled", "draft"])
       .orderBy("created_at", "asc")
       .get();
+    const now = DateTime.utc();
     const candidate = snapshot.docs
       .map((doc) => mapDraft(doc))
+      .filter((draft) => {
+        if (!draft.next_publish_attempt_at) return true;
+        const retryAt = DateTime.fromISO(draft.next_publish_attempt_at);
+        return !retryAt.isValid || retryAt <= now;
+      })
       .find((draft) => belongsToCharacterVersion(draft, characterVersion));
     return candidate ?? null;
   } catch (error) {
@@ -213,6 +279,11 @@ async function fetchNextDraft(
         (draft) => draft.status === "scheduled" || draft.status === "draft",
       )
       .filter((draft) => belongsToCharacterVersion(draft, characterVersion))
+      .filter((draft) => {
+        if (!draft.next_publish_attempt_at) return true;
+        const retryAt = DateTime.fromISO(draft.next_publish_attempt_at);
+        return !retryAt.isValid || retryAt <= DateTime.utc();
+      })
       .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
 
     return candidates[0] ?? null;
@@ -254,6 +325,7 @@ async function claimDraft(
     transaction.update(docRef, {
       status: "publishing",
       publishing_started_at: now.toISO(),
+      next_publish_attempt_at: null,
     });
     return { ...data, id: doc.id } as DraftDoc;
   });
@@ -334,7 +406,25 @@ async function processAccount(
       return "duplicate";
     }
 
-    const result = await publishDraft(account, claimed);
+    const startedAt = claimed.publishing_started_at ?? now.toUTC().toISO()!;
+    let result = null;
+
+    // A previous runner may have died after Meta accepted the post but before
+    // Firestore was updated. Reconcile first instead of blindly posting again.
+    if (
+      claimed.target_platform === "threads" &&
+      (claimed.publish_stage === "publishing" ||
+        claimed.publish_stage === "reconciling")
+    ) {
+      result = await reconcileThreadsPost(account, fullText, startedAt);
+      if (result) {
+        console.log(
+          `[Scheduler] Reconciled draft ${claimed.id} with existing Threads post ${result.platform_post_id}.`,
+        );
+      }
+    }
+
+    result ??= await publishDraft(account, claimed, startedAt);
     const nowStr = now.toISO() ?? DateTime.utc().toISO()!;
     const prefixedId = `${claimed.target_platform}_${result.platform_post_id}`;
 
@@ -383,7 +473,16 @@ async function processAccount(
       `[Scheduler] Failed to publish draft ${claimed.id} for account ${accountId}; marking as failed.`,
       error,
     );
-    await recordPublishFailure(claimed, error);
+    const threadsFailure =
+      claimed.target_platform === "threads"
+        ? classifyThreadsApiError("publish", error)
+        : null;
+    const retryable =
+      threadsFailure?.kind === "media_not_found" ||
+      threadsFailure?.kind === "rate_limited" ||
+      threadsFailure?.kind === "transient" ||
+      threadsFailure?.kind === "ambiguous_publish";
+    await recordPublishFailure(claimed, error, { retryable });
     return "failed";
   }
 }

@@ -10,6 +10,57 @@ const THREADS_DEFAULT_LIMIT = 100;
 const CONTAINER_POLL_ATTEMPTS = 12;
 const CONTAINER_POLL_INTERVAL_MS = 500;
 const CONTAINER_CREATE_ATTEMPTS = 2;
+const POST_PUBLISH_CYCLES = 2;
+const RECONCILIATION_ATTEMPTS = 3;
+const RECONCILIATION_INTERVAL_MS = Number(
+  process.env.THREADS_RECONCILIATION_INTERVAL_MS ?? 1500,
+);
+
+export type ThreadsPublishStage =
+  | "creating_container"
+  | "container_created"
+  | "container_ready"
+  | "publishing"
+  | "reconciling";
+
+export type ThreadsPublishProgress = {
+  stage: ThreadsPublishStage;
+  attempt: number;
+  creationId?: string;
+};
+
+export type ThreadsPublishOptions = {
+  startedAt?: string;
+  onProgress?: (progress: ThreadsPublishProgress) => Promise<void> | void;
+};
+
+export type ThreadsApiErrorKind =
+  | "media_not_found"
+  | "rate_limited"
+  | "auth"
+  | "transient"
+  | "ambiguous_publish"
+  | "unknown";
+
+export type ThreadsApiErrorDetails = {
+  stage: "container_create" | "container_status" | "publish" | "reconcile";
+  kind: ThreadsApiErrorKind;
+  status?: number;
+  code?: number;
+  subcode?: number;
+  isTransient?: boolean;
+};
+
+export class ThreadsPublishError extends Error {
+  constructor(
+    message: string,
+    public readonly details: ThreadsApiErrorDetails,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "ThreadsPublishError";
+  }
+}
 
 type FetchOptions = {
   since?: string;
@@ -97,6 +148,60 @@ export function describeThreadsApiError(
   );
 }
 
+export function classifyThreadsApiError(
+  stage: ThreadsApiErrorDetails["stage"],
+  error: unknown,
+): ThreadsApiErrorDetails {
+  if (error instanceof ThreadsPublishError) return error.details;
+  if (!axios.isAxiosError(error)) return { stage, kind: "unknown" };
+
+  const status = error.response?.status;
+  const body = error.response?.data as {
+    error?: {
+      code?: number;
+      error_subcode?: number;
+      is_transient?: boolean;
+    };
+  } | undefined;
+  const code = body?.error?.code;
+  const subcode = body?.error?.error_subcode;
+  const isTransient = body?.error?.is_transient;
+
+  let kind: ThreadsApiErrorKind = "unknown";
+  if (code === 24 && subcode === 4279009) {
+    kind = "media_not_found";
+  } else if (status === 429 || code === 4 || code === 17 || code === 32) {
+    kind = "rate_limited";
+  } else if (status === 401 || status === 403 || code === 190) {
+    kind = "auth";
+  } else if (isTransient === true || (typeof status === "number" && status >= 500)) {
+    kind = stage === "publish" ? "ambiguous_publish" : "transient";
+  } else if (stage === "publish" && !error.response) {
+    // A timeout/disconnect can happen after Meta accepted the publish. Retrying
+    // blindly could create a duplicate visible post.
+    kind = "ambiguous_publish";
+  }
+
+  return { stage, kind, status, code, subcode, isTransient };
+}
+
+function toThreadsPublishError(
+  operation: string,
+  stage: ThreadsApiErrorDetails["stage"],
+  error: unknown,
+): ThreadsPublishError {
+  const described = describeThreadsApiError(operation, error);
+  return new ThreadsPublishError(
+    described.message,
+    classifyThreadsApiError(stage, error),
+    { cause: error },
+  );
+}
+
+function normalizePostText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 export function shouldRetryThreadsContainerCreation(error: unknown): boolean {
   if (!axios.isAxiosError(error)) return false;
   const status = error.response?.status;
@@ -124,7 +229,11 @@ async function waitForContainer(
         },
       });
     } catch (error) {
-      throw describeThreadsApiError("Threads container status check failed", error);
+      throw toThreadsPublishError(
+        "Threads container status check failed",
+        "container_status",
+        error,
+      );
     }
     const status = response.data?.status;
 
@@ -457,6 +566,7 @@ export async function getThreadsUserProfile(accessToken: string): Promise<{
 export async function publishThreadsPost(
   account: AccountDoc,
   payload: { text: string; mediaUrls?: string[]; url?: string },
+  options: ThreadsPublishOptions = {},
 ): Promise<PublishResult> {
   const accessToken = getThreadsAccessToken(account);
   if (!accessToken) {
@@ -468,45 +578,181 @@ export async function publishThreadsPost(
     throw new Error("Threads user ID is not configured");
   }
 
-  // Step 1: Create a media container
-  const containerResponse = await axios.post<{ id: string }>(
-    `${THREADS_API_BASE}/${userId}/threads`,
-    {
-      media_type: "TEXT",
-      text: payload.text,
-      access_token: accessToken,
-    },
-  );
+  const startedAt = options.startedAt ?? DateTime.utc().toISO()!;
 
-  const creationId = containerResponse.data?.id;
-  if (typeof creationId !== "string") {
-    throw new Error("Failed to create Threads media container: creation_id not found");
+  for (let cycle = 1; cycle <= POST_PUBLISH_CYCLES; cycle += 1) {
+    await options.onProgress?.({ stage: "creating_container", attempt: cycle });
+
+    let containerResponse: { data?: { id?: string } } | null = null;
+    let lastCreateError: unknown;
+    for (let attempt = 1; attempt <= CONTAINER_CREATE_ATTEMPTS; attempt += 1) {
+      try {
+        containerResponse = await axios.post<{ id: string }>(
+          `${THREADS_API_BASE}/${userId}/threads`,
+          {
+            media_type: "TEXT",
+            text: payload.text,
+            access_token: accessToken,
+          },
+        );
+        break;
+      } catch (error) {
+        lastCreateError = error;
+        if (
+          attempt === CONTAINER_CREATE_ATTEMPTS ||
+          !shouldRetryThreadsContainerCreation(error)
+        ) {
+          throw toThreadsPublishError(
+            "Threads post container creation failed",
+            "container_create",
+            error,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
+    }
+
+    if (!containerResponse) {
+      throw toThreadsPublishError(
+        "Threads post container creation failed",
+        "container_create",
+        lastCreateError,
+      );
+    }
+
+    const creationId = containerResponse.data?.id;
+    if (typeof creationId !== "string") {
+      throw new ThreadsPublishError(
+        "Failed to create Threads media container: creation_id not found",
+        { stage: "container_create", kind: "unknown" },
+      );
+    }
+    await options.onProgress?.({
+      stage: "container_created",
+      attempt: cycle,
+      creationId,
+    });
+
+    try {
+      await waitForContainer(accessToken, creationId);
+    } catch (error) {
+      throw toThreadsPublishError(
+        "Threads post container status check failed",
+        "container_status",
+        error,
+      );
+    }
+    await options.onProgress?.({
+      stage: "container_ready",
+      attempt: cycle,
+      creationId,
+    });
+    await options.onProgress?.({
+      stage: "publishing",
+      attempt: cycle,
+      creationId,
+    });
+
+    let publishResponse;
+    try {
+      publishResponse = await axios.post<{ id: string }>(
+        `${THREADS_API_BASE}/${userId}/threads_publish`,
+        {
+          creation_id: creationId,
+          access_token: accessToken,
+        },
+      );
+    } catch (error) {
+      const details = classifyThreadsApiError("publish", error);
+      if (details.kind === "media_not_found" && cycle < POST_PUBLISH_CYCLES) {
+        continue;
+      }
+
+      if (details.kind === "ambiguous_publish") {
+        await options.onProgress?.({
+          stage: "reconciling",
+          attempt: cycle,
+          creationId,
+        });
+        const recovered = await reconcileThreadsPost(
+          account,
+          payload.text,
+          startedAt,
+        );
+        if (recovered) return recovered;
+      }
+
+      throw toThreadsPublishError(
+        "Threads post publish failed",
+        "publish",
+        error,
+      );
+    }
+
+    const publishedPostId = publishResponse.data?.id;
+    if (typeof publishedPostId !== "string") {
+      throw new ThreadsPublishError(
+        "Failed to publish Threads container: final post ID not found",
+        { stage: "publish", kind: "ambiguous_publish" },
+      );
+    }
+
+    const handle = account.handle.startsWith("@") ? account.handle.slice(1) : account.handle;
+    return {
+      platform_post_id: publishedPostId,
+      raw: publishResponse.data,
+      url: `https://www.threads.net/@${handle}/post/${publishedPostId}`,
+    };
   }
 
-  await waitForContainer(accessToken, creationId);
-
-  // Step 2: Publish the media container
-  const publishResponse = await axios.post<{ id: string }>(
-    `${THREADS_API_BASE}/${userId}/threads_publish`,
-    {
-      creation_id: creationId,
-      access_token: accessToken,
-    },
+  throw new ThreadsPublishError(
+    "Threads post publish failed after replacing a missing media container",
+    { stage: "publish", kind: "media_not_found", code: 24, subcode: 4279009 },
   );
+}
 
-  const publishedPostId = publishResponse.data?.id;
-  if (typeof publishedPostId !== "string") {
-    throw new Error("Failed to publish Threads container: final post ID not found");
+/** Resolve an uncertain response by looking for the exact text on the timeline. */
+export async function reconcileThreadsPost(
+  account: AccountDoc,
+  text: string,
+  startedAt: string,
+): Promise<PublishResult | null> {
+  const threshold = DateTime.fromISO(startedAt).minus({ minutes: 2 });
+  const expected = normalizePostText(text);
+
+  for (let attempt = 1; attempt <= RECONCILIATION_ATTEMPTS; attempt += 1) {
+    try {
+      const { posts } = await fetchRecentThreadsPosts(account, { limit: 20 });
+      const match = posts.find((post) => {
+        const created = DateTime.fromISO(post.created_at);
+        return (
+          created.isValid &&
+          (!threshold.isValid || created >= threshold) &&
+          normalizePostText(post.text) === expected
+        );
+      });
+      if (match) {
+        return {
+          platform_post_id: match.platform_post_id,
+          raw: { ...match.raw, reconciled_after_ambiguous_publish: true },
+          url: match.url,
+        };
+      }
+    } catch (error) {
+      if (attempt === RECONCILIATION_ATTEMPTS) {
+        console.warn(
+          `[Threads] Reconciliation failed: ${describeThreadsApiError("timeline fetch", error).message}`,
+        );
+      }
+    }
+
+    if (attempt < RECONCILIATION_ATTEMPTS) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, RECONCILIATION_INTERVAL_MS),
+      );
+    }
   }
-
-  const handle = account.handle.startsWith("@") ? account.handle.slice(1) : account.handle;
-  const permalink = `https://www.threads.net/@${handle}/post/${publishedPostId}`;
-
-  return {
-    platform_post_id: publishedPostId,
-    raw: publishResponse.data,
-    url: permalink,
-  };
+  return null;
 }
 
 /**
