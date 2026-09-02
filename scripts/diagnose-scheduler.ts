@@ -8,6 +8,10 @@
  */
 import { adminDb } from "@/lib/firebase/admin";
 import type { DraftDoc } from "@/lib/types";
+import {
+  belongsToCharacterVersion,
+  getCharacterVersion,
+} from "@/lib/character-version";
 import "dotenv/config";
 
 async function main() {
@@ -27,13 +31,18 @@ async function main() {
       .get();
 
     const byStatus: Record<string, number> = {};
+    const currentVersion = getCharacterVersion(a);
+    let publishable = 0;
+    let staleVersion = 0;
     for (const d of draftsSnap.docs) {
-      const status = String((d.data() as DraftDoc).status ?? "(undefined)");
+      const draft = d.data() as DraftDoc;
+      const status = String(draft.status ?? "(undefined)");
       byStatus[status] = (byStatus[status] ?? 0) + 1;
+      if (draft.status === "draft" || draft.status === "scheduled") {
+        if (belongsToCharacterVersion(draft, currentVersion)) publishable += 1;
+        else staleVersion += 1;
+      }
     }
-
-    const publishable =
-      (byStatus["draft"] ?? 0) + (byStatus["scheduled"] ?? 0);
 
     console.log(`${doc.id}`);
     console.log(`  schedule   : ${JSON.stringify(a.postSchedule ?? [])}`);
@@ -41,6 +50,7 @@ async function main() {
     console.log(
       `  drafts     : ${draftsSnap.size} total, ${publishable} publishable ${JSON.stringify(byStatus)}`,
     );
+    console.log(`  character  : v${currentVersion}, ${staleVersion} stale-version draft(s)`);
     if (publishable === 0) {
       console.log(`  >> NOTHING TO POST for this account`);
     }
