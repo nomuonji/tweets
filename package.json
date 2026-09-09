@@ -21,10 +21,13 @@
     "test:promo-reliability": "tsx scripts/test-promo-reliability.ts",
     "test:threads-publish-reliability": "tsx scripts/test-threads-publish-reliability.ts",
     "test:firestore-efficiency": "tsx scripts/test-firestore-efficiency.ts",
-    "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts"
+    "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts",
+    "tip:add": "tsx -r dotenv/config scripts/add-tip.ts",
+    "exemplary:add": "tsx -r dotenv/config scripts/add-exemplary.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.53",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@sparticuz/chromium": "^141.0.0",
     "@types/cheerio": "^0.22.35",
     "ai": "^5.0.121",

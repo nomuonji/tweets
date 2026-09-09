@@ -1,11 +1,5 @@
 import { NextResponse } from "next/server";
-import { DateTime } from "luxon";
-import { adminDb } from "@/lib/firebase/admin";
-import { saveDraft } from "@/lib/services/firestore.server";
-import { markProductUsed } from "@/lib/services/product-service";
-import { extractPattern } from "@/lib/pattern";
-import type { DraftDoc } from "@/lib/types";
-import { getCharacterVersion } from "@/lib/character-version";
+import { createAgentDrafts } from "@/lib/services/draft-service";
 
 type CreateDraftPayload = {
   accountId?: string;
@@ -18,28 +12,10 @@ type CreateDraftPayload = {
   characterVersion?: number;
 };
 
-function normalizeText(value: string) {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-async function findDuplicateDraft(accountId: string, normalized: string) {
-  const snapshot = await adminDb
-    .collection("drafts")
-    .where("target_account_id", "==", accountId)
-    .limit(100)
-    .get();
-
-  return snapshot.docs.find((doc) => {
-    const data = doc.data() as DraftDoc;
-    return normalizeText(data.text) === normalized;
-  });
-}
-
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as CreateDraftPayload;
     const accountId = body.accountId?.trim();
-    const platform = body.platform ?? "x";
     const text = body.text?.trim();
 
     if (!accountId || !text) {
@@ -49,76 +25,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const accountSnapshot = await adminDb.collection("accounts").doc(accountId).get();
-    if (!accountSnapshot.exists) {
+    if (body.characterVersion == null) {
       return NextResponse.json(
-        { ok: false, message: "アカウントが見つかりません。" },
-        { status: 404 },
+        { ok: false, message: "characterVersion は必須です。" }, { status: 400 },
       );
     }
-    const currentCharacterVersion = getCharacterVersion(accountSnapshot.data() ?? {});
-    if (
-      body.characterVersion != null &&
-      body.characterVersion !== currentCharacterVersion
-    ) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "生成後にキャラクターシートが変更されました。投稿案を再生成してください。",
-        },
-        { status: 409 },
-      );
-    }
-
-    const normalized = normalizeText(text);
-    const duplicate = await findDuplicateDraft(accountId, normalized);
-    if (duplicate) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "同じ内容のドラフトが既に存在します。",
-          duplicateDraftId: duplicate.id,
-        },
-        { status: 409 },
-      );
-    }
-
-    const now = DateTime.utc().toISO();
-    const draftId = `gemini_${Date.now().toString(36)}_${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-
-    const draft: DraftDoc = {
-      id: draftId,
-      target_platform: platform,
-      target_account_id: accountId,
-      base_post_id: null,
-      text,
-      hashtags: [],
-      status: "scheduled",
-      schedule_time: null,
-      published_at: null,
-      created_by: body.createdBy ?? "gemini",
-      created_at: now,
-      updated_at: now,
-      similarity_warning: false,
-      character_version: currentCharacterVersion,
-      generatedBy: body.generatedBy,
-      pattern: extractPattern(text),
-      ...(body.promoProductId
-        ? {
-            promo_product_id: body.promoProductId,
-            ...(body.promoProductAsin
-              ? { promo_product_asin: body.promoProductAsin }
-              : {}),
-          }
-        : {}),
-    };
-
-    await saveDraft(draft);
-    if (body.promoProductId) {
-      await markProductUsed(accountId, body.promoProductId).catch(() => {});
-    }
+    const [draft] = await createAgentDrafts(accountId, body.characterVersion, [{ text, createdBy: body.createdBy ?? "gemini", generatedBy: body.generatedBy ?? "gemini" }]);
 
     return NextResponse.json({ ok: true, draft });
   } catch (error) {

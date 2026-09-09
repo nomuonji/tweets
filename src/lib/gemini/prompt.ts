@@ -33,6 +33,14 @@ export function buildPrompt(
 
   const compact = (value: string, max = 180) =>
     value.replace(/\s+/g, " ").trim().slice(0, max);
+  // Style samples carry rhythm through line breaks: collapse horizontal
+  // whitespace but keep paragraph breaks so the model can imitate them.
+  const compactMultiline = (value: string, max = 400) =>
+    value
+      .replace(/[ \t　]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+      .slice(0, max);
   const performanceSignal = (post: PostDoc) => {
     const metrics = post.metrics;
     const structure = post.pattern?.structure ?? "未分類";
@@ -65,8 +73,8 @@ character sheet and use the source only for an abstract writing technique.
     ? `\n[Past Performance Signals — technique only]\n${topPosts.map(performanceSignal).join("\n")}\nUse only these abstract structure/reaction signals. The original post text is intentionally omitted so its old topic and wording cannot leak into the new post.\n`
     : "";
   const styleSection = exemplaryPosts.length > 0
-    ? `\n[Account Style Samples]\n${exemplaryPosts
-        .map((post) => `- ${compact(post.text)} (意図: ${compact(post.explanation, 120)})`)
+    ? `\n[Account Style Samples — imitate line breaks and rhythm, not just words]\n${exemplaryPosts
+        .map((post) => `- ${compactMultiline(post.text)} (意図: ${compact(post.explanation, 120)})`)
         .join("\n")}\n`
     : "";
   const tipSection = tips.length > 0

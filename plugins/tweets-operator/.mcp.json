@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tweets": {
+      "url": "https://tweets-lime.vercel.app/api/mcp",
+      "bearer_token_env_var": "TWEETS_AGENT_MCP_TOKEN"
+    }
+  }
+}

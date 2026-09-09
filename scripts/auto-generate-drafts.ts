@@ -11,8 +11,13 @@ async function main() {
   console.log("[Auto-Generate] Starting periodic draft generation check.");
   const accounts = await getAccounts();
   const failedAccounts: string[] = [];
+  let providerDegraded = false;
 
   for (const account of accounts) {
+    if (providerDegraded) {
+      console.warn(`[Auto-Generate] Gemini is degraded; skipping remaining account ${account.id}.`);
+      continue;
+    }
     if (account.autoPostEnabled !== true) {
       console.log(`[Auto-Generate] Account ${account.handle}: auto-post is off; skipping.`);
       continue;
@@ -36,10 +41,19 @@ async function main() {
 
     } catch (error) {
       console.error(`[Auto-Generate] Failed to process account ${account.handle}:`, error);
+      const message = (error as Error).message ?? String(error);
+      if (/\b(429|503)\b|gemini.*(key|config|not configured)|api key/i.test(message)) {
+        providerDegraded = true;
+        console.warn("[Auto-Generate] Gemini provider degradation detected; stopping further calls for this run.");
+        continue;
+      }
       failedAccounts.push(account.id);
     }
   }
   console.log("[Auto-Generate] Periodic draft generation check finished.");
+  if (providerDegraded) {
+    console.warn("::warning title=Gemini draft generation degraded::Use the Tweets MCP/Codex replenishment task until Gemini recovers.");
+  }
   if (failedAccounts.length > 0) {
     console.error(
       `::error title=Draft generation failed::${failedAccounts.join(", ")}`,

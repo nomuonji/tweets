@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(req: NextRequest) {
+    // MCP has its own mandatory Bearer token at the route handler. Do not
+    // attempt to parse that token as Basic credentials here.
+    if (req.nextUrl.pathname === '/api/mcp' || req.nextUrl.pathname.startsWith('/api/mcp/')) {
+        return NextResponse.next();
+    }
     const basicAuth = req.headers.get('authorization');
 
     // Use values from environment variables or provide fallback (NOT recommended for production)

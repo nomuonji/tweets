@@ -487,6 +487,35 @@ async function processAccount(
   }
 }
 
+/** Publish exactly one already-saved draft. Used by the dashboard and MCP; it
+ * shares the scheduler's lock, duplicate guard, recovery and persistence path. */
+export async function publishExistingDraft(draftId: string, expectedUpdatedAt: string): Promise<PostDoc> {
+  const ref = adminDb.collection("drafts").doc(draftId);
+  const before = await ref.get();
+  if (!before.exists) throw new Error("Draft not found.");
+  if (before.data()?.updated_at !== expectedUpdatedAt) throw new Error("updated_at conflict: refresh and retry.");
+  const now = DateTime.utc();
+  const claimed = await claimDraft(draftId, now);
+  if (!claimed) throw new Error("Draft is currently locked for publishing.");
+  const accountId = claimed.target_account_id;
+  if (!accountId) throw new Error("Draft has no target account.");
+  const accountSnap = await adminDb.collection("accounts").doc(accountId).get();
+  if (!accountSnap.exists) throw new Error("Account not found.");
+  const account = { id: accountSnap.id, ...accountSnap.data() } as AccountDoc;
+  const version = getCharacterVersion(account);
+  if (!belongsToCharacterVersion(claimed, version)) { await ref.update({ status: "scheduled", publishing_started_at: null, updated_at: DateTime.utc().toISO() }); throw new Error("Draft uses an old character version."); }
+  try {
+    const fullText = buildPostText(claimed);
+    if (await hasDuplicatePost(accountId, fullText)) { await ref.delete(); throw new Error("A matching post was already published in the last 24 hours."); }
+    const startedAt = claimed.publishing_started_at ?? now.toISO()!;
+    let result = claimed.target_platform === "threads" && (claimed.publish_stage === "publishing" || claimed.publish_stage === "reconciling") ? await reconcileThreadsPost(account, fullText, startedAt) : null;
+    result ??= await publishDraft(account, claimed, startedAt);
+    const nowStr = DateTime.utc().toISO()!; const id = `${claimed.target_platform}_${result.platform_post_id}`;
+    const post: PostDoc = { id, account_id: accountId, platform: claimed.target_platform, platform_post_id: result.platform_post_id, text: fullText, created_at: nowStr, media_type:"text", has_url:fullText.includes("http"), metrics:{impressions:0,likes:0,replies:0,reposts_or_rethreads:0,quotes:0,link_clicks:0}, score:0, character_version:claimed.character_version ?? version, ...(claimed.pattern?{pattern:claimed.pattern}:{}), raw:result.raw, url:result.url, fetched_at:nowStr };
+    const batch=adminDb.batch(); batch.set(adminDb.collection("posts").doc(id),post); batch.delete(ref); await batch.commit(); return post;
+  } catch (error) { const current=await ref.get(); if(current.exists) await recordPublishFailure({id:current.id,...current.data()} as DraftDoc,error,{retryable:claimed.target_platform==="threads"}); throw error; }
+}
+
 export interface ScheduleExecutionResult {
   publishedCount: number;
   duplicateCount: number;

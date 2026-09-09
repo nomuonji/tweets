@@ -1,0 +1,19 @@
+{
+  "name": "tweets-operator",
+  "version": "0.1.0",
+  "description": "Operate the authenticated post-management MCP service safely.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tweets Operator",
+    "shortDescription": "Diagnose and replenish post drafts.",
+    "longDescription": "Safely manages drafts, schedules, guidance, products, and existing-draft publishing through the authenticated MCP service.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Diagnose post inventory and replenish only the current character-version drafts that are missing."
+  },
+  "mcpServers": "./.mcp.json"
+}

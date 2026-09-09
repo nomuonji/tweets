@@ -228,37 +228,18 @@ export async function getUsableDraftsByAccountId(
   limit = 5,
 ): Promise<DraftDoc[]> {
   const boundedLimit = Math.max(1, limit);
-  const statuses: DraftDoc["status"][] = ["scheduled", "draft"];
-  let snapshots: FirebaseFirestore.QuerySnapshot[];
-  try {
-    snapshots = await Promise.all(
-      statuses.map((status) =>
-        adminDb
-          .collection("drafts")
-          .where("target_account_id", "==", accountId)
-          .where("status", "==", status)
-          .limit(boundedLimit)
-          .get(),
-      ),
-    );
-  } catch (error) {
-    console.warn(
-      `[Firestore] Usable-draft query failed for ${accountId}; using a bounded sample.`,
-      error,
-    );
-    snapshots = [
-      await adminDb
-        .collection("drafts")
-        .where("target_account_id", "==", accountId)
-        .limit(boundedLimit * 4)
-        .get(),
-    ];
-  }
+  // Do not limit before filtering by character version. Old drafts can occupy
+  // the first N documents for either status, which made generation work report
+  // fewer usable drafts than the write transaction (which correctly scans the
+  // full account queue) and caused false replenishment attempts.
+  const snapshot = await adminDb
+    .collection("drafts")
+    .where("target_account_id", "==", accountId)
+    .get();
 
-  return snapshots
-    .flatMap((snapshot) =>
-      snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as DraftDoc),
-    )
+  return snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }) as DraftDoc)
+    .filter((draft) => draft.status === "scheduled" || draft.status === "draft")
     .filter((draft) => belongsToCharacterVersion(draft, characterVersion))
     .slice(0, boundedLimit);
 }
