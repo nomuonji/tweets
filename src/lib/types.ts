@@ -172,6 +172,61 @@ export type ProductLifecycleState =
   | "evaluated";
 export type ProductCreativeStatus = "not_started" | "planned" | "ready" | "archived";
 
+export type AffiliatePerformanceResult =
+  | "strong"
+  | "neutral"
+  | "weak"
+  | "insufficient_baseline"
+  | "pending";
+
+export interface AffiliatePostRef {
+  account_id: string;
+  platform: Platform;
+  post_id: string;
+  platform_post_id: string;
+  product_id: string;
+  creative_asset_id?: string;
+  posted_at: string;
+  [key: string]: unknown;
+}
+
+export interface AffiliatePerformanceCheckpoint extends PostMetrics {
+  checked_at?: string;
+  weighted_engagement?: number;
+  weighted_engagement_rate?: number;
+  baseline_count?: number;
+  median_impressions?: number | null;
+  median_weighted_engagement_rate?: number | null;
+  impression_ratio?: number | null;
+  engagement_rate_ratio?: number | null;
+  [key: string]: unknown;
+}
+
+export interface AffiliatePerformancePost {
+  post_id: string;
+  platform_post_id?: string;
+  account_id?: string;
+  platform?: Platform;
+  creative_asset_id?: string;
+  checkpoints?: {
+    "24h"?: AffiliatePerformanceCheckpoint;
+    "72h"?: AffiliatePerformanceCheckpoint;
+    [key: string]: AffiliatePerformanceCheckpoint | undefined;
+  };
+  result?: AffiliatePerformanceResult;
+  [key: string]: unknown;
+}
+
+export interface ProductPerformance {
+  attempts?: number;
+  strong_count?: number;
+  neutral_count?: number;
+  weak_count?: number;
+  best_result?: Exclude<AffiliatePerformanceResult, "pending">;
+  posts?: AffiliatePerformancePost[];
+  [key: string]: unknown;
+}
+
 export interface CreativeAssetRecord {
   /** Stable asset identifier inside the creative workflow. */
   id?: string;
@@ -228,6 +283,11 @@ export interface ProductCatalogDoc {
   amazon_verified?: boolean;
   amazon_verified_at?: string;
   lifecycle_state?: ProductLifecycleState;
+
+  // Explicit Product -> Post attribution and measured performance.
+  post_refs?: AffiliatePostRef[];
+  performance?: ProductPerformance;
+  archive_reason?: string;
 
   created_at: string;
   updated_at: string;
@@ -308,9 +368,16 @@ export interface PostDoc {
   fetched_at: string;
   /** Set when a product-promotion reply was posted under this post. */
   promo_replied_at?: string;
-  /** Future-safe attribution fields. Existing post synchronization does not populate them yet. */
+  /** Internal attribution survives platform re-sync because posts are merge-upserted. */
   affiliate_product_id?: string;
   affiliate_creative_id?: string;
+  source_draft_id?: string;
+  affiliate_link_status?: "pending" | "linked";
+  affiliate_link_error?: string | null;
+  affiliate_linked_at?: string;
+  affiliate_link_updated_at?: string;
+  publish_cleanup_pending?: boolean;
+  schedule_reconciliation_pending?: boolean;
 }
 
 export interface ReferenceAccountDoc {
@@ -370,7 +437,8 @@ export interface DraftDoc {
   /** Set when this draft is a product-promotion post. */
   promo_product_id?: string;
   promo_product_asin?: string;
-  /** Optional affiliate creative identifier for future Creative -> Draft -> Post attribution. */
+  /** Explicit affiliate attribution. Optional for normal drafts. */
+  affiliate_product_id?: string;
   affiliate_creative_id?: string;
   /** The post structure type used for this draft, used by the self-improvement loop. */
   pattern?: PostPattern;

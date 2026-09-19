@@ -23,7 +23,9 @@
     "test:firestore-efficiency": "tsx scripts/test-firestore-efficiency.ts",
     "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts",
     "tip:add": "tsx -r dotenv/config scripts/add-tip.ts",
-    "exemplary:add": "tsx -r dotenv/config scripts/add-exemplary.ts"
+    "exemplary:add": "tsx -r dotenv/config scripts/add-exemplary.ts",
+    "test:affiliate-tracking": "tsx scripts/test-affiliate-tracking.ts",
+    "prebuild": "npm run test:affiliate-tracking"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.53",

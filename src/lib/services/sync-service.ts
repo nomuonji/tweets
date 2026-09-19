@@ -7,6 +7,7 @@ import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
 import { getAccounts, upsertPost } from "./firestore.server";
+import { reconcileAffiliateLinkForPost } from "./affiliate-tracking-service";
 import {
   getLastSuccessfulPromoReplyTime,
   isPromoReplyEligible,
@@ -40,6 +41,7 @@ export type SyncResult = {
   promoAttempts?: number;
   promoFailures?: number;
   promoHaltedReason?: string;
+  affiliateLinksReconciled?: number;
   error?: string;
   debug: string[];
 };
@@ -201,8 +203,15 @@ export async function syncPostsForAllAccounts(
         toPostDocument(account, item),
       );
 
+      let affiliateLinksReconciled = 0;
       for (const post of posts) {
         await upsertPost(post);
+        try {
+          const reconciliation = await reconcileAffiliateLinkForPost(post.id);
+          if (reconciliation.status === "linked") affiliateLinksReconciled += 1;
+        } catch (error) {
+          console.error("[Sync] Affiliate link reconciliation failed for post", post.id, error);
+        }
       }
 
       // Process the strongest posts first, while still storing every fetched post.
@@ -261,6 +270,7 @@ export async function syncPostsForAllAccounts(
         promoAttempts,
         promoFailures,
         promoHaltedReason,
+        affiliateLinksReconciled,
         debug: [
           ...debug,
           `Fetched payloads: ${payloads.length}`,
@@ -269,6 +279,7 @@ export async function syncPostsForAllAccounts(
           `Promo replies posted: ${promoReplies}`,
           `Promo reply attempts: ${promoAttempts}`,
           `Promo reply failures: ${promoFailures}`,
+          `Affiliate links reconciled: ${affiliateLinksReconciled}`,
           ...(promoHaltedReason
             ? [`Promo replies halted: ${promoHaltedReason}`]
             : []),

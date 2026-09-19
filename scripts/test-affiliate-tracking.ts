@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { evaluateAffiliatePost72h, shouldAutoArchiveProduct, weightedEngagement } from "../src/lib/affiliate-performance";
+import { productCatalogUpdateSchema } from "../src/lib/product-catalog-schema";
+import type { PostMetrics, ProductPerformance } from "../src/lib/types";
+const baseline:PostMetrics[]=Array.from({length:5},()=>({impressions:1000,likes:10,replies:0,reposts_or_rethreads:0,quotes:0,link_clicks:null}));
+assert.equal(weightedEngagement({...baseline[0],likes:1,reposts_or_rethreads:2,replies:3,quotes:4,link_clicks:5}),34);
+assert.equal(evaluateAffiliatePost72h({...baseline[0],impressions:1500},baseline).result,"strong");
+assert.equal(evaluateAffiliatePost72h({...baseline[0],impressions:500,likes:1},baseline).result,"weak");
+assert.equal(evaluateAffiliatePost72h({...baseline[0],impressions:1000},baseline).result,"neutral");
+assert.equal(evaluateAffiliatePost72h({...baseline[0]},baseline.slice(0,4)).result,"insufficient_baseline");
+assert.equal(evaluateAffiliatePost72h({...baseline[0],impressions:0},baseline).result,"pending");
+const p:ProductPerformance={strong_count:0,weak_count:2,posts:[{post_id:"p1",creative_asset_id:"c1",result:"weak",checkpoints:{"72h":{impressions:100}}},{post_id:"p2",creative_asset_id:"c2",result:"weak",checkpoints:{"72h":{impressions:100}}}]};
+assert.equal(shouldAutoArchiveProduct(p),true); assert.equal(shouldAutoArchiveProduct({...p,strong_count:1}),false); assert.equal(shouldAutoArchiveProduct({...p,posts:[{post_id:"p1",creative_asset_id:"c1",result:"weak",checkpoints:{"72h":{impressions:100}}},{post_id:"p2",creative_asset_id:"c1",result:"weak",checkpoints:{"72h":{impressions:100}}}]}),false);
+const parsed=productCatalogUpdateSchema.parse({post_refs:[{account_id:"acct",platform:"x",post_id:"x_1",platform_post_id:"1",product_id:"B000000001",creative_asset_id:"creative-v2",posted_at:"2026-09-20T00:00:00.000Z"}],performance:{attempts:1,weak_count:1,posts:[{post_id:"x_1",creative_asset_id:"creative-v2",checkpoints:{"72h":{impressions:5000,link_clicks:null}},result:"weak"}]},unknown_extension_field:{keep:true}});
+assert.deepEqual(parsed.unknown_extension_field,{keep:true}); assert.equal(parsed.post_refs?.[0]?.creative_asset_id,"creative-v2"); assert.equal(productCatalogUpdateSchema.parse({notes:"ordinary product update"}).notes,"ordinary product update");
+console.log("affiliate tracking tests passed");

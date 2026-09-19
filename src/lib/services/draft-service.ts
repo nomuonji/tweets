@@ -27,7 +27,14 @@ export function trigramSimilarity(left: string, right: string) {
   return (2 * common) / (a.size + b.size);
 }
 
-export type NewDraftInput = { text: string; hashtags?: string[]; createdBy?: string; generatedBy?: string; overwriteSimilar?: boolean };
+export type NewDraftInput = {
+  text: string;
+  hashtags?: string[];
+  createdBy?: string;
+  generatedBy?: string;
+  overwriteSimilar?: boolean;
+  affiliate?: { productId: string; creativeAssetId?: string };
+};
 
 export async function createAgentDrafts(
   accountId: string,
@@ -47,6 +54,11 @@ export async function createAgentDrafts(
       .filter((draft) => (draft.status === "draft" || draft.status === "scheduled") && (draft.character_version ?? 1) === version);
     if (usable.length + inputs.length > MAX_AGENT_DRAFTS) throw new Error(`Current character version inventory is capped at ${MAX_AGENT_DRAFTS}.`);
     const existing = draftSnap.docs.map((doc) => doc.data() as DraftDoc);
+    const affiliateProductIds = Array.from(new Set(inputs.map((input) => input.affiliate?.productId?.trim().toUpperCase()).filter((value): value is string => Boolean(value))));
+    for (const productId of affiliateProductIds) {
+      const productSnap = await transaction.get(adminDb.collection("products").doc(productId));
+      if (!productSnap.exists) throw new Error("Affiliate product not found: " + productId);
+    }
     const now = DateTime.utc().toISO()!;
     const drafts = inputs.map((input) => {
       const text = input.text.trim(); const hashtags = input.hashtags ?? [];
@@ -62,7 +74,7 @@ export async function createAgentDrafts(
       const similar = existing.find((candidate) => trigramSimilarity(fullText, draftTextWithHashtags(candidate.text, candidate.hashtags)) >= 0.82);
       if (similar && !input.overwriteSimilar) throw new Error("A too-similar draft already exists; set overwriteSimilar only after reviewing it.");
       const ref = adminDb.collection("drafts").doc();
-      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", pattern: extractPattern(text) };
+      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), pattern: extractPattern(text) };
       transaction.set(ref, draft); existing.push(draft); return draft;
     });
     return drafts;

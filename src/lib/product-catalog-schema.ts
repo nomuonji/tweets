@@ -34,6 +34,54 @@ export const creativeAssetSchema = z.object({
  * This is deliberate: the existing catalog already contains agent-authored extension
  * fields and must remain forward/backward compatible.
  */
+export const affiliatePostRefSchema = z.object({
+  account_id: z.string().trim().min(1).max(256),
+  platform: z.enum(["x", "threads"]),
+  post_id: z.string().trim().min(1).max(256),
+  platform_post_id: z.string().trim().min(1).max(256),
+  product_id: z.string().trim().min(1).max(256),
+  creative_asset_id: z.string().trim().min(1).max(256).optional(),
+  posted_at: z.string().trim().min(1).max(64),
+}).passthrough();
+
+export const affiliatePerformanceCheckpointSchema = z.object({
+  impressions: z.number().nonnegative().nullable().optional(),
+  likes: z.number().nonnegative().optional(),
+  replies: z.number().nonnegative().optional(),
+  reposts_or_rethreads: z.number().nonnegative().optional(),
+  quotes: z.number().nonnegative().optional(),
+  link_clicks: z.number().nonnegative().nullable().optional(),
+  checked_at: z.string().trim().min(1).max(64).optional(),
+  weighted_engagement: z.number().nonnegative().optional(),
+  weighted_engagement_rate: z.number().nonnegative().optional(),
+  baseline_count: z.number().int().nonnegative().optional(),
+  median_impressions: z.number().nonnegative().nullable().optional(),
+  median_weighted_engagement_rate: z.number().nonnegative().nullable().optional(),
+  impression_ratio: z.number().nonnegative().nullable().optional(),
+  engagement_rate_ratio: z.number().nonnegative().nullable().optional(),
+}).passthrough();
+
+const affiliatePerformanceResultSchema = z.enum(["strong","neutral","weak","insufficient_baseline","pending"]);
+
+export const affiliatePerformancePostSchema = z.object({
+  post_id: z.string().trim().min(1).max(256),
+  platform_post_id: z.string().trim().min(1).max(256).optional(),
+  account_id: z.string().trim().min(1).max(256).optional(),
+  platform: z.enum(["x", "threads"]).optional(),
+  creative_asset_id: z.string().trim().min(1).max(256).optional(),
+  checkpoints: z.object({ "24h": affiliatePerformanceCheckpointSchema.optional(), "72h": affiliatePerformanceCheckpointSchema.optional() }).passthrough().optional(),
+  result: affiliatePerformanceResultSchema.optional(),
+}).passthrough();
+
+export const productPerformanceSchema = z.object({
+  attempts: z.number().int().nonnegative().optional(),
+  strong_count: z.number().int().nonnegative().optional(),
+  neutral_count: z.number().int().nonnegative().optional(),
+  weak_count: z.number().int().nonnegative().optional(),
+  best_result: z.enum(["strong","neutral","weak","insufficient_baseline"]).optional(),
+  posts: z.array(affiliatePerformancePostSchema).max(500).optional(),
+}).passthrough();
+
 export const productCatalogCreateSchema = z.object({
   asin: z.string().trim().min(3).max(32),
   title: z.string().trim().min(1).max(300),
@@ -65,6 +113,9 @@ export const productCatalogCreateSchema = z.object({
   amazon_verified: z.boolean().optional(),
   amazon_verified_at: z.string().trim().min(1).max(64).optional(),
   lifecycle_state: z.enum(PRODUCT_LIFECYCLE_STATES).optional(),
+  post_refs: z.array(affiliatePostRefSchema).max(500).optional(),
+  performance: productPerformanceSchema.optional(),
+  archive_reason: z.string().trim().max(500).optional(),
 }).passthrough();
 
 export const productCatalogUpdateSchema = productCatalogCreateSchema.partial();

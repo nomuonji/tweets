@@ -8,7 +8,8 @@ import {
   reconcileThreadsPost,
   type ThreadsPublishProgress,
 } from "@/lib/platforms/threads";
-import { publishXPost } from "@/lib/platforms/x";
+import { fetchRecentXPosts, publishXPost } from "@/lib/platforms/x";
+import { linkAffiliatePostToProduct } from "./affiliate-tracking-service";
 
 import { findDueSlots, selectSlot, SCHEDULE_TIMEZONE } from "./schedule-slots";
 import {
@@ -94,6 +95,11 @@ async function publishDraft(
   startedAt: string,
 ) {
   if (draft.target_platform === "x") {
+    await adminDb.collection("drafts").doc(draft.id).set({
+      publish_stage: "publishing",
+      publish_attempt_count: (draft.publish_attempt_count ?? 0) + 1,
+      publish_stage_updated_at: DateTime.utc().toISO(),
+    }, { merge: true });
     return publishXPost(account, { text: buildPostText(draft) });
   }
   return publishThreadsPost(
@@ -104,6 +110,39 @@ async function publishDraft(
       onProgress: (progress) => persistThreadsProgress(draft.id, progress),
     },
   );
+}
+
+async function reconcileXPublishedPost(account: AccountDoc, fullText: string, startedAt: string) {
+  const recent = await fetchRecentXPosts(account, { startTime: startedAt, limit: 20 });
+  const matched = recent.posts.find((post) => post.text.trim() === fullText.trim());
+  if (!matched) return null;
+  return { platform_post_id: matched.platform_post_id, url: matched.url, raw: matched.raw };
+}
+
+async function finalizePublishedPost(post: PostDoc, draft: DraftDoc, options: { scheduleSlot?: DateTime } = {}): Promise<PostDoc> {
+  const now = DateTime.utc().toISO()!;
+  const postRef = adminDb.collection("posts").doc(post.id);
+  const draftRef = adminDb.collection("drafts").doc(draft.id);
+  // Durable external-success fact. Later failures are reconciliation/cleanup only.
+  await postRef.set(post, { merge: true });
+  if (post.affiliate_product_id) {
+    try { await linkAffiliatePostToProduct(post); }
+    catch (error) { await postRef.set({ affiliate_link_status:"pending", affiliate_link_error:describeError(error), affiliate_link_updated_at:now }, { merge:true }); }
+  }
+  if (options.scheduleSlot) {
+    try { await adminDb.collection("accounts").doc(post.account_id).update({ lastPostExecutedAt: options.scheduleSlot.toISO() }); }
+    catch (error) {
+      await postRef.set({ schedule_reconciliation_pending:true, affiliate_link_updated_at:now }, { merge:true }).catch(()=>undefined);
+      await draftRef.set({ status:"scheduled", publishing_started_at:null, publish_stage:"reconciling", updated_at:now, last_error:{message:describeError(error),occurred_at:now} }, { merge:true }).catch(()=>undefined);
+      const persisted=await postRef.get(); return { id:persisted.id, ...persisted.data() } as PostDoc;
+    }
+  }
+  try { await draftRef.delete(); }
+  catch {
+    await draftRef.set({ status:"published", published_at:now, publishing_started_at:null, updated_at:now }, { merge:true }).catch(()=>undefined);
+    await postRef.set({ publish_cleanup_pending:true }, { merge:true }).catch(()=>undefined);
+  }
+  const persisted=await postRef.get(); return { id:persisted.id, ...persisted.data() } as PostDoc;
 }
 
 export async function recordPublishFailure(
@@ -306,6 +345,8 @@ async function claimDraft(
 
     const data = doc.data() as DraftDoc;
 
+    if (data.status === "published") return null;
+
     if (data.status === "publishing") {
       const startedAt = data.publishing_started_at
         ? DateTime.fromISO(data.publishing_started_at)
@@ -409,19 +450,12 @@ async function processAccount(
     const startedAt = claimed.publishing_started_at ?? now.toUTC().toISO()!;
     let result = null;
 
-    // A previous runner may have died after Meta accepted the post but before
-    // Firestore was updated. Reconcile first instead of blindly posting again.
-    if (
-      claimed.target_platform === "threads" &&
-      (claimed.publish_stage === "publishing" ||
-        claimed.publish_stage === "reconciling")
-    ) {
-      result = await reconcileThreadsPost(account, fullText, startedAt);
-      if (result) {
-        console.log(
-          `[Scheduler] Reconciled draft ${claimed.id} with existing Threads post ${result.platform_post_id}.`,
-        );
-      }
+    // Reconcile an ambiguous previous platform publish before any retry.
+    if (claimed.publish_stage === "publishing" || claimed.publish_stage === "reconciling") {
+      result = claimed.target_platform === "threads"
+        ? await reconcileThreadsPost(account, fullText, startedAt)
+        : await reconcileXPublishedPost(account, fullText, startedAt);
+      if (result) console.log(`[Scheduler] Reconciled draft ${claimed.id} with existing ${claimed.target_platform} post ${result.platform_post_id}.`);
     }
 
     result ??= await publishDraft(account, claimed, startedAt);
@@ -443,7 +477,7 @@ async function processAccount(
         replies: 0,
         reposts_or_rethreads: 0,
         quotes: 0,
-        link_clicks: 0,
+        link_clicks: null,
       },
       score: 0,
       character_version: claimed.character_version ?? characterVersion,
@@ -451,15 +485,11 @@ async function processAccount(
       raw: result.raw,
       url: result.url,
       fetched_at: nowStr,
+      source_draft_id: claimed.id,
+      ...(claimed.affiliate_product_id ? { affiliate_product_id:claimed.affiliate_product_id, ...(claimed.affiliate_creative_id ? { affiliate_creative_id:claimed.affiliate_creative_id } : {}), affiliate_link_status:"pending" as const } : {}),
     };
 
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("posts").doc(prefixedId), newPost);
-    batch.delete(adminDb.collection("drafts").doc(claimed.id));
-    batch.update(adminDb.collection("accounts").doc(accountId), {
-      lastPostExecutedAt: targetSlot.toISO(),
-    });
-    await batch.commit();
+    await finalizePublishedPost(newPost, claimed, { scheduleSlot: targetSlot });
 
     console.log(
       `[Scheduler] Published draft ${claimed.id} for slot ${targetSlot.toISO()} as ${result.platform_post_id}.`,
@@ -473,16 +503,12 @@ async function processAccount(
       `[Scheduler] Failed to publish draft ${claimed.id} for account ${accountId}; marking as failed.`,
       error,
     );
-    const threadsFailure =
-      claimed.target_platform === "threads"
-        ? classifyThreadsApiError("publish", error)
-        : null;
-    const retryable =
-      threadsFailure?.kind === "media_not_found" ||
-      threadsFailure?.kind === "rate_limited" ||
-      threadsFailure?.kind === "transient" ||
-      threadsFailure?.kind === "ambiguous_publish";
-    await recordPublishFailure(claimed, error, { retryable });
+    const threadsFailure = claimed.target_platform === "threads" ? classifyThreadsApiError("publish", error) : null;
+    const currentAfterFailure = await adminDb.collection("drafts").doc(claimed.id).get().catch(() => null);
+    const currentDraft = currentAfterFailure?.exists ? ({ id:currentAfterFailure.id, ...currentAfterFailure.data() } as DraftDoc) : claimed;
+    const hasPublishCheckpoint = currentDraft.publish_stage === "publishing" || currentDraft.publish_stage === "reconciling";
+    const retryable = hasPublishCheckpoint || threadsFailure?.kind === "media_not_found" || threadsFailure?.kind === "rate_limited" || threadsFailure?.kind === "transient" || threadsFailure?.kind === "ambiguous_publish";
+    await recordPublishFailure(currentDraft, error, { retryable });
     return "failed";
   }
 }
@@ -490,30 +516,28 @@ async function processAccount(
 /** Publish exactly one already-saved draft. Used by the dashboard and MCP; it
  * shares the scheduler's lock, duplicate guard, recovery and persistence path. */
 export async function publishExistingDraft(draftId: string, expectedUpdatedAt: string): Promise<PostDoc> {
-  const ref = adminDb.collection("drafts").doc(draftId);
-  const before = await ref.get();
-  if (!before.exists) throw new Error("Draft not found.");
-  if (before.data()?.updated_at !== expectedUpdatedAt) throw new Error("updated_at conflict: refresh and retry.");
-  const now = DateTime.utc();
-  const claimed = await claimDraft(draftId, now);
-  if (!claimed) throw new Error("Draft is currently locked for publishing.");
-  const accountId = claimed.target_account_id;
-  if (!accountId) throw new Error("Draft has no target account.");
-  const accountSnap = await adminDb.collection("accounts").doc(accountId).get();
-  if (!accountSnap.exists) throw new Error("Account not found.");
-  const account = { id: accountSnap.id, ...accountSnap.data() } as AccountDoc;
-  const version = getCharacterVersion(account);
-  if (!belongsToCharacterVersion(claimed, version)) { await ref.update({ status: "scheduled", publishing_started_at: null, updated_at: DateTime.utc().toISO() }); throw new Error("Draft uses an old character version."); }
+  const ref=adminDb.collection("drafts").doc(draftId); const before=await ref.get();
+  if(!before.exists) throw new Error("Draft not found.");
+  if(before.data()?.updated_at!==expectedUpdatedAt) throw new Error("updated_at conflict: refresh and retry.");
+  const existingPost=await adminDb.collection("posts").where("source_draft_id","==",draftId).limit(1).get();
+  if(!existingPost.empty){const doc=existingPost.docs[0]; await ref.delete().catch(()=>ref.set({status:"published",published_at:DateTime.utc().toISO()},{merge:true})); return {id:doc.id,...doc.data()} as PostDoc;}
+  const now=DateTime.utc(); const claimed=await claimDraft(draftId,now); if(!claimed) throw new Error("Draft is currently locked or already published.");
+  const accountId=claimed.target_account_id; if(!accountId) throw new Error("Draft has no target account.");
+  const accountSnap=await adminDb.collection("accounts").doc(accountId).get(); if(!accountSnap.exists) throw new Error("Account not found.");
+  const account={id:accountSnap.id,...accountSnap.data()} as AccountDoc; const version=getCharacterVersion(account);
+  if(!belongsToCharacterVersion(claimed,version)){await ref.update({status:"scheduled",publishing_started_at:null,updated_at:DateTime.utc().toISO()}); throw new Error("Draft uses an old character version.");}
   try {
-    const fullText = buildPostText(claimed);
-    if (await hasDuplicatePost(accountId, fullText)) { await ref.delete(); throw new Error("A matching post was already published in the last 24 hours."); }
-    const startedAt = claimed.publishing_started_at ?? now.toISO()!;
-    let result = claimed.target_platform === "threads" && (claimed.publish_stage === "publishing" || claimed.publish_stage === "reconciling") ? await reconcileThreadsPost(account, fullText, startedAt) : null;
-    result ??= await publishDraft(account, claimed, startedAt);
-    const nowStr = DateTime.utc().toISO()!; const id = `${claimed.target_platform}_${result.platform_post_id}`;
-    const post: PostDoc = { id, account_id: accountId, platform: claimed.target_platform, platform_post_id: result.platform_post_id, text: fullText, created_at: nowStr, media_type:"text", has_url:fullText.includes("http"), metrics:{impressions:0,likes:0,replies:0,reposts_or_rethreads:0,quotes:0,link_clicks:0}, score:0, character_version:claimed.character_version ?? version, ...(claimed.pattern?{pattern:claimed.pattern}:{}), raw:result.raw, url:result.url, fetched_at:nowStr };
-    const batch=adminDb.batch(); batch.set(adminDb.collection("posts").doc(id),post); batch.delete(ref); await batch.commit(); return post;
-  } catch (error) { const current=await ref.get(); if(current.exists) await recordPublishFailure({id:current.id,...current.data()} as DraftDoc,error,{retryable:claimed.target_platform==="threads"}); throw error; }
+    const fullText=buildPostText(claimed); if(await hasDuplicatePost(accountId,fullText)){await ref.delete(); throw new Error("A matching post was already published in the last 24 hours.");}
+    const startedAt=claimed.publishing_started_at??now.toISO()!; let result=null;
+    if(claimed.publish_stage==="publishing"||claimed.publish_stage==="reconciling") result=claimed.target_platform==="threads"?await reconcileThreadsPost(account,fullText,startedAt):await reconcileXPublishedPost(account,fullText,startedAt);
+    result??=await publishDraft(account,claimed,startedAt);
+    const nowStr=DateTime.utc().toISO()!, id=claimed.target_platform+"_"+result.platform_post_id;
+    const post:PostDoc={id,account_id:accountId,platform:claimed.target_platform,platform_post_id:result.platform_post_id,text:fullText,created_at:nowStr,media_type:"text",has_url:fullText.includes("http"),metrics:{impressions:0,likes:0,replies:0,reposts_or_rethreads:0,quotes:0,link_clicks:null},score:0,character_version:claimed.character_version??version,...(claimed.pattern?{pattern:claimed.pattern}:{}),raw:result.raw,url:result.url,fetched_at:nowStr,source_draft_id:claimed.id,...(claimed.affiliate_product_id?{affiliate_product_id:claimed.affiliate_product_id,...(claimed.affiliate_creative_id?{affiliate_creative_id:claimed.affiliate_creative_id}:{}),affiliate_link_status:"pending" as const}:{})};
+    return await finalizePublishedPost(post,claimed);
+  } catch(error) {
+    const current=await ref.get().catch(()=>null); if(current?.exists){const currentDraft={id:current.id,...current.data()} as DraftDoc; const retryable=currentDraft.publish_stage==="publishing"||currentDraft.publish_stage==="reconciling"||claimed.target_platform==="threads"; await recordPublishFailure(currentDraft,error,{retryable});}
+    throw error;
+  }
 }
 
 export interface ScheduleExecutionResult {
