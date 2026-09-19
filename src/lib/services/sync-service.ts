@@ -262,14 +262,14 @@ export async function syncPostsForAllAccounts(
       results.push({
         accountId: account.id,
         handle: account.handle,
-        displayName: account.display_name,
+        ...(account.display_name ? { displayName: account.display_name } : {}),
         platform: account.platform,
         fetched: payloads.length,
         stored: posts.length,
         promoReplies,
         promoAttempts,
         promoFailures,
-        promoHaltedReason,
+        ...(promoHaltedReason ? { promoHaltedReason } : {}),
         affiliateLinksReconciled,
         debug: [
           ...debug,
@@ -291,7 +291,7 @@ export async function syncPostsForAllAccounts(
       results.push({
         accountId: account.id,
         handle: account.handle,
-        displayName: account.display_name,
+        ...(account.display_name ? { displayName: account.display_name } : {}),
         platform: account.platform,
         fetched: 0,
         stored: 0,
