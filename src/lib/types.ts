@@ -232,8 +232,7 @@ export interface ProductCatalogDoc {
   created_at: string;
   updated_at: string;
 
-  /** Preserve forward-compatible catalog metadata written by agents. */
-  [key: string]: unknown;
+  /** Additional Firestore fields may exist at runtime; MCP passthrough validation preserves them. */
 }
 
 /** Backward-compatible name used by the product pool UI. */

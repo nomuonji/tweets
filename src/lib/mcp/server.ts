@@ -49,10 +49,10 @@ export function createTweetsMcpServer() {
   server.registerTool("get_product_discovery_work", { description: "Return the active affiliate-discovery protocol plus dedupe/lifecycle context in one read-only call. This tool never drafts, publishes, archives, or changes account settings.", inputSchema: { key: projectContextKey.optional(), productLimit: z.number().int().min(1).max(200).default(50) }, annotations: { readOnlyHint: true } }, async ({ key, productLimit }) => {
     const [contextResult, products] = await Promise.all([getProjectContext(key ?? DEFAULT_AFFILIATE_CONTEXT_KEY), getProductPool()]);
     const recent = products.slice(0, productLimit);
-    const lifecycleCounts = recent.reduce<Record<string, number>>((acc, product) => { const state = String(product.lifecycle_state ?? "legacy_unset"); acc[state] = (acc[state] ?? 0) + 1; return acc; }, {});
+    const lifecycleCounts = products.reduce<Record<string, number>>((acc, product) => { const state = String(product.lifecycle_state ?? "legacy_unset"); acc[state] = (acc[state] ?? 0) + 1; return acc; }, {});
     return text({
       protocol: contextResult,
-      knownAsins: recent.map(product => product.asin),
+      knownAsins: products.map(product => product.asin),
       recentProducts: recent.map(product => ({ id: product.id, asin: product.asin, title: product.title, status: product.status, lifecycle_state: product.lifecycle_state ?? null, viral_score: product.viral_score ?? null, amazon_verified: product.amazon_verified ?? null, updated_at: product.updated_at })),
       summary: { returned: recent.length, catalogTotal: products.length, amazonVerified: products.filter(product => product.amazon_verified === true).length, lifecycleCounts },
       jobBoundary: { allowed: ["get_project_context", "get_product_discovery_work", "list_products", "save_product"], forbidden: ["publish_draft", "create_drafts", "update_account", "update_draft", "delete_draft", "archive_product", "delete_guidance"] },
