@@ -163,12 +163,40 @@ export interface CharacterSheetRevision {
 }
 
 export type ProductPoolStatus = "candidate" | "approved" | "archived";
+export type ProductLifecycleState =
+  | "discovered"
+  | "amazon_verified"
+  | "creative_ready"
+  | "drafted"
+  | "posted"
+  | "evaluated";
+export type ProductCreativeStatus = "not_started" | "planned" | "ready" | "archived";
+
+export interface CreativeAssetRecord {
+  /** Stable asset identifier inside the creative workflow. */
+  id?: string;
+  /** Storage backend, e.g. google_drive today and cloudflare_r2 later. */
+  provider: string;
+  /** Provider-native file/object identifier when available. */
+  external_id?: string;
+  /** Provider-relative path. This is not assumed to be publicly fetchable. */
+  path?: string;
+  /** Optional public URL; never the canonical identity of the asset. */
+  public_url?: string;
+  type?: "image" | "video" | "other";
+  version?: number;
+  created_at?: string;
+  [key: string]: unknown;
+}
 
 export interface ProductCatalogDoc {
   id: string;
   asin: string;
   title: string;
+  /** Legacy/canonical Amazon URL used by existing promotion code. */
   url?: string;
+  /** Explicit alias for affiliate discovery workflows. */
+  amazon_url?: string;
   price?: string;
   image_url?: string;
   category?: string;
@@ -177,16 +205,57 @@ export interface ProductCatalogDoc {
   description?: string;
   promo_hook?: string;
   score?: number;
+  /** Catalog moderation state. Do not use this for affiliate workflow progress. */
   status: ProductPoolStatus;
   account_ids?: string[];
   source_url?: string;
   notes?: string;
+
+  // Affiliate discovery metadata. Optional for backward compatibility.
+  discovery_source_type?: string;
+  discovery_source_url?: string;
+  discovered_at?: string;
+  viral_score?: number;
+  viral_reasons?: string[];
+
+  // Creative preparation. Asset records are storage-provider neutral.
+  creative_concept?: string;
+  creative_assets?: CreativeAssetRecord[];
+  creative_version?: number;
+  creative_status?: ProductCreativeStatus;
+
+  // Amazon verification and affiliate workflow progress.
+  amazon_verified?: boolean;
+  amazon_verified_at?: string;
+  lifecycle_state?: ProductLifecycleState;
+
   created_at: string;
   updated_at: string;
+
+  /** Preserve forward-compatible catalog metadata written by agents. */
+  [key: string]: unknown;
 }
 
 /** Backward-compatible name used by the product pool UI. */
 export type ProductPoolDoc = ProductCatalogDoc;
+
+export interface ProjectContextDoc {
+  id: string;
+  key: string;
+  kind: "operating_protocol";
+  title: string;
+  content: string;
+  status: "active" | "inactive";
+  /** Optimistic-concurrency counter, incremented on every formal context update. */
+  revision: number;
+  /** Protocol/content version. This is independent from the concurrency revision. */
+  version: number | string;
+  metadata?: Record<string, unknown>;
+  /** Present when the context is sourced from the legacy Global Guidance record. */
+  source_guidance_id?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface PromoReplyDoc {
   id: string;
@@ -240,6 +309,9 @@ export interface PostDoc {
   fetched_at: string;
   /** Set when a product-promotion reply was posted under this post. */
   promo_replied_at?: string;
+  /** Future-safe attribution fields. Existing post synchronization does not populate them yet. */
+  affiliate_product_id?: string;
+  affiliate_creative_id?: string;
 }
 
 export interface ReferenceAccountDoc {
@@ -299,6 +371,8 @@ export interface DraftDoc {
   /** Set when this draft is a product-promotion post. */
   promo_product_id?: string;
   promo_product_asin?: string;
+  /** Optional affiliate creative identifier for future Creative -> Draft -> Post attribution. */
+  affiliate_creative_id?: string;
   /** The post structure type used for this draft, used by the self-improvement loop. */
   pattern?: PostPattern;
   /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */
