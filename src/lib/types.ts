@@ -190,7 +190,13 @@ export interface AffiliatePostRef {
   [key: string]: unknown;
 }
 
-export interface AffiliatePerformanceCheckpoint extends PostMetrics {
+export interface AffiliatePerformanceCheckpoint {
+  impressions?: number | null;
+  likes?: number;
+  replies?: number;
+  reposts_or_rethreads?: number;
+  quotes?: number;
+  link_clicks?: number | null;
   checked_at?: string;
   weighted_engagement?: number;
   weighted_engagement_rate?: number;
