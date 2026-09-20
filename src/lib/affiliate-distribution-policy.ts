@@ -137,6 +137,26 @@ export function allowsAffiliateOfferReply(
   return mode === "affiliate_offer" || mode === "mixed";
 }
 
+export function resolvePromoReplyMode(
+  account: { promoReplyMode?: PromoReplyMode },
+): PromoReplyMode {
+  return account.promoReplyMode ?? "amazon";
+}
+
+export function allowsAmazonPromoReply(
+  account: { promoReplyMode?: PromoReplyMode },
+): boolean {
+  const mode = resolvePromoReplyMode(account);
+  return mode === "amazon" || mode === "mixed";
+}
+
+export function allowsAffiliateOfferReply(
+  account: { promoReplyMode?: PromoReplyMode },
+): boolean {
+  const mode = resolvePromoReplyMode(account);
+  return mode === "affiliate_offer" || mode === "mixed";
+}
+
 export type AffiliateOfferMatch = {
   eligible: boolean;
   score: number;
@@ -205,6 +225,9 @@ export function matchAffiliateOffer(
   now: DateTime = DateTime.utc(),
 ): AffiliateOfferMatch {
   const blockReasons = getOfferTemporalBlockReasons(offer, now);
+  if (!allowsAffiliateOfferReply(account)) {
+    blockReasons.push("affiliate_offer_mode_disabled");
+  }
   if (!allowsAffiliateOfferReply(account)) {
     blockReasons.push("affiliate_offer_mode_disabled");
   }
