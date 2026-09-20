@@ -13,12 +13,48 @@ import { publishExistingDraft } from "@/lib/services/scheduler-service";
 import { normalizeProductCatalogInput, productCatalogUpdateSchema } from "@/lib/product-catalog-schema";
 import { DEFAULT_AFFILIATE_CONTEXT_KEY, getProjectContext, updateProjectContext } from "@/lib/services/project-context-service";
 import { getProductPerformanceWork } from "@/lib/services/affiliate-tracking-service";
+import { listAffiliateOffers, getAffiliateOffer, saveAffiliateOffer, archiveAffiliateOffer, getAffiliateReplyWork, createAffiliateReplyDraft, publishAffiliateReply, reconcileAffiliateReply, updateAffiliateOfferPerformance } from "@/lib/services/affiliate-offer-service";
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
 const page = z.number().int().min(1).default(1); const limit = z.number().int().min(1).max(50).default(20);
 const write = { idempotencyKey: z.string().min(1).max(128) };
 const projectContextKey = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).default(DEFAULT_AFFILIATE_CONTEXT_KEY);
 const performanceContextKey = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).default("affiliate_product_performance_v1");
+const affiliateOfferKind = z.enum(["amazon_product","service","lead","subscription","digital_product","owned_product"]);
+const affiliateOfferStatus = z.enum(["candidate","pending_approval","approved","active","paused","archived"]);
+const affiliateOfferUpdateSchema = z.object({
+  kind: affiliateOfferKind.optional(),
+  network: z.string().trim().min(1).max(100).optional(),
+  advertiser: z.string().trim().max(300).optional(),
+  programId: z.string().trim().max(300).optional(),
+  sourceProductId: z.string().trim().max(256).optional(),
+  title: z.string().trim().min(1).max(300).optional(),
+  description: z.string().trim().max(5000).optional(),
+  destinationUrl: z.union([z.string().url().max(1500), z.literal("")]).optional(),
+  affiliateUrl: z.union([z.string().url().max(2000), z.literal("")]).optional(),
+  category: z.string().trim().max(160).optional(),
+  themes: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  conversionAction: z.string().trim().max(500).optional(),
+  reward: z.object({
+    amount: z.number().min(0).optional(),
+    currency: z.string().trim().max(16).optional(),
+    type: z.enum(["fixed","percentage","variable"]).optional(),
+    description: z.string().trim().max(500).optional(),
+  }).optional(),
+  status: affiliateOfferStatus.optional(),
+  allowedPlatforms: z.array(z.enum(["x","threads"])).max(10).optional(),
+  allowedAccountIds: z.array(z.string().trim().min(1).max(256)).max(100).optional(),
+  personaFits: z.array(z.string().trim().min(1).max(300)).max(100).optional(),
+  promoHooks: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
+  prohibitedClaims: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
+  disclosureText: z.string().trim().max(500).optional(),
+  validFrom: z.string().trim().max(64).optional(),
+  validUntil: z.string().trim().max(64).optional(),
+  sourceUrl: z.union([z.string().url().max(1500), z.literal("")]).optional(),
+  notes: z.string().trim().max(5000).optional(),
+  offerCooldownMinutes: z.number().int().min(0).max(43200).optional(),
+  performance: z.record(z.string(), z.unknown()).optional(),
+}).passthrough();
 const projectContextChanges = z.object({
   title: z.string().trim().min(1).max(300).optional(),
   content: z.string().trim().min(1).max(30000).optional(),
@@ -32,13 +68,20 @@ async function assertUpdated(ref: FirebaseFirestore.DocumentReference, expected:
   return snap;
 }
 
-const SERVER_VERSION = "1.2.0";
+const SERVER_VERSION = "1.3.0";
+const MCP_TOOLS = [
+  "get_system_health","list_accounts","get_account","get_generation_work","list_drafts","list_recent_posts","get_schedule","list_guidance",
+  "get_project_context","update_project_context","list_products","get_product_discovery_work","get_product_performance_work",
+  "create_drafts","update_draft","delete_draft","publish_draft","update_account","sync_posts","save_product","archive_product","save_guidance","delete_guidance",
+  "list_affiliate_offers","get_affiliate_offer","save_affiliate_offer","archive_affiliate_offer","get_affiliate_reply_work",
+  "create_affiliate_reply_draft","publish_affiliate_reply","reconcile_affiliate_reply","update_affiliate_offer_performance"
+] as const;
 
 export function createTweetsMcpServer() {
   const server = new McpServer({ name: "tweets-operator", version: SERVER_VERSION });
   server.registerTool("get_system_health", { description: "Summarize connection and current-version draft inventory. Read only.", inputSchema: {} , annotations: { readOnlyHint: true }}, async () => {
     const accounts = await getAccounts(); const inventory = await Promise.all(accounts.map(async (a) => ({ accountId: a.id, usableDrafts: (await getUsableDraftsByAccountId(a.id, getCharacterVersion(a))).length })));
-    return text({ status: "ok", serverVersion: SERVER_VERSION, accounts: accounts.length, inventory, capabilities: { projectContext: true, productDiscoveryWork: true, productPerformanceWork: true, affiliateProductSchema: "v2", affiliateTracking: true }, nextAction: "Use get_generation_work for draft inventory or get_product_discovery_work for affiliate discovery." });
+    return text({ status: "ok", serverVersion: SERVER_VERSION, accounts: accounts.length, inventory, toolCount: MCP_TOOLS.length, tools: MCP_TOOLS, capabilities: { projectContext: true, productDiscoveryWork: true, productPerformanceWork: true, affiliateProductSchema: "v2", affiliateTracking: true, affiliateOfferCatalog: true, affiliateReplyWork: true, affiliateReplyTracking: true, affiliateDistributionContext: true }, nextAction: "Use get_generation_work for drafts, get_product_discovery_work for Amazon products, or get_affiliate_reply_work for contextual affiliate distribution." });
   });
   server.registerTool("list_accounts", { description: "List sanitized accounts with no credentials. Read only.", inputSchema: { page, limit }, annotations: { readOnlyHint: true } }, async ({ page, limit }) => text({ items: (await getAccounts()).slice((page - 1) * limit, page * limit).map((account) => { const safe = { ...account } as Record<string, unknown>; delete safe.token_meta; delete safe.credentials; return safe; }), page, limit }));
   server.registerTool("get_account", { description: "Get sanitized account configuration. Read only.", inputSchema: { accountId: z.string().min(1) }, annotations: { readOnlyHint: true } }, async ({ accountId }) => { const a = await getAccount(accountId); if (!a) throw new Error("Account not found."); const safe = { ...a } as Record<string, unknown>; delete safe.token_meta; delete safe.credentials; return text({ ...safe, nextAction: "Use get_generation_work before creating drafts." }); });
@@ -64,6 +107,16 @@ export function createTweetsMcpServer() {
     });
   });
   server.registerTool("get_product_performance_work", { description: "Return the affiliate performance protocol plus explicitly linked Product -> Post work. Read only.", inputSchema: { key: performanceContextKey.optional(), productLimit: z.number().int().min(1).max(200).default(100) }, annotations: { readOnlyHint: true } }, async ({ key, productLimit }) => { const [protocol, work] = await Promise.all([getProjectContext(key ?? "affiliate_product_performance_v1"), getProductPerformanceWork(productLimit)]); return text({ protocol, ...work, nextAction: "Sync posts first, evaluate due 24h/72h checkpoints, then save_product; archive only when the protocol conditions are met." }); });
+  server.registerTool("list_affiliate_offers", { description: "List generic affiliate offers without mixing them into the Amazon product catalog. Read only.", inputSchema: { status: affiliateOfferStatus.optional(), network: z.string().trim().max(100).optional(), category: z.string().trim().max(160).optional(), accountId: z.string().trim().max(256).optional(), platform: z.enum(["x","threads"]).optional(), kind: affiliateOfferKind.optional(), limit: z.number().int().min(1).max(200).default(50) }, annotations: { readOnlyHint: true } }, async ({ status, network, category, accountId, platform, kind, limit }) => text({ items: await listAffiliateOffers({ status, network, category, accountId, platform, kind, limit }) }));
+  server.registerTool("get_affiliate_offer", { description: "Get one generic affiliate offer. Read only.", inputSchema: { id: z.string().trim().min(1).max(256) }, annotations: { readOnlyHint: true } }, async ({ id }) => { const offer = await getAffiliateOffer(id); if (!offer) throw new Error("Affiliate offer not found."); return text({ offer }); });
+  server.registerTool("save_affiliate_offer", { description: "Create or update a generic affiliate offer with optimistic concurrency. New offers default to candidate and are never auto-activated.", inputSchema: { id: z.string().trim().min(1).max(256).optional(), expectedUpdatedAt: z.string().trim().min(1).optional(), expectedRevision: z.number().int().min(0).optional(), offer: affiliateOfferUpdateSchema, ...write }, annotations: { readOnlyHint: false, destructiveHint: false } }, async ({ id, expectedUpdatedAt, expectedRevision, offer, idempotencyKey }) => text(await runIdempotentOperation("save_affiliate_offer", idempotencyKey, async () => ({ offer: await saveAffiliateOffer({ id, expectedUpdatedAt, expectedRevision, offer: offer as Record<string, unknown> }), nextAction: "Keep candidate/pending_approval offers inactive until the affiliate URL, disclosure and program approval are confirmed." }))));
+  server.registerTool("archive_affiliate_offer", { description: "Archive rather than delete an affiliate offer.", inputSchema: { id: z.string().trim().min(1).max(256), expectedUpdatedAt: z.string().trim().min(1), reason: z.string().trim().min(1).max(1000).optional(), ...write }, annotations: { readOnlyHint: false, destructiveHint: true } }, async ({ id, expectedUpdatedAt, reason, idempotencyKey }) => text(await runIdempotentOperation("archive_affiliate_offer", idempotencyKey, async () => ({ offer: await archiveAffiliateOffer(id, expectedUpdatedAt, reason), nextAction: "Archived offers remain available for audit but are excluded from reply work." }))));
+  server.registerTool("get_affiliate_reply_work", { description: "Return recent viral parent posts, account gates, contextual offer matches, and blocked offers. Read only; never publishes.", inputSchema: { accountId: z.string().trim().min(1).max(256).optional(), postLimit: z.number().int().min(1).max(50).default(20), offerLimit: z.number().int().min(1).max(200).default(50) }, annotations: { readOnlyHint: true } }, async ({ accountId, postLimit, offerLimit }) => text({ ...(await getAffiliateReplyWork({ accountId, postLimit, offerLimit })), nextAction: "Choose only an eligible active offer, write a disclosed reply containing affiliateUrl, then create_affiliate_reply_draft." }));
+  server.registerTool("create_affiliate_reply_draft", { description: "Create one explicitly linked Offer -> Promo Reply -> Parent Post draft. Enforces active offer, targeting, viral thresholds, cooldowns, disclosure and affiliate URL.", inputSchema: { parentPostId: z.string().trim().min(1).max(256), offerId: z.string().trim().min(1).max(256), text: z.string().trim().min(1).max(1500), disclosure: z.string().trim().min(1).max(500), hookVersion: z.string().trim().max(128).optional(), ...write }, annotations: { readOnlyHint: false, destructiveHint: false } }, async ({ parentPostId, offerId, text: replyText, disclosure, hookVersion, idempotencyKey }) => text(await runIdempotentOperation("create_affiliate_reply_draft", idempotencyKey, async () => ({ reply: await createAffiliateReplyDraft({ parentPostId, offerId, text: replyText, disclosure, hookVersion }), nextAction: "Review the saved reply and its disclosure before publish_affiliate_reply." }))));
+  server.registerTool("publish_affiliate_reply", { description: "Publish one saved affiliate reply draft through the existing X/Threads reply path. External side effects are locked before publish; ambiguous states reconcile instead of reposting.", inputSchema: { replyDraftId: z.string().trim().min(1).max(256), expectedUpdatedAt: z.string().trim().min(1), ...write }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ replyDraftId, expectedUpdatedAt, idempotencyKey }) => text(await runIdempotentOperation("publish_affiliate_reply", idempotencyKey, async () => await publishAffiliateReply(replyDraftId, expectedUpdatedAt))));
+  server.registerTool("reconcile_affiliate_reply", { description: "Recover Offer -> Reply -> Parent attribution without reposting. Provide a known platform reply ID, or explicitly confirm that no external reply exists.", inputSchema: { replyId: z.string().trim().min(1).max(256), platformReplyId: z.string().trim().min(1).max(256).optional(), platformUrl: z.union([z.string().url().max(1500), z.literal("")]).optional(), confirmNotPublished: z.boolean().optional(), ...write }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ replyId, platformReplyId, platformUrl, confirmNotPublished, idempotencyKey }) => text(await runIdempotentOperation("reconcile_affiliate_reply", idempotencyKey, async () => await reconcileAffiliateReply(replyId, { platformReplyId, platformUrl, confirmNotPublished }))));
+  server.registerTool("update_affiliate_offer_performance", { description: "Record manual or agent-supplied affiliate offer performance. Supports future ASP report import without requiring it now.", inputSchema: { offerId: z.string().trim().min(1).max(256), expectedUpdatedAt: z.string().trim().min(1), update: z.object({ mode: z.enum(["increment","set"]).default("increment"), parentPostImpressions: z.number().min(0).optional(), replyImpressions: z.number().min(0).optional(), likes: z.number().min(0).optional(), replies: z.number().min(0).optional(), clicks: z.number().min(0).optional(), conversions: z.number().min(0).optional(), revenue: z.number().min(0).optional(), bestHook: z.string().trim().max(1000).optional(), bestAccount: z.string().trim().max(256).optional() }), ...write }, annotations: { readOnlyHint: false, destructiveHint: false } }, async ({ offerId, expectedUpdatedAt, update, idempotencyKey }) => text(await runIdempotentOperation("update_affiliate_offer_performance", idempotencyKey, async () => ({ offer: await updateAffiliateOfferPerformance(offerId, expectedUpdatedAt, update), nextAction: "Re-read get_affiliate_offer before another performance update." }))));
+
   server.registerTool("create_drafts", { description: "Atomically save 1–10 agent-authored drafts, bounded by five current-version drafts. Requires current character version and idempotency key.", inputSchema: { accountId: z.string().min(1), expectedCharacterVersion: z.number().int().min(1), drafts: z.array(z.object({ text:z.string().min(1), hashtags:z.array(z.string()).max(10).optional(), overwriteSimilar:z.boolean().optional(), affiliate:z.object({ productId:z.string().trim().min(1).max(256), creativeAssetId:z.string().trim().min(1).max(256).optional() }).optional() })).min(1).max(10), ...write }, annotations: { readOnlyHint: false, destructiveHint: false } }, async ({ accountId, expectedCharacterVersion, drafts, idempotencyKey }) => text(await runIdempotentOperation("create_drafts", idempotencyKey, async () => ({ drafts: await createAgentDrafts(accountId, expectedCharacterVersion, drafts), nextAction: "Re-run get_generation_work." }))));
   server.registerTool("update_draft", { description: "Update an existing draft after checking updated_at. Requires idempotency key.", inputSchema: { draftId:z.string().min(1), expectedUpdatedAt:z.string().min(1), text:z.string().min(1).optional(), hashtags:z.array(z.string()).max(10).optional(), status:z.enum(["draft","scheduled"]).optional(), ...write }, annotations: { readOnlyHint:false, destructiveHint:false } }, async ({ draftId, expectedUpdatedAt, idempotencyKey, ...changes }) => text(await runIdempotentOperation("update_draft", idempotencyKey, async () => { const ref=adminDb.collection("drafts").doc(draftId); await assertUpdated(ref, expectedUpdatedAt); await ref.update({ ...changes, updated_at: DateTime.utc().toISO() }); return { draftId, status:"updated", nextAction:"Review or publish the existing draft." }; })));
   server.registerTool("delete_draft", { description: "Permanently delete one draft after checking updated_at. Requires idempotency key.", inputSchema: { draftId:z.string().min(1), expectedUpdatedAt:z.string().min(1), ...write }, annotations: { readOnlyHint:false, destructiveHint:true } }, async ({ draftId, expectedUpdatedAt, idempotencyKey }) => text(await runIdempotentOperation("delete_draft", idempotencyKey, async () => { const ref=adminDb.collection("drafts").doc(draftId); await assertUpdated(ref, expectedUpdatedAt); await ref.delete(); return {draftId,status:"deleted",nextAction:"Recheck generation work."}; })));
