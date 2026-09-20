@@ -11,7 +11,7 @@ import { syncPostsForAllAccounts } from "@/lib/services/sync-service";
 import { getProductPool, createProductPoolItem, updateProductPoolItem } from "@/lib/services/product-pool-service";
 import { publishExistingDraft } from "@/lib/services/scheduler-service";
 import { normalizeProductCatalogInput, productCatalogUpdateSchema } from "@/lib/product-catalog-schema";
-import { DEFAULT_AFFILIATE_CONTEXT_KEY, getProjectContext, updateProjectContext } from "@/lib/services/project-context-service";
+import { DEFAULT_AFFILIATE_CONTEXT_KEY, getAffiliateDistributionRuntimeState, getProjectContext, updateProjectContext } from "@/lib/services/project-context-service";
 import { getProductPerformanceWork } from "@/lib/services/affiliate-tracking-service";
 import { listAffiliateOffers, getAffiliateOffer, saveAffiliateOffer, archiveAffiliateOffer, getAffiliateReplyWork, createAffiliateReplyDraft, publishAffiliateReply, reconcileAffiliateReply, updateAffiliateOfferPerformance } from "@/lib/services/affiliate-offer-service";
 
@@ -68,7 +68,7 @@ async function assertUpdated(ref: FirebaseFirestore.DocumentReference, expected:
   return snap;
 }
 
-const SERVER_VERSION = "1.3.0";
+const SERVER_VERSION = "1.3.1";
 const MCP_TOOLS = [
   "get_system_health","list_accounts","get_account","get_generation_work","list_drafts","list_recent_posts","get_schedule","list_guidance",
   "get_project_context","update_project_context","list_products","get_product_discovery_work","get_product_performance_work",
@@ -80,8 +80,8 @@ const MCP_TOOLS = [
 export function createTweetsMcpServer() {
   const server = new McpServer({ name: "tweets-operator", version: SERVER_VERSION });
   server.registerTool("get_system_health", { description: "Summarize connection and current-version draft inventory. Read only.", inputSchema: {} , annotations: { readOnlyHint: true }}, async () => {
-    const accounts = await getAccounts(); const inventory = await Promise.all(accounts.map(async (a) => ({ accountId: a.id, usableDrafts: (await getUsableDraftsByAccountId(a.id, getCharacterVersion(a))).length })));
-    return text({ status: "ok", serverVersion: SERVER_VERSION, accounts: accounts.length, inventory, toolCount: MCP_TOOLS.length, tools: MCP_TOOLS, capabilities: { projectContext: true, productDiscoveryWork: true, productPerformanceWork: true, affiliateProductSchema: "v2", affiliateTracking: true, affiliateOfferCatalog: true, affiliateReplyWork: true, affiliateReplyTracking: true, affiliateDistributionContext: true }, nextAction: "Use get_generation_work for drafts, get_product_discovery_work for Amazon products, or get_affiliate_reply_work for contextual affiliate distribution." });
+    const accounts = await getAccounts(); const [inventory, affiliateDistributionRuntime] = await Promise.all([Promise.all(accounts.map(async (a) => ({ accountId: a.id, usableDrafts: (await getUsableDraftsByAccountId(a.id, getCharacterVersion(a))).length }))), getAffiliateDistributionRuntimeState()]);
+    return text({ status: "ok", serverVersion: SERVER_VERSION, accounts: accounts.length, inventory, toolCount: MCP_TOOLS.length, tools: MCP_TOOLS, capabilities: { projectContext: true, productDiscoveryWork: true, productPerformanceWork: true, affiliateProductSchema: "v2", affiliateTracking: true, affiliateOfferCatalog: true, affiliateReplyWork: true, affiliateReplyTracking: true, affiliateDistributionContext: true, promoReplySourceMode: true, affiliateOfferGlobalSwitch: true }, affiliateDistributionRuntime, nextAction: "Use get_generation_work for drafts, get_product_discovery_work for Amazon products, or get_affiliate_reply_work for contextual affiliate distribution." });
   });
   server.registerTool("list_accounts", { description: "List sanitized accounts with no credentials. Read only.", inputSchema: { page, limit }, annotations: { readOnlyHint: true } }, async ({ page, limit }) => text({ items: (await getAccounts()).slice((page - 1) * limit, page * limit).map((account) => { const safe = { ...account } as Record<string, unknown>; delete safe.token_meta; delete safe.credentials; return safe; }), page, limit }));
   server.registerTool("get_account", { description: "Get sanitized account configuration. Read only.", inputSchema: { accountId: z.string().min(1) }, annotations: { readOnlyHint: true } }, async ({ accountId }) => { const a = await getAccount(accountId); if (!a) throw new Error("Account not found."); const safe = { ...a } as Record<string, unknown>; delete safe.token_meta; delete safe.credentials; return text({ ...safe, nextAction: "Use get_generation_work before creating drafts." }); });
