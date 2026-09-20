@@ -27,7 +27,7 @@ async function main() {
     delete process.env.GEMINI_API_KEY_2;
     delete process.env.GEMINI_API_KEY_3;
     process.env.GEMINI_MODELS =
-      "gemini-3.8-flash,gemini-3.7-flash";
+      "gemini-3.8-flash,gemini-3.7-flash,gemini-3.1-flash-lite";
     process.env.GEMINI_RETRY_BASE_MS = "0";
     process.env.OPENROUTER_API_KEY = "openrouter-test";
     process.env.OPENROUTER_FREE_MODELS =
@@ -82,10 +82,11 @@ async function main() {
     assert.equal(result.provider, "openrouter");
     assert.equal(result.model, "google/gemma-4-26b-a4b-it:free");
     assert.equal(result.value.tweet, "fallback worked");
-    assert.equal(geminiCalls, 2);
+    assert.equal(geminiCalls, 3);
     assert.deepEqual(geminiModels, [
       "models/gemini-3.8-flash",
       "models/gemini-3.7-flash",
+      "models/gemini-3.1-flash-lite",
     ]);
     assert.equal(openRouterCalls, 2);
     console.log("Generation fallback test passed.");

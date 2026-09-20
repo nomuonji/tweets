@@ -24,6 +24,8 @@ type ProviderFailure = {
   error: Error;
 };
 
+type OpenRouterFailureKind = "configuration" | "quota" | "capacity" | "model" | "other";
+
 const DEFAULT_OPENROUTER_MODELS = [
   "qwen/qwen3.8-27b:free",
   "google/gemma-4-26b-a4b-it:free",
@@ -82,7 +84,21 @@ function getOpenRouterModels(): string[] {
   return configured?.length ? configured : DEFAULT_OPENROUTER_MODELS;
 }
 
-async function requestOpenRouter(prompt: string): Promise<{ text: string; model: string }> {
+function classifyOpenRouterFailure(error: Error): OpenRouterFailureKind {
+  const message = error.message.toLowerCase();
+  if (/api key|not configured|configuration failed|unauthorized|forbidden|\b401\b|\b403\b/.test(message)) {
+    return "configuration";
+  }
+  if (/rate limit|quota|\b429\b/.test(message)) return "quota";
+  if (/model.*(?:not found|unavailable)|\b404\b/.test(message)) return "model";
+  if (/overloaded|unavailable|\b5\d\d\b/.test(message)) return "capacity";
+  return "other";
+}
+
+async function requestOpenRouter(
+  prompt: string,
+  models: string[],
+): Promise<{ text: string; model: string }> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is not configured.");
@@ -96,7 +112,7 @@ async function requestOpenRouter(prompt: string): Promise<{ text: string; model:
     maxRetries: 0,
   });
   const failures: string[] = [];
-  for (const model of getOpenRouterModels()) {
+  for (const model of models) {
     try {
       const response = await client.chat.completions.create({
         model,
@@ -109,8 +125,14 @@ async function requestOpenRouter(prompt: string): Promise<{ text: string; model:
       return { text, model: response.model || model };
     } catch (error) {
       const failure = asError(error);
+      const kind = classifyOpenRouterFailure(failure);
       failures.push(`${model}: ${failure.message}`);
-      console.warn(`[Generation] OpenRouter model ${model} failed; trying the next free model.`);
+      if (kind === "configuration") {
+        throw new Error(`OpenRouter configuration failed for ${model}: ${failure.message}`);
+      }
+      console.warn(
+        `[Generation] OpenRouter model ${model} failed (${kind}); trying the next free model.`,
+      );
     }
   }
   throw new Error(`All configured OpenRouter free models failed: ${failures.join("; ")}`);
@@ -124,19 +146,60 @@ async function generateWithFallback<T>(
   const failures: ProviderFailure[] = [];
 
   const geminiFailures: Error[] = [];
-  for (const model of getConfiguredGeminiModels()) {
+  const geminiModels = getConfiguredGeminiModels();
+  // Flash-Lite is intentionally held until after the strongest available
+  // OpenRouter model. This keeps normal generation quality-first, not merely
+  // provider-first. The configured order is preserved within each tier.
+  const primaryGeminiModels = geminiModels.filter((model) => !model.includes("-lite"));
+  const liteGeminiModels = geminiModels.filter((model) => model.includes("-lite"));
+  const openRouterModels = getOpenRouterModels();
+  const [primaryOpenRouterModel, ...fallbackOpenRouterModels] = openRouterModels;
+  let geminiConfigurationFailed = false;
+  let openRouterConfigurationFailed = false;
+
+  const tryGeminiModels = async (models: string[]): Promise<GenerationResult<T> | null> => {
+    for (const model of models) {
+      try {
+        const raw = await requestGemini(prompt, model);
+        return { value: parseGemini(raw), provider: "gemini", model };
+      } catch (error) {
+        const failure = asError(error);
+        geminiFailures.push(failure);
+        if (failure instanceof GeminiUnavailableError && failure.reason === "configuration") {
+          geminiConfigurationFailed = true;
+          console.warn("[Generation] Gemini configuration failed; skipping remaining Gemini models.");
+          return null;
+        }
+        console.warn(`[Generation] Gemini model ${model} failed; trying the next candidate.`);
+      }
+    }
+    return null;
+  };
+
+  let generated = await tryGeminiModels(primaryGeminiModels);
+  if (generated) return generated;
+
+  // The first configured OpenRouter model is the quality-tier bridge (Qwen by
+  // default). It is tried before Gemini Lite; the remaining free models are
+  // availability fallbacks after Gemini Lite.
+  if (primaryOpenRouterModel) {
     try {
-      const raw = await requestGemini(prompt, model);
+      const { text, model } = await requestOpenRouter(prompt, [primaryOpenRouterModel]);
       return {
-        value: parseGemini(raw),
-        provider: "gemini",
+        value: parseText(text),
+        provider: "openrouter",
         model,
       };
     } catch (error) {
       const failure = asError(error);
-      geminiFailures.push(failure);
-      console.warn(`[Generation] Gemini model ${model} failed; trying the next model.`);
+      failures.push({ provider: "openrouter", error: failure });
+      openRouterConfigurationFailed = classifyOpenRouterFailure(failure) === "configuration";
     }
+  }
+
+  if (!geminiConfigurationFailed) {
+    generated = await tryGeminiModels(liteGeminiModels);
+    if (generated) return generated;
   }
 
   const unavailableFailures = geminiFailures.filter(
@@ -156,17 +219,19 @@ async function generateWithFallback<T>(
           .join("; ")}`,
       );
   failures.push({ provider: "gemini", error: geminiError });
-  console.warn(`[Generation] Gemini models exhausted; trying OpenRouter free models.`);
+  console.warn(`[Generation] Higher-priority generation candidates exhausted; trying remaining OpenRouter free models.`);
 
-  try {
-    const { text, model } = await requestOpenRouter(prompt);
-    return {
-      value: parseText(text),
-      provider: "openrouter",
-      model,
-    };
-  } catch (error) {
-    failures.push({ provider: "openrouter", error: asError(error) });
+  if (!openRouterConfigurationFailed && fallbackOpenRouterModels.length > 0) {
+    try {
+      const { text, model } = await requestOpenRouter(prompt, fallbackOpenRouterModels);
+      return {
+        value: parseText(text),
+        provider: "openrouter",
+        model,
+      };
+    } catch (error) {
+      failures.push({ provider: "openrouter", error: asError(error) });
+    }
   }
 
   const providerUnavailable = failures.every(({ error }) =>

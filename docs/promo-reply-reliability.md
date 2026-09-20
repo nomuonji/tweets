@@ -16,7 +16,7 @@ a partially failed monetization run as successful.
 
 - The unnumbered Gemini key and every configured numbered key are deduplicated and available to rotation.
 - A Gemini quota outage tries each configured key at most once for that request.
-- A Gemini capacity outage performs three retries (four attempts total) with exponential backoff, then tries the configured fallback.
+- A Gemini capacity outage performs three retries (four attempts total) with exponential backoff. Generation candidates are tried in quality order: standard Gemini Flash models, the first OpenRouter model (Qwen by default), Gemini Flash-Lite models, then the remaining OpenRouter free models.
 - Gemini models are attempted in configured quality order. When every Gemini model fails or returns invalid output, generation falls back through the configured OpenRouter free models.
 - A provider outage is a run-level event only when both providers are unavailable; it never increments a post's failure count or delays that post's eligibility in the next sync.
 - Invalid output from both providers is regenerated up to three times before it becomes a post-specific generation failure.
