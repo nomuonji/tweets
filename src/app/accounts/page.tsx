@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DateTime } from "luxon";
-import type { AccountDoc, ReferenceAccountDoc, Tip } from "@/lib/types";
+import type { AccountDoc, PromoReplyMode, ReferenceAccountDoc, Tip } from "@/lib/types";
 import {
   DEFAULT_SCHEDULE_TIMEZONE,
   findNextSlot,
@@ -16,7 +16,7 @@ import { ReferenceAccountFinder } from "@/components/reference-account-finder";
 import { Badge } from "@/components/ui/badge";
 import { Button, linkButton } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox, Field, Input, Textarea } from "@/components/ui/field";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { ScheduleEditor } from "@/components/schedule/schedule-editor";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -35,6 +35,7 @@ type SettingsDraft = {
   promoEnabled: boolean;
   promoRate: string;
   promoReplyEnabled: boolean;
+  promoReplyMode: PromoReplyMode;
   promoReplyMinScore: string;
   promoReplyMinImpressions: string;
   promoReplyLookbackDays: string;
@@ -58,6 +59,7 @@ function toSettingsDraft(
     promoEnabled: account.promoEnabled ?? false,
     promoRate: String(account.promoRate ?? 0.1),
     promoReplyEnabled: account.promoReplyEnabled ?? false,
+    promoReplyMode: account.promoReplyMode ?? "amazon",
     promoReplyMinScore: String(account.promoReplyMinScore ?? 1000),
     promoReplyMinImpressions: String(account.promoReplyMinImpressions ?? 1000),
     promoReplyLookbackDays: String(account.promoReplyLookbackDays ?? 3),
@@ -238,6 +240,7 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
         1,
       ),
       promoReplyEnabled: settingsDraft.promoReplyEnabled,
+      promoReplyMode: settingsDraft.promoReplyMode,
       promoReplyMinScore: Math.max(
         Number(settingsDraft.promoReplyMinScore || 0),
         0,
@@ -599,8 +602,8 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
                       </Field>
 
                       <Checkbox
-                        label="商品PRリプを自動投稿する"
-                        description="同期のたびに、反応が良くインプレッションが稼げた投稿のリプで商品紹介を自動投稿します。下のしきい値と回数制限に従います。"
+                        label="バズ投稿へのPRリプを有効にする"
+                        description="反応が良い投稿に対して、下の種別設定に従いAmazon商品またはAffiliate OfferのPRリプを付けます。"
                         checked={settingsDraft.promoReplyEnabled}
                         onChange={(event) =>
                           setSettingsDraft((prev) =>
@@ -613,6 +616,34 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
                           )
                         }
                       />
+
+                      <Field
+                        label="バズ投稿へのPRリプ種別"
+                        hint="未設定の既存アカウントはAmazon扱いです。Affiliate Offerは全体マスターがOFFの間、affiliate_offer / mixedを選んでも投稿されません。"
+                      >
+                        {(id) => (
+                          <Select
+                            id={id}
+                            disabled={!settingsDraft.promoReplyEnabled}
+                            value={settingsDraft.promoReplyMode}
+                            onChange={(event) =>
+                              setSettingsDraft((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      promoReplyMode: event.target.value as PromoReplyMode,
+                                    }
+                                  : prev,
+                              )
+                            }
+                          >
+                            <option value="off">OFF（商材リプなし）</option>
+                            <option value="amazon">Amazon商品のみ</option>
+                            <option value="affiliate_offer">アフィリエイト商材のみ</option>
+                            <option value="mixed">両方を許可</option>
+                          </Select>
+                        )}
+                      </Field>
 
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Field
