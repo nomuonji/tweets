@@ -1,6 +1,5 @@
 export type Platform = "x" | "threads";
 export type PromoReplyMode = "off" | "amazon" | "affiliate_offer" | "mixed";
-export type PromoReplyMode = "off" | "amazon" | "affiliate_offer" | "mixed";
 export type MediaType = "text" | "image" | "video";
 export type DraftStatus =
   | "draft"
@@ -94,9 +93,6 @@ explorationRate?: number;
   promoReplyRate?: number;
   /** Maximum affiliate promo replies per JST calendar day. Defaults to 2. */
   promoReplyDailyLimit?: number;
-  /** Which commerce source may be attached as a reply to a high-performing post.
-   * Unset preserves legacy behavior and resolves to Amazon only. */
-  promoReplyMode?: PromoReplyMode;
   /** Which commerce source may be attached as a reply to a high-performing post.
    * Unset preserves legacy behavior and resolves to Amazon only. */
   promoReplyMode?: PromoReplyMode;
