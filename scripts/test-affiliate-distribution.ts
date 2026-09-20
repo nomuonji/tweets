@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
 import {
+  allowsAffiliateOfferReply,
+  allowsAmazonPromoReply,
   composeAffiliateReplyText,
   getAffiliateReplyPublishAction,
   isReplyOccupyingParent,
   matchAffiliateOffer,
   passesPromoReplyRate,
+  resolvePromoReplyMode,
   validateDisclosure,
   type AffiliateOfferRecord,
 } from "@/lib/affiliate-distribution-policy";
@@ -29,6 +32,7 @@ function account(overrides: Partial<AccountDoc & {
     scopes: [],
     promoEnabled: true,
     promoReplyEnabled: true,
+    promoReplyMode: "affiliate_offer",
     promoRate: 1,
     promoReplyMinScore: 1000,
     promoReplyMinImpressions: 1000,
@@ -87,6 +91,26 @@ function offer(overrides: Partial<AffiliateOfferRecord> = {}): AffiliateOfferRec
 }
 
 async function main() {
+
+  assert.equal(resolvePromoReplyMode({}), "amazon");
+  assert.equal(allowsAmazonPromoReply({}), true);
+  assert.equal(allowsAffiliateOfferReply({}), false);
+  assert.equal(allowsAmazonPromoReply({ promoReplyMode: "off" }), false);
+  assert.equal(allowsAffiliateOfferReply({ promoReplyMode: "off" }), false);
+  assert.equal(allowsAmazonPromoReply({ promoReplyMode: "affiliate_offer" }), false);
+  assert.equal(allowsAffiliateOfferReply({ promoReplyMode: "affiliate_offer" }), true);
+  assert.equal(allowsAmazonPromoReply({ promoReplyMode: "mixed" }), true);
+  assert.equal(allowsAffiliateOfferReply({ promoReplyMode: "mixed" }), true);
+
+  const amazonModeBlocksOffer = matchAffiliateOffer(
+    account({ promoReplyMode: "amazon" }),
+    post(),
+    offer(),
+    now,
+  );
+  assert.equal(amazonModeBlocksOffer.eligible, false);
+  assert.ok(amazonModeBlocksOffer.blockReasons.includes("affiliate_offer_mode_disabled"));
+
   const good = matchAffiliateOffer(account(), post(), offer(), now);
   assert.equal(good.eligible, true);
   assert.ok(good.score > 0);
