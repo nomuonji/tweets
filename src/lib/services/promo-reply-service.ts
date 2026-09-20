@@ -1,11 +1,7 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import {
-  GeminiUnavailableError,
-  requestGemini,
-} from "@/lib/gemini/client";
+import { generateSuggestion, GenerationUnavailableError } from "@/lib/ai/generation-client";
 import { requestGrok } from "@/lib/grok/client";
-import { parseGeminiResponse } from "@/lib/gemini/parser";
 import { publishXReply } from "@/lib/platforms/x";
 import { publishThreadsReply } from "@/lib/platforms/threads";
 import { getEligibleProducts, markProductUsed, pickPromoProduct } from "./product-service";
@@ -160,17 +156,16 @@ async function generateReplyText(
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
     try {
-      const raw = await requestGemini(prompt);
-      const suggestion = parseGeminiResponse(raw);
+      const suggestion = (await generateSuggestion(prompt)).value;
       const text = suggestion.tweet.trim();
       if (!text.includes("http")) {
         throw new Error("Generated reply does not contain a URL.");
       }
       return text;
     } catch (error) {
-      // HTTP 429/503 already received bounded retries inside requestGemini.
-      // Treat it as a run-level outage and preserve this post for the next sync.
-      if (error instanceof GeminiUnavailableError) throw error;
+      // Treat an outage across both providers as a run-level event and preserve
+      // this post for the next sync.
+      if (error instanceof GenerationUnavailableError) throw error;
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < MAX_GENERATION_ATTEMPTS) {
         console.warn(
@@ -182,7 +177,7 @@ async function generateReplyText(
   }
 
   throw new Error(
-    `Gemini generation remained invalid after ${MAX_GENERATION_ATTEMPTS} attempts: ${lastError?.message ?? "Unknown error"}`,
+    `Text generation remained invalid after ${MAX_GENERATION_ATTEMPTS} attempts: ${lastError?.message ?? "Unknown error"}`,
   );
 }
 
@@ -297,7 +292,7 @@ export async function maybePromoReply(
   } catch (error) {
     console.error(`[PromoReply] Failed for post ${post.id} account ${account.id}:`, error);
     const err = error as Error;
-    const providerUnavailable = error instanceof GeminiUnavailableError;
+    const providerUnavailable = error instanceof GenerationUnavailableError;
     if (providerUnavailable) {
       // Do not attach transient provider state to the post. The account is
       // halted for this sync and the same post remains eligible next time.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
-import { requestGemini } from "@/lib/gemini/client";
-import { parseGeminiResponse, type GeminiSuggestion } from "@/lib/gemini/parser";
+import { generateSuggestion, type GenerationProvider } from "@/lib/ai/generation-client";
+import type { GeminiSuggestion } from "@/lib/gemini/parser";
 import { preparePromptPayload } from "@/lib/services/prompt-service";
 import { requestGrok } from "@/lib/grok/client";
 
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     let suggestion: GeminiSuggestion | null = null;
     let duplicate = false;
     let finalPrompt = "";
+    let modelUsed: GenerationProvider | "grok" = account.r18Mode ? "grok" : "gemini";
 
     if (account.r18Mode) {
       const xaiApiKey = process.env.XAI_API_KEY;
@@ -84,8 +85,9 @@ export async function POST(request: Request) {
           promoProduct,
         );
         finalPrompt = prompt;
-        const raw = await requestGemini(prompt);
-        suggestion = parseGeminiResponse(raw);
+        const generated = await generateSuggestion(prompt);
+        suggestion = generated.value;
+        modelUsed = generated.provider;
         const normalizedSuggestion = normalizeText(suggestion.tweet);
         duplicate = normalizedDrafts.has(normalizedSuggestion);
         if (!duplicate) break;
@@ -102,7 +104,7 @@ return NextResponse.json({
       suggestion,
       duplicate,
       prompt: finalPrompt,
-      modelUsed: account.r18Mode ? 'grok' : 'gemini',
+      modelUsed,
       promo: promoProduct
         ? {
             productId: promoProduct.id,

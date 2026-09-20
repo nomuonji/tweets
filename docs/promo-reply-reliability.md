@@ -16,9 +16,10 @@ a partially failed monetization run as successful.
 
 - The unnumbered Gemini key and every configured numbered key are deduplicated and available to rotation.
 - A Gemini quota outage tries each configured key at most once for that request.
-- A Gemini capacity outage performs three retries (four attempts total) with exponential backoff, then stops promo generation for that account in the current sync.
-- Gemini quota/capacity failures are run-level events: they never increment a post's failure count or delay that post's eligibility in the next sync.
-- Invalid Gemini output is regenerated up to three times before it becomes a post-specific generation failure.
+- A Gemini capacity outage performs three retries (four attempts total) with exponential backoff, then tries the configured fallback.
+- When Gemini fails or returns invalid output, generation falls back through the configured OpenRouter free models.
+- A provider outage is a run-level event only when both providers are unavailable; it never increments a post's failure count or delays that post's eligibility in the next sync.
+- Invalid output from both providers is regenerated up to three times before it becomes a post-specific generation failure.
 - Each account performs at most two promo generation/publish attempts per sync and posts at most two replies.
 - Only successfully published replies count as duplicates or start the account cooldown.
 - Post-specific generation/publish failures wait three hours before retrying and stop after three failures for the same post.

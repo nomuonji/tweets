@@ -4,6 +4,7 @@ import {
 } from "@/lib/services/firestore.server";
 import { generatePost } from "@/lib/services/prompt-service";
 import { getCharacterVersion } from "@/lib/character-version";
+import { GenerationUnavailableError } from "@/lib/ai/generation-client";
 
 const DRAFT_THRESHOLD = 5;
 
@@ -15,7 +16,7 @@ async function main() {
 
   for (const account of accounts) {
     if (providerDegraded) {
-      console.warn(`[Auto-Generate] Gemini is degraded; skipping remaining account ${account.id}.`);
+      console.warn(`[Auto-Generate] Text-generation providers are degraded; skipping remaining account ${account.id}.`);
       continue;
     }
     if (account.autoPostEnabled !== true) {
@@ -42,9 +43,9 @@ async function main() {
     } catch (error) {
       console.error(`[Auto-Generate] Failed to process account ${account.handle}:`, error);
       const message = (error as Error).message ?? String(error);
-      if (/\b(429|503)\b|gemini.*(key|config|not configured)|api key/i.test(message)) {
+      if (error instanceof GenerationUnavailableError || /\b(429|503)\b|api key|not configured/i.test(message)) {
         providerDegraded = true;
-        console.warn("[Auto-Generate] Gemini provider degradation detected; stopping further calls for this run.");
+        console.warn("[Auto-Generate] Provider degradation detected; stopping further calls for this run.");
         continue;
       }
       failedAccounts.push(account.id);
@@ -52,7 +53,7 @@ async function main() {
   }
   console.log("[Auto-Generate] Periodic draft generation check finished.");
   if (providerDegraded) {
-    console.warn("::warning title=Gemini draft generation degraded::Use the Tweets MCP/Codex replenishment task until Gemini recovers.");
+    console.warn("::warning title=Draft generation degraded::Gemini and its OpenRouter fallback are unavailable.");
   }
   if (failedAccounts.length > 0) {
     console.error(

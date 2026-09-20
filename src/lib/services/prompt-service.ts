@@ -1,8 +1,8 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { buildPrompt } from "@/lib/gemini/prompt";
-import { requestGemini } from "@/lib/gemini/client";
-import { parseGeminiResponse, type GeminiSuggestion } from "@/lib/gemini/parser";
+import { generateSuggestion, type GenerationProvider } from "@/lib/ai/generation-client";
+import type { GeminiSuggestion } from "@/lib/gemini/parser";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
 import { extractPattern } from "@/lib/pattern";
@@ -189,12 +189,14 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   const maxAttempts = 3;
   const extraAvoid: string[] = [];
   let suggestion: GeminiSuggestion | null = null;
+  let provider: GenerationProvider = "gemini";
   let duplicate = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate, promoProduct);
-    const raw = await requestGemini(prompt);
-    suggestion = parseGeminiResponse(raw);
+    const generated = await generateSuggestion(prompt);
+    suggestion = generated.value;
+    provider = generated.provider;
     const normalizedSuggestion = normalizeText(suggestion.tweet);
     duplicate = normalizedAvoids.has(normalizedSuggestion);
     if (!duplicate) break;
@@ -206,7 +208,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   }
 
   const now = DateTime.utc().toISO()!;
-  const draftId = `gemini_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const draftId = `generated_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const newDraft: DraftDoc = {
     id: draftId,
     target_platform: platform,
@@ -216,7 +218,8 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     status: "scheduled",
     schedule_time: null,
     published_at: null,
-    created_by: "gemini-auto",
+    created_by: `${provider}-auto`,
+    generatedBy: provider,
     created_at: now,
     updated_at: now,
     similarity_warning: duplicate,

@@ -19,6 +19,7 @@
     "test:slots": "tsx scripts/test-schedule-slots.ts",
     "test:character-version": "tsx scripts/test-character-version.ts",
     "test:promo-reliability": "tsx scripts/test-promo-reliability.ts",
+    "test:generation-fallback": "tsx scripts/test-generation-fallback.ts",
     "test:threads-publish-reliability": "tsx scripts/test-threads-publish-reliability.ts",
     "test:firestore-efficiency": "tsx scripts/test-firestore-efficiency.ts",
     "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts",

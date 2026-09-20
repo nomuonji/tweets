@@ -1,21 +1,6 @@
 import type { ContentInsight, PostDoc } from "@/lib/types";
 import { engagementRate } from "@/lib/pattern";
-import { requestGemini } from "@/lib/gemini/client";
-
-type GeminiRaw = {
-  candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
-  }>;
-};
-
-function extractCandidateText(raw: unknown): string {
-  if (!raw || typeof raw !== "object") return "";
-  const candidates = (raw as GeminiRaw).candidates;
-  return (candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part?.text ?? "")
-    .join("")
-    .trim();
-}
+import { generateText } from "@/lib/ai/generation-client";
 
 function parseInsight(text: string): ContentInsight | null {
   const cleaned = text
@@ -96,8 +81,8 @@ Return strict JSON:
 
 All strings in Japanese.`;
 
-  const raw = await requestGemini(prompt);
-  return parseInsight(extractCandidateText(raw));
+  const generated = await generateText(prompt);
+  return parseInsight(generated.value);
 }
 
 function parseKeywords(text: string): string[] | null {
@@ -165,6 +150,6 @@ Return strict JSON:
   "keywords": ["...", "..."]
 }`;
 
-  const raw = await requestGemini(prompt);
-  return parseKeywords(extractCandidateText(raw));
+  const generated = await generateText(prompt);
+  return parseKeywords(generated.value);
 }

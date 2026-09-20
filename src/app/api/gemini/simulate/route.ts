@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
-import { requestGemini } from "@/lib/gemini/client";
-import { parseGeminiResponse } from "@/lib/gemini/parser";
+import { generateSuggestion } from "@/lib/ai/generation-client";
 import type { DraftDoc, ExemplaryPost, PostDoc, Tip } from "@/lib/types";
 
 export type SimulateRequestBody = {
@@ -31,12 +30,12 @@ export async function POST(request: Request) {
       body.concept
     );
 
-    const raw = await requestGemini(prompt);
-    const suggestion = parseGeminiResponse(raw);
+    const generated = await generateSuggestion(prompt);
 
     return NextResponse.json({
       ok: true,
-      suggestion,
+      suggestion: generated.value,
+      modelUsed: generated.provider,
       prompt,
     });
   } catch (error) {
