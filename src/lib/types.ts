@@ -84,8 +84,18 @@ export interface AccountDoc {
 explorationRate?: number;
   /** Master switch: when on, generated posts may occasionally promote a product. */
   promoEnabled?: boolean;
-  /** 0..1. Probability a single generation promotes a product. Defaults to 0. */
+  /** 0..1. Legacy Amazon product-generation probability. Defaults to 0. */
   promoRate?: number;
+  /** 0..1. Affiliate Distribution: deterministic fraction of otherwise eligible
+   * viral parent posts that may receive a promo reply. Falls back to promoRate
+   * only for backward compatibility when this field is unset. */
+  promoReplyRate?: number;
+  /** Maximum affiliate promo replies per JST calendar day. Defaults to 2. */
+  promoReplyDailyLimit?: number;
+  /** Explicit monetization themes used for contextual Affiliate Offer matching. */
+  monetizationThemes?: string[];
+  /** False restricts the account to owned_product offers. */
+  affiliateThirdPartyEnabled?: boolean;
   /** Master switch: when on, a product-promotion reply is auto-posted under posts
    * that cross the engagement thresholds below. Runs during sync. */
   promoReplyEnabled?: boolean;
@@ -372,8 +382,12 @@ export interface PostDoc {
   raw_gcs_url?: string;
   url?: string;
   fetched_at: string;
-  /** Set when a product-promotion reply was posted under this post. */
+  /** Set when a product-promotion or Affiliate Offer reply was posted under this post. */
   promo_replied_at?: string;
+  /** Explicit Affiliate Offer -> reply -> parent attribution. */
+  affiliate_reply_id?: string;
+  affiliate_offer_id?: string;
+  affiliate_reply_platform_id?: string;
   /** Internal attribution survives platform re-sync because posts are merge-upserted. */
   affiliate_product_id?: string;
   affiliate_creative_id?: string;
