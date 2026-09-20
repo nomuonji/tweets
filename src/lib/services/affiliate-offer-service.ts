@@ -204,12 +204,14 @@ function accountRuntimeBlockReasons(
   account: AccountDoc & AffiliateAccountSettings,
   replies: AffiliateReplyRecord[],
   now: DateTime,
+  exceptReplyId?: string,
 ): string[] {
   const reasons: string[] = [];
   const dailyLimit = account.promoReplyDailyLimit ?? DEFAULT_DAILY_PROMO_LIMIT;
   const todayCount = replies.filter(
     (reply) =>
       reply.account_id === account.id &&
+      reply.id !== exceptReplyId &&
       isPublishedLike(reply.status) &&
       startedToday(reply.created_at, now),
   ).length;
@@ -231,6 +233,7 @@ function offerCooldownBlocked(
   offer: AffiliateOfferRecord,
   replies: AffiliateReplyRecord[],
   now: DateTime,
+  exceptReplyId?: string,
 ): boolean {
   const cooldown =
     offer.offerCooldownMinutes ?? DEFAULT_OFFER_COOLDOWN_MINUTES;
@@ -238,6 +241,7 @@ function offerCooldownBlocked(
     .filter(
       (reply) =>
         reply.offer_id === offer.id &&
+        reply.id !== exceptReplyId &&
         isPublishedLike(reply.status),
     )
     .map((reply) => DateTime.fromISO(reply.created_at))
@@ -740,11 +744,11 @@ async function revalidatePublishGates(
   const now = DateTime.utc();
   const blocks = [
     ...parentGateReasons(account, post, now),
-    ...accountRuntimeBlockReasons(account, allReplies, now),
+    ...accountRuntimeBlockReasons(account, allReplies, now, reply.id),
   ];
   const match = matchAffiliateOffer(account, post, offer, now);
   blocks.push(...match.blockReasons);
-  if (offerCooldownBlocked(offer, allReplies, now)) {
+  if (offerCooldownBlocked(offer, allReplies, now, reply.id)) {
     blocks.push("offer_cooldown");
   }
   const disclosureCheck = validateDisclosure(reply.disclosure, offer);
