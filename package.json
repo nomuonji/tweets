@@ -26,7 +26,8 @@
     "tip:add": "tsx -r dotenv/config scripts/add-tip.ts",
     "exemplary:add": "tsx -r dotenv/config scripts/add-exemplary.ts",
     "test:affiliate-tracking": "tsx scripts/test-affiliate-tracking.ts",
-    "prebuild": "npm run test:affiliate-tracking"
+    "test:affiliate-distribution": "tsx scripts/test-affiliate-distribution.ts",
+    "prebuild": "npm run test:affiliate-tracking && npm run test:affiliate-distribution"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.53",
