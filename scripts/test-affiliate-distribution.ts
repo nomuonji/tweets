@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import {
   composeAffiliateReplyText,
   getAffiliateReplyPublishAction,
+  isReplyOccupyingParent,
   matchAffiliateOffer,
   passesPromoReplyRate,
   validateDisclosure,
@@ -170,6 +171,11 @@ async function main() {
     "already_published",
   );
   assert.equal(getAffiliateReplyPublishAction("failed"), "blocked");
+  assert.equal(isReplyOccupyingParent("draft"), true);
+  assert.equal(isReplyOccupyingParent("publishing"), true);
+  assert.equal(isReplyOccupyingParent("pending_reconciliation"), true);
+  assert.equal(isReplyOccupyingParent("published"), true);
+  assert.equal(isReplyOccupyingParent("failed"), false);
 
   // This is the key anti-duplication invariant: once a platform side effect may
   // have happened, the next action is reconciliation, never another publish.
