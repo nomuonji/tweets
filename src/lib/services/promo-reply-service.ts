@@ -11,6 +11,7 @@ import {
   type PostAttemptState,
 } from "./promo-reply-policy";
 import type { AccountDoc, PostDoc, PromoReplyDoc, ProductDoc } from "@/lib/types";
+import { allowsAmazonPromoReply } from "@/lib/affiliate-distribution-policy";
 
 const DEFAULT_MIN_SCORE = 1000;
 const DEFAULT_MIN_IMPRESSIONS = 1000;
@@ -79,6 +80,7 @@ export function isPromoReplyEligible(
   now: DateTime,
 ): boolean {
   if (account.promoReplyEnabled !== true) return false;
+  if (!allowsAmazonPromoReply(account)) return false;
 
   const minScore = account.promoReplyMinScore ?? DEFAULT_MIN_SCORE;
   const minImpressions = account.promoReplyMinImpressions ?? DEFAULT_MIN_IMPRESSIONS;
