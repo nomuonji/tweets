@@ -160,11 +160,11 @@ export function getOfferTemporalBlockReasons(
   }
   if (offer.validFrom) {
     const start = DateTime.fromISO(offer.validFrom);
-    if (start.isValid && now < start) reasons.push("offer_not_started");
+    if (start.isValid && now.toMillis() < start.toMillis()) reasons.push("offer_not_started");
   }
   if (offer.validUntil) {
     const end = DateTime.fromISO(offer.validUntil);
-    if (end.isValid && now >= end) reasons.push("offer_expired");
+    if (end.isValid && now.toMillis() >= end.toMillis()) reasons.push("offer_expired");
   }
   if (!offer.affiliateUrl?.trim()) reasons.push("affiliate_url_missing");
   return reasons;
