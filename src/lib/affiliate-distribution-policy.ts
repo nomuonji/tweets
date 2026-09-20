@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import type { AccountDoc, Platform, PostDoc } from "@/lib/types";
+import type { AccountDoc, Platform, PostDoc, PromoReplyMode } from "@/lib/types";
 
 export type AffiliateOfferKind =
   | "amazon_product"
@@ -114,7 +114,28 @@ export type AffiliateAccountSettings = {
   affiliateThirdPartyEnabled?: boolean;
   promoReplyRate?: number;
   promoReplyDailyLimit?: number;
+  promoReplyMode?: PromoReplyMode;
 };
+
+export function resolvePromoReplyMode(
+  account: { promoReplyMode?: PromoReplyMode },
+): PromoReplyMode {
+  return account.promoReplyMode ?? "amazon";
+}
+
+export function allowsAmazonPromoReply(
+  account: { promoReplyMode?: PromoReplyMode },
+): boolean {
+  const mode = resolvePromoReplyMode(account);
+  return mode === "amazon" || mode === "mixed";
+}
+
+export function allowsAffiliateOfferReply(
+  account: { promoReplyMode?: PromoReplyMode },
+): boolean {
+  const mode = resolvePromoReplyMode(account);
+  return mode === "affiliate_offer" || mode === "mixed";
+}
 
 export type AffiliateOfferMatch = {
   eligible: boolean;
@@ -184,6 +205,9 @@ export function matchAffiliateOffer(
   now: DateTime = DateTime.utc(),
 ): AffiliateOfferMatch {
   const blockReasons = getOfferTemporalBlockReasons(offer, now);
+  if (!allowsAffiliateOfferReply(account)) {
+    blockReasons.push("affiliate_offer_mode_disabled");
+  }
   const reasons: string[] = [];
   let score = 0;
 

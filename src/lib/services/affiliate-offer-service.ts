@@ -7,13 +7,16 @@ import {
   getAccount,
   getAccounts,
 } from "@/lib/services/firestore.server";
+import { getAffiliateDistributionRuntimeState } from "@/lib/services/project-context-service";
 import type { AccountDoc, PostDoc } from "@/lib/types";
 import {
+  allowsAffiliateOfferReply,
   composeAffiliateReplyText,
   getAffiliateReplyPublishAction,
   isReplyOccupyingParent,
   matchAffiliateOffer,
   passesPromoReplyRate,
+  resolvePromoReplyMode,
   validateDisclosure,
   type AffiliateAccountSettings,
   type AffiliateOfferPerformance,
@@ -160,8 +163,8 @@ function parentGateReasons(
   now: DateTime,
 ): string[] {
   const reasons: string[] = [];
-  if (account.promoEnabled !== true) reasons.push("promo_disabled");
   if (account.promoReplyEnabled !== true) reasons.push("promo_reply_disabled");
+  if (!allowsAffiliateOfferReply(account)) reasons.push("affiliate_offer_mode_disabled");
   if (post.promo_replied_at) reasons.push("parent_already_promo_replied");
   if (post.metrics.impressions == null) {
     reasons.push("impressions_unavailable");
@@ -384,10 +387,11 @@ export async function getAffiliateReplyWork({
   offerLimit = 50,
 }: ReplyWorkArgs = {}) {
   const now = DateTime.utc();
-  const [allOffers, allReplies, allAccounts] = await Promise.all([
+  const [allOffers, allReplies, allAccounts, distributionRuntime] = await Promise.all([
     listAffiliateOffers({ limit: Math.min(Math.max(offerLimit, 1), 200) }),
     loadAffiliateReplies(),
     getAccounts(),
+    getAffiliateDistributionRuntimeState(),
   ]);
   const accounts = accountId
     ? allAccounts.filter((account) => account.id === accountId)
@@ -403,12 +407,16 @@ export async function getAffiliateReplyWork({
       Math.min(Math.max(postLimit, 1), 50),
     );
     const runtimeBlocks = accountRuntimeBlockReasons(account, allReplies, now);
+    if (!distributionRuntime.offerRepliesEnabled && distributionRuntime.blockReason) {
+      runtimeBlocks.push(distributionRuntime.blockReason);
+    }
     accountSummaries.push({
       accountId: account.id,
       platform: account.platform,
       monetizationThemes: account.monetizationThemes ?? [],
       promoEnabled: account.promoEnabled === true,
       promoReplyEnabled: account.promoReplyEnabled === true,
+      promoReplyMode: resolvePromoReplyMode(account),
       promoReplyRate: account.promoReplyRate ?? account.promoRate ?? 1,
       promoReplyDailyLimit:
         account.promoReplyDailyLimit ?? DEFAULT_DAILY_PROMO_LIMIT,
@@ -521,11 +529,14 @@ export async function getAffiliateReplyWork({
         (offer) => offer.status === "pending_approval",
       ).length,
     },
+    distributionRuntime,
     semantics: {
       promoRate:
         "Affiliate Distribution uses promoReplyRate when present; promoRate is a backward-compatible fallback. It means the deterministic fraction of otherwise eligible viral parent posts that may receive a promo reply.",
       productIsolation:
         "Amazon /products remains the legacy physical-product domain. /affiliate_offers is the generic service/lead/subscription/owned-product domain.",
+      promoReplyMode:
+        "off blocks all commerce replies; amazon allows legacy Amazon replies; affiliate_offer allows Affiliate Offer replies; mixed allows both. Unset resolves to amazon for backward compatibility.",
     },
   };
 }
@@ -544,10 +555,14 @@ async function assertReplyCreationGates(
   allReplies: AffiliateReplyRecord[],
 ) {
   const now = DateTime.utc();
+  const distributionRuntime = await getAffiliateDistributionRuntimeState();
   const parentBlocks = [
     ...parentGateReasons(account, post, now),
     ...accountRuntimeBlockReasons(account, allReplies, now),
   ];
+  if (!distributionRuntime.offerRepliesEnabled && distributionRuntime.blockReason) {
+    parentBlocks.push(distributionRuntime.blockReason);
+  }
   if (existingParentReply(post.id, allReplies)) {
     parentBlocks.push("existing_affiliate_reply");
   }
@@ -742,10 +757,14 @@ async function revalidatePublishGates(
   if (duplicate) throw new Error("Parent post already has an affiliate reply.");
 
   const now = DateTime.utc();
+  const distributionRuntime = await getAffiliateDistributionRuntimeState();
   const blocks = [
     ...parentGateReasons(account, post, now),
     ...accountRuntimeBlockReasons(account, allReplies, now, reply.id),
   ];
+  if (!distributionRuntime.offerRepliesEnabled && distributionRuntime.blockReason) {
+    blocks.push(distributionRuntime.blockReason);
+  }
   const match = matchAffiliateOffer(account, post, offer, now);
   blocks.push(...match.blockReasons);
   if (offerCooldownBlocked(offer, allReplies, now, reply.id)) {
