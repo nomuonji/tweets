@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createTweetsMcpServer } from "@/lib/mcp/server";
 import {
   getAffiliateOffer,
-  getAffiliateReplyWork,
   saveAffiliateOffer,
 } from "@/lib/services/affiliate-offer-service";
 
@@ -36,11 +38,32 @@ async function main() {
   assert.equal(offer.status, "candidate");
   assert.equal(offer.affiliateUrl, undefined);
 
-  const work = await getAffiliateReplyWork({
-    accountId: "threads_date_blueprints",
-    postLimit: 20,
-    offerLimit: 100,
+  const server = createTweetsMcpServer();
+  const client = new Client({ name: "affiliate-distribution-smoke", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const listed = await client.listTools();
+  assert.ok(listed.tools.some((tool) => tool.name === "get_affiliate_reply_work"));
+  assert.ok(listed.tools.some((tool) => tool.name === "save_affiliate_offer"));
+
+  const response = await client.callTool({
+    name: "get_affiliate_reply_work",
+    arguments: {
+      accountId: "threads_date_blueprints",
+      postLimit: 20,
+      offerLimit: 100,
+    },
   });
+  const textContent = response.content.find(
+    (part): part is { type: "text"; text: string } => part.type === "text",
+  );
+  assert.ok(textContent?.text);
+  const work = JSON.parse(textContent.text) as {
+    candidatePosts: Array<Record<string, unknown>>;
+    offerCatalog: { candidate: number; total: number; active: number; pendingApproval: number };
+  };
 
   assert.ok(Array.isArray(work.candidatePosts));
   assert.ok(work.offerCatalog.candidate >= 1);
@@ -56,6 +79,11 @@ async function main() {
   });
 
   console.log(JSON.stringify({
+    mcp: {
+      toolCount: listed.tools.length,
+      getAffiliateReplyWorkRegistered: true,
+      saveAffiliateOfferRegistered: true,
+    },
     offer: {
       id: offer.id,
       status: offer.status,
@@ -70,6 +98,9 @@ async function main() {
       firstCandidate: work.candidatePosts[0] ?? null,
     },
   }, null, 2));
+
+  await client.close();
+  await server.close();
 }
 
 main().catch((error) => {
