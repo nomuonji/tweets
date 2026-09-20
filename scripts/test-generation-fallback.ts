@@ -7,6 +7,7 @@ const originalEnv = {
   GEMINI_API_KEY_1: process.env.GEMINI_API_KEY_1,
   GEMINI_API_KEY_2: process.env.GEMINI_API_KEY_2,
   GEMINI_API_KEY_3: process.env.GEMINI_API_KEY_3,
+  GEMINI_MODELS: process.env.GEMINI_MODELS,
   GEMINI_RETRY_BASE_MS: process.env.GEMINI_RETRY_BASE_MS,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENROUTER_FREE_MODELS: process.env.OPENROUTER_FREE_MODELS,
@@ -25,17 +26,27 @@ async function main() {
     delete process.env.GEMINI_API_KEY_1;
     delete process.env.GEMINI_API_KEY_2;
     delete process.env.GEMINI_API_KEY_3;
+    process.env.GEMINI_MODELS =
+      "gemini-3.8-flash,gemini-3.7-flash";
     process.env.GEMINI_RETRY_BASE_MS = "0";
     process.env.OPENROUTER_API_KEY = "openrouter-test";
     process.env.OPENROUTER_FREE_MODELS =
       "qwen/qwen3.8-27b:free,google/gemma-4-26b-a4b-it:free";
 
     let geminiCalls = 0;
+    const geminiModels: string[] = [];
     let openRouterCalls = 0;
     globalThis.fetch = async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.includes("generativelanguage.googleapis.com")) {
         geminiCalls += 1;
+        const model = url.match(/v1beta\/(models\/[^:]+):generateContent/)?.[1];
+        if (model) geminiModels.push(model);
+        if (model === "models/gemini-3.8-flash") {
+          return jsonResponse({
+            candidates: [{ content: { parts: [{ text: "{" }] } }],
+          });
+        }
         return jsonResponse({ error: { code: 429, message: "quota exhausted" } }, 429);
       }
       if (url.includes("openrouter.ai/api/v1/chat/completions")) {
@@ -71,7 +82,11 @@ async function main() {
     assert.equal(result.provider, "openrouter");
     assert.equal(result.model, "google/gemma-4-26b-a4b-it:free");
     assert.equal(result.value.tweet, "fallback worked");
-    assert.equal(geminiCalls, 1);
+    assert.equal(geminiCalls, 2);
+    assert.deepEqual(geminiModels, [
+      "models/gemini-3.8-flash",
+      "models/gemini-3.7-flash",
+    ]);
     assert.equal(openRouterCalls, 2);
     console.log("Generation fallback test passed.");
   } finally {

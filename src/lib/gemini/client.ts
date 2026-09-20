@@ -2,7 +2,14 @@
  * Gemini API Client with automatic API key failover on 429 errors
  */
 
-const MODEL = process.env.GEMINI_MODEL?.trim() || "models/gemini-flash-latest";
+const DEFAULT_MODELS = [
+  "models/gemini-3.8-flash",
+  "models/gemini-3.7-flash",
+  "models/gemini-3.6-flash",
+  "models/gemini-3.5-flash",
+  "models/gemini-3.5-flash-lite",
+  "models/gemini-3.1-flash-lite",
+];
 const GENERATION_CONFIG = {
   temperature: 0.7,
   topK: 32,
@@ -57,6 +64,25 @@ export function getConfiguredGeminiApiKeys(
   return Array.from(new Set(keys));
 }
 
+/** Gemini models ordered from highest expected generation quality to cheapest fallback. */
+export function getConfiguredGeminiModels(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string[] {
+  const configured = env.GEMINI_MODELS
+    ?.split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+  const legacyModel = env.GEMINI_MODEL?.trim();
+  const models = configured?.length
+    ? configured
+    : legacyModel
+      ? [legacyModel]
+      : DEFAULT_MODELS;
+  return Array.from(new Set(models.map((model) =>
+    model.startsWith("models/") ? model : `models/${model}`,
+  )));
+}
+
 // Track which key was last used for round-robin
 let lastUsedKeyIndex = -1;
 
@@ -79,7 +105,10 @@ function getCapacityRetryDelayMs(retryNumber: number): number {
 /**
  * Make a request to Gemini API with automatic failover on 429 errors
  */
-export async function requestGemini(prompt: string): Promise<unknown> {
+export async function requestGemini(
+  prompt: string,
+  model = getConfiguredGeminiModels()[0],
+): Promise<unknown> {
   const keys = getConfiguredGeminiApiKeys();
 
   if (keys.length === 0) {
@@ -107,7 +136,7 @@ export async function requestGemini(prompt: string): Promise<unknown> {
     while (demandRetries <= MAX_DEMAND_RETRIES) {
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -223,14 +252,18 @@ export async function requestGemini(prompt: string): Promise<unknown> {
  * Make a request to Gemini API with a specific API key (no failover)
  * Use this when you need to use a specific key
  */
-export async function requestGeminiWithKey(prompt: string, apiKey: string): Promise<unknown> {
+export async function requestGeminiWithKey(
+  prompt: string,
+  apiKey: string,
+  model = getConfiguredGeminiModels()[0],
+): Promise<unknown> {
   const MAX_DEMAND_RETRIES = 3;
   let demandRetries = 0;
 
   while (demandRetries <= MAX_DEMAND_RETRIES) {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

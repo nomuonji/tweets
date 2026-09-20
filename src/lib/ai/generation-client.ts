@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import {
   GeminiUnavailableError,
+  getConfiguredGeminiApiKeys,
+  getConfiguredGeminiModels,
   requestGemini,
 } from "@/lib/gemini/client";
 import {
@@ -121,18 +123,40 @@ async function generateWithFallback<T>(
 ): Promise<GenerationResult<T>> {
   const failures: ProviderFailure[] = [];
 
-  try {
-    const raw = await requestGemini(prompt);
-    return {
-      value: parseGemini(raw),
-      provider: "gemini",
-      model: process.env.GEMINI_MODEL?.trim() || "models/gemini-flash-latest",
-    };
-  } catch (error) {
-    const geminiError = asError(error);
-    failures.push({ provider: "gemini", error: geminiError });
-    console.warn(`[Generation] Gemini failed; trying OpenRouter free models: ${geminiError.message}`);
+  const geminiFailures: Error[] = [];
+  for (const model of getConfiguredGeminiModels()) {
+    try {
+      const raw = await requestGemini(prompt, model);
+      return {
+        value: parseGemini(raw),
+        provider: "gemini",
+        model,
+      };
+    } catch (error) {
+      const failure = asError(error);
+      geminiFailures.push(failure);
+      console.warn(`[Generation] Gemini model ${model} failed; trying the next model.`);
+    }
   }
+
+  const unavailableFailures = geminiFailures.filter(
+    (error): error is GeminiUnavailableError => error instanceof GeminiUnavailableError,
+  );
+  const geminiError = unavailableFailures.length === geminiFailures.length
+    ? new GeminiUnavailableError(
+        unavailableFailures.at(-1)?.reason ?? "capacity",
+        getConfiguredGeminiApiKeys().length,
+        `All configured Gemini models failed: ${geminiFailures
+          .map((error) => error.message)
+          .join("; ")}`,
+      )
+    : new Error(
+        `All configured Gemini models returned unusable results: ${geminiFailures
+          .map((error) => error.message)
+          .join("; ")}`,
+      );
+  failures.push({ provider: "gemini", error: geminiError });
+  console.warn(`[Generation] Gemini models exhausted; trying OpenRouter free models.`);
 
   try {
     const { text, model } = await requestOpenRouter(prompt);
