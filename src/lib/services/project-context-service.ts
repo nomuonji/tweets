@@ -4,7 +4,6 @@ import type { ProjectContextDoc } from "@/lib/types";
 
 export const DEFAULT_AFFILIATE_CONTEXT_KEY = "affiliate_product_discovery_v1";
 export const AFFILIATE_DISTRIBUTION_CONTEXT_KEY = "affiliate_distribution_v1";
-export const AFFILIATE_DISTRIBUTION_CONTEXT_KEY = "affiliate_distribution_v1";
 const contexts = () => adminDb.collection("operator_contexts");
 
 function numericRevision(value: unknown, fallback = 1) {
@@ -136,19 +135,3 @@ export async function getAffiliateDistributionRuntimeState() {
   };
 }
 
-export async function getAffiliateDistributionRuntimeState() {
-  const result = await getProjectContext(AFFILIATE_DISTRIBUTION_CONTEXT_KEY);
-  const context = result.context;
-  const offerRepliesEnabled = Boolean(
-    context?.status === "active" &&
-    context.metadata?.offerRepliesEnabled === true,
-  );
-
-  return {
-    offerRepliesEnabled,
-    blockReason: offerRepliesEnabled ? null : "affiliate_offer_global_disabled",
-    contextRevision: context?.revision ?? null,
-    contextVersion: context?.version ?? null,
-    source: result.source,
-  };
-}
