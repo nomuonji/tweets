@@ -34,6 +34,7 @@ export type NewDraftInput = {
   generatedBy?: string;
   overwriteSimilar?: boolean;
   affiliate?: { productId: string; creativeAssetId?: string };
+  ownedContent?: { itemId: string };
 };
 
 export async function createAgentDrafts(
@@ -59,11 +60,57 @@ export async function createAgentDrafts(
       const productSnap = await transaction.get(adminDb.collection("products").doc(productId));
       if (!productSnap.exists) throw new Error("Affiliate product not found: " + productId);
     }
+
+    const ownedContentIds = Array.from(new Set(
+      inputs
+        .map((input) => input.ownedContent?.itemId?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ));
+    const ownedContentById = new Map<string, {
+      itemId: string;
+      sourceId: string;
+      canonicalUrl: string;
+      sourceType: "website" | "note" | "newsletter" | "other";
+    }>();
+    for (const itemId of ownedContentIds) {
+      const itemSnap = await transaction.get(adminDb.collection("owned_content_items").doc(itemId));
+      if (!itemSnap.exists) throw new Error("Owned content item not found: " + itemId);
+      const item = itemSnap.data() ?? {};
+      if (item.status !== "active") throw new Error("Owned content item is not active: " + itemId);
+      const sourceId = String(item.source_id ?? "").trim();
+      const canonicalUrl = String(item.canonical_url ?? "").trim();
+      if (!sourceId || !canonicalUrl) throw new Error("Owned content item is missing source_id or canonical_url: " + itemId);
+      if (Array.isArray(item.allowed_account_ids) && item.allowed_account_ids.length > 0 && !item.allowed_account_ids.includes(accountId)) {
+        throw new Error("Owned content item is not allowed for this account: " + itemId);
+      }
+
+      const sourceSnap = await transaction.get(adminDb.collection("owned_content_sources").doc(sourceId));
+      if (!sourceSnap.exists) throw new Error("Owned content source not found: " + sourceId);
+      const source = sourceSnap.data() ?? {};
+      if (source.status !== "active") throw new Error("Owned content source is not active: " + sourceId);
+      if (Array.isArray(source.allowed_account_ids) && source.allowed_account_ids.length > 0 && !source.allowed_account_ids.includes(accountId)) {
+        throw new Error("Owned content source is not allowed for this account: " + sourceId);
+      }
+      if (Array.isArray(source.allowed_platforms) && source.allowed_platforms.length > 0 && !source.allowed_platforms.includes(account.platform)) {
+        throw new Error("Owned content source is not allowed on this platform: " + sourceId);
+      }
+      const sourceType = String(source.source_type ?? "") as "website" | "note" | "newsletter" | "other";
+      if (!["website", "note", "newsletter", "other"].includes(sourceType)) {
+        throw new Error("Owned content source has an unsupported source_type: " + sourceId);
+      }
+      ownedContentById.set(itemId, { itemId, sourceId, canonicalUrl, sourceType });
+    }
     const now = DateTime.utc().toISO()!;
     const drafts = inputs.map((input) => {
       const text = input.text.trim(); const hashtags = input.hashtags ?? [];
       if (!text) throw new Error("Draft text is required.");
+      if (input.affiliate && input.ownedContent) throw new Error("A draft cannot be both affiliate-product and owned-content distribution.");
       const fullText = draftTextWithHashtags(text, hashtags);
+      const ownedContent = input.ownedContent ? ownedContentById.get(input.ownedContent.itemId.trim()) : undefined;
+      if (input.ownedContent && !ownedContent) throw new Error("Owned content metadata could not be resolved.");
+      if (ownedContent && !fullText.includes(ownedContent.canonicalUrl)) {
+        throw new Error("Owned-content draft must contain the item's canonical_url.");
+      }
       const min = typeof account.minPostLength === "number" ? account.minPostLength : 1;
       const configuredMax = typeof account.maxPostLength === "number" ? account.maxPostLength : PLATFORM_LIMITS[(account.platform ?? "x") as "x" | "threads"];
       const max = Math.min(configuredMax, PLATFORM_LIMITS[(account.platform ?? "x") as "x" | "threads"]);
@@ -74,7 +121,7 @@ export async function createAgentDrafts(
       const similar = existing.find((candidate) => trigramSimilarity(fullText, draftTextWithHashtags(candidate.text, candidate.hashtags)) >= 0.82);
       if (similar && !input.overwriteSimilar) throw new Error("A too-similar draft already exists; set overwriteSimilar only after reviewing it.");
       const ref = adminDb.collection("drafts").doc();
-      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), pattern: extractPattern(text) };
+      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text) };
       transaction.set(ref, draft); existing.push(draft); return draft;
     });
     return drafts;
