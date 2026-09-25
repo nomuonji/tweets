@@ -14,7 +14,7 @@ import { normalizeProductCatalogInput, productCatalogUpdateSchema } from "@/lib/
 import { DEFAULT_AFFILIATE_CONTEXT_KEY, getAffiliateDistributionRuntimeState, getProjectContext, updateProjectContext } from "@/lib/services/project-context-service";
 import { getProductPerformanceWork } from "@/lib/services/affiliate-tracking-service";
 import { listAffiliateOffers, getAffiliateOffer, saveAffiliateOffer, archiveAffiliateOffer, getAffiliateReplyWork, createAffiliateReplyDraft, publishAffiliateReply, reconcileAffiliateReply, updateAffiliateOfferPerformance } from "@/lib/services/affiliate-offer-service";
-import { getOwnedContentDistributionWork, listOwnedContentItems, listOwnedContentSources, saveOwnedContentItem, saveOwnedContentSource } from "@/lib/services/owned-content-service";
+import { getOwnedContentDistributionWork, listOwnedContentItems, listOwnedContentSources, saveOwnedContentItem, saveOwnedContentSource, syncOwnedContentItems } from "@/lib/services/owned-content-service";
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
 const page = z.number().int().min(1).default(1); const limit = z.number().int().min(1).max(50).default(20);
@@ -104,7 +104,7 @@ const SERVER_VERSION = "1.4.0";
 const MCP_TOOLS = [
   "get_system_health","list_accounts","get_account","get_generation_work","list_drafts","list_recent_posts","get_schedule","list_guidance",
   "get_project_context","update_project_context","list_products","get_product_discovery_work","get_product_performance_work",
-  "list_owned_content_sources","save_owned_content_source","list_owned_content_items","save_owned_content_item","get_owned_content_distribution_work",
+  "list_owned_content_sources","save_owned_content_source","list_owned_content_items","save_owned_content_item","sync_owned_content_items","get_owned_content_distribution_work",
   "create_drafts","update_draft","delete_draft","publish_draft","update_account","sync_posts","save_product","archive_product","save_guidance","delete_guidance",
   "list_affiliate_offers","get_affiliate_offer","save_affiliate_offer","archive_affiliate_offer","get_affiliate_reply_work",
   "create_affiliate_reply_draft","publish_affiliate_reply","reconcile_affiliate_reply","update_affiliate_offer_performance"
