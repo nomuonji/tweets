@@ -486,6 +486,12 @@ async function processAccount(
       url: result.url,
       fetched_at: nowStr,
       source_draft_id: claimed.id,
+      ...(claimed.owned_content_item_id ? {
+        owned_content_item_id: claimed.owned_content_item_id,
+        owned_content_source_id: claimed.owned_content_source_id,
+        owned_content_url: claimed.owned_content_url,
+        owned_content_source_type: claimed.owned_content_source_type,
+      } : {}),
       ...(claimed.affiliate_product_id ? { affiliate_product_id:claimed.affiliate_product_id, ...(claimed.affiliate_creative_id ? { affiliate_creative_id:claimed.affiliate_creative_id } : {}), affiliate_link_status:"pending" as const } : {}),
     };
 
@@ -532,7 +538,7 @@ export async function publishExistingDraft(draftId: string, expectedUpdatedAt: s
     if(claimed.publish_stage==="publishing"||claimed.publish_stage==="reconciling") result=claimed.target_platform==="threads"?await reconcileThreadsPost(account,fullText,startedAt):await reconcileXPublishedPost(account,fullText,startedAt);
     result??=await publishDraft(account,claimed,startedAt);
     const nowStr=DateTime.utc().toISO()!, id=claimed.target_platform+"_"+result.platform_post_id;
-    const post:PostDoc={id,account_id:accountId,platform:claimed.target_platform,platform_post_id:result.platform_post_id,text:fullText,created_at:nowStr,media_type:"text",has_url:fullText.includes("http"),metrics:{impressions:0,likes:0,replies:0,reposts_or_rethreads:0,quotes:0,link_clicks:null},score:0,character_version:claimed.character_version??version,...(claimed.pattern?{pattern:claimed.pattern}:{}),raw:result.raw,url:result.url,fetched_at:nowStr,source_draft_id:claimed.id,...(claimed.affiliate_product_id?{affiliate_product_id:claimed.affiliate_product_id,...(claimed.affiliate_creative_id?{affiliate_creative_id:claimed.affiliate_creative_id}:{}),affiliate_link_status:"pending" as const}:{})};
+    const post:PostDoc={id,account_id:accountId,platform:claimed.target_platform,platform_post_id:result.platform_post_id,text:fullText,created_at:nowStr,media_type:"text",has_url:fullText.includes("http"),metrics:{impressions:0,likes:0,replies:0,reposts_or_rethreads:0,quotes:0,link_clicks:null},score:0,character_version:claimed.character_version??version,...(claimed.pattern?{pattern:claimed.pattern}:{}),raw:result.raw,url:result.url,fetched_at:nowStr,source_draft_id:claimed.id,...(claimed.owned_content_item_id?{owned_content_item_id:claimed.owned_content_item_id,owned_content_source_id:claimed.owned_content_source_id,owned_content_url:claimed.owned_content_url,owned_content_source_type:claimed.owned_content_source_type}:{}),...(claimed.affiliate_product_id?{affiliate_product_id:claimed.affiliate_product_id,...(claimed.affiliate_creative_id?{affiliate_creative_id:claimed.affiliate_creative_id}:{}),affiliate_link_status:"pending" as const}:{})};
     return await finalizePublishedPost(post,claimed);
   } catch(error) {
     const current=await ref.get().catch(()=>null); if(current?.exists){const currentDraft={id:current.id,...current.data()} as DraftDoc; const retryable=currentDraft.publish_stage==="publishing"||currentDraft.publish_stage==="reconciling"||claimed.target_platform==="threads"; await recordPublishFailure(currentDraft,error,{retryable});}
