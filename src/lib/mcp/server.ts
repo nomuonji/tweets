@@ -23,6 +23,37 @@ const projectContextKey = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._
 const performanceContextKey = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).default("affiliate_product_performance_v1");
 const affiliateOfferKind = z.enum(["amazon_product","service","lead","subscription","digital_product","owned_product"]);
 const affiliateOfferStatus = z.enum(["candidate","pending_approval","approved","active","paused","archived"]);
+const ownedContentSourceType = z.enum(["website","note","newsletter","other"]);
+const ownedContentSourceStatus = z.enum(["active","paused","archived"]);
+const ownedContentItemStatus = z.enum(["candidate","active","paused","archived"]);
+const ownedContentSourceUpdateSchema = z.object({
+  source_type: ownedContentSourceType.optional(),
+  provider: z.string().trim().min(1).max(100).optional(),
+  external_source_id: z.string().trim().max(300).optional(),
+  name: z.string().trim().min(1).max(300).optional(),
+  base_url: z.union([z.string().url().max(1500), z.literal("")]).optional(),
+  language: z.string().trim().max(32).optional(),
+  themes: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+  allowed_platforms: z.array(z.enum(["x","threads"])).max(10).optional(),
+  allowed_account_ids: z.array(z.string().trim().min(1).max(256)).max(100).optional(),
+  persona_fits: z.array(z.string().trim().min(1).max(300)).max(100).optional(),
+  distribution_hooks: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
+  weight: z.number().min(0.1).max(10).optional(),
+  status: ownedContentSourceStatus.optional(),
+}).passthrough();
+const ownedContentItemUpdateSchema = z.object({
+  source_id: z.string().trim().min(1).max(256).optional(),
+  external_content_id: z.string().trim().max(512).optional(),
+  title: z.string().trim().min(1).max(500).optional(),
+  canonical_url: z.string().url().max(2000).optional(),
+  status: ownedContentItemStatus.optional(),
+  themes: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+  allowed_account_ids: z.array(z.string().trim().min(1).max(256)).max(100).optional(),
+  persona_fits: z.array(z.string().trim().min(1).max(300)).max(100).optional(),
+  distribution_hooks: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
+  published_at: z.string().trim().max(64).optional(),
+  notes: z.string().trim().max(5000).optional(),
+}).passthrough();
 const affiliateOfferUpdateSchema = z.object({
   kind: affiliateOfferKind.optional(),
   network: z.string().trim().min(1).max(100).optional(),
