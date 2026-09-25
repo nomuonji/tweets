@@ -395,6 +395,11 @@ export interface PostDoc {
   /** Internal attribution survives platform re-sync because posts are merge-upserted. */
   affiliate_product_id?: string;
   affiliate_creative_id?: string;
+  /** Owned-content attribution. Kept separate from affiliate offers/products. */
+  owned_content_item_id?: string;
+  owned_content_source_id?: string;
+  owned_content_url?: string;
+  owned_content_source_type?: "website" | "note" | "newsletter" | "other";
   source_draft_id?: string;
   affiliate_link_status?: "pending" | "linked";
   affiliate_link_error?: string | null;
@@ -464,6 +469,11 @@ export interface DraftDoc {
   /** Explicit affiliate attribution. Optional for normal drafts. */
   affiliate_product_id?: string;
   affiliate_creative_id?: string;
+  /** Explicit owned-content attribution. Website is only one supported source type. */
+  owned_content_item_id?: string;
+  owned_content_source_id?: string;
+  owned_content_url?: string;
+  owned_content_source_type?: "website" | "note" | "newsletter" | "other";
   /** The post structure type used for this draft, used by the self-improvement loop. */
   pattern?: PostPattern;
   /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */
