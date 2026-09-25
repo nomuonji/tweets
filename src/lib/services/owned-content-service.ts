@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAccount } from "@/lib/services/firestore.server";
@@ -322,6 +323,74 @@ export async function saveOwnedContentItem(args: {
 
   const saved = await ref.get();
   return mapItem(saved);
+}
+
+export async function syncOwnedContentItems(args: {
+  sourceId: string;
+  items: Array<{
+    external_content_id?: string;
+    title: string;
+    canonical_url: string;
+    status?: OwnedContentItemStatus;
+    themes?: string[];
+    allowed_account_ids?: string[];
+    persona_fits?: string[];
+    distribution_hooks?: string[];
+    published_at?: string;
+    notes?: string;
+  }>;
+}) {
+  if (args.items.length < 1 || args.items.length > 200) {
+    throw new Error("syncOwnedContentItems accepts 1–200 items.");
+  }
+  const source = await getOwnedContentSource(args.sourceId);
+  if (!source) throw new Error("Owned content source not found.");
+
+  const now = nowIso();
+  const identities = args.items.map((item) => {
+    const identity = item.external_content_id?.trim() || item.canonical_url.trim();
+    const id = createHash("sha256")
+      .update(`${args.sourceId}:${identity}`)
+      .digest("hex")
+      .slice(0, 40);
+    return { id, item };
+  });
+  const refs = identities.map(({ id }) => itemCollection().doc(id));
+  const snapshots = await Promise.all(refs.map((ref) => ref.get()));
+  const batch = adminDb.batch();
+
+  identities.forEach(({ id, item }, index) => {
+    const ref = itemCollection().doc(id);
+    const current = snapshots[index].exists ? mapItem(snapshots[index]) : null;
+    batch.set(
+      ref,
+      {
+        source_id: args.sourceId,
+        ...(item.external_content_id?.trim() ? { external_content_id: item.external_content_id.trim() } : {}),
+        title: item.title.trim(),
+        canonical_url: item.canonical_url.trim(),
+        status: item.status ?? current?.status ?? "active",
+        ...(item.themes ? { themes: item.themes } : {}),
+        ...(item.allowed_account_ids ? { allowed_account_ids: item.allowed_account_ids } : {}),
+        ...(item.persona_fits ? { persona_fits: item.persona_fits } : {}),
+        ...(item.distribution_hooks ? { distribution_hooks: item.distribution_hooks } : {}),
+        ...(item.published_at ? { published_at: item.published_at } : {}),
+        ...(item.notes ? { notes: item.notes } : {}),
+        revision: (current?.revision ?? 0) + 1,
+        created_at: current?.created_at ?? now,
+        updated_at: now,
+      },
+      { merge: true },
+    );
+  });
+  await batch.commit();
+
+  return {
+    sourceId: args.sourceId,
+    syncedCount: args.items.length,
+    itemIds: identities.map(({ id }) => id),
+    updated_at: now,
+  };
 }
 
 export async function getOwnedContentDistributionWork(
