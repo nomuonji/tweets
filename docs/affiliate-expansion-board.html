@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f0e8">
+  <title>Threads案件導線｜進捗ボード</title>
+  <style>
+    :root{color-scheme:light;--ink:#212b31;--muted:#657078;--paper:#f4f0e8;--card:#fffdf9;--line:#ded8cc;--blue:#315b66;--blue-soft:#e8f0ef;--amber:#93641f;--amber-soft:#f6eedc;--green:#3d6d54;--green-soft:#e6f0e8;--shadow:0 12px 34px #2632380b}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.65 "Yu Gothic UI",Meiryo,system-ui,sans-serif}
+    main{width:min(1060px,calc(100% - 36px));margin:0 auto;padding:48px 0 80px}.eyebrow{color:var(--blue);font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+    h1{margin:8px 0 10px;font-family:"Yu Mincho",serif;font-size:clamp(28px,5vw,46px);font-weight:600;letter-spacing:.02em;line-height:1.2}.intro{max-width:760px;color:var(--muted);margin:0 0 26px}
+    .summary{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;padding:22px 24px;background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+    .summary strong{display:block;font-size:15px}.summary small{color:var(--muted)}.meter{width:190px}.meter-label{display:flex;justify-content:space-between;margin-bottom:7px;font-size:12px;color:var(--muted)}.track{height:8px;border-radius:9px;background:#e8e2d8;overflow:hidden}.fill{height:100%;width:0;background:var(--blue);transition:width .2s ease}
+    h2{margin:34px 0 12px;font-size:18px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow)}.card h3{margin:0 0 5px;font-size:16px}.card p{margin:0;color:var(--muted);font-size:13px}.pill{display:inline-flex;margin-bottom:10px;padding:3px 9px;border-radius:999px;background:var(--blue-soft);color:var(--blue);font-size:11px;font-weight:800}.pill.done{background:var(--green-soft);color:var(--green)}.pill.now{background:var(--amber-soft);color:var(--amber)}
+    .checklist{display:grid;gap:9px}.task{display:grid;grid-template-columns:20px 1fr auto;gap:11px;align-items:start;padding:14px 15px;background:var(--card);border:1px solid var(--line);border-radius:13px}.task input{width:17px;height:17px;margin:3px 0 0;accent-color:var(--green)}.task-title{font-weight:700}.task-note{display:block;color:var(--muted);font-size:12px}.state{align-self:center;color:var(--muted);font-size:11px;white-space:nowrap}.task:has(input:checked) .task-title{text-decoration:line-through;color:var(--muted)}
+    .accounts{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}.accounts th,.accounts td{padding:12px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}.accounts th{font-size:12px;color:var(--muted);background:#faf7f1}.accounts tr:last-child td{border-bottom:0}.accounts a,.source a{color:var(--blue);text-underline-offset:3px}
+    .callout{margin-top:18px;padding:16px 18px;border-left:3px solid var(--amber);background:var(--amber-soft);border-radius:0 12px 12px 0;font-size:13px}.callout strong{color:var(--amber)}footer{margin-top:26px;color:var(--muted);font-size:12px}.sources{display:flex;gap:15px;flex-wrap:wrap}
+    @media(max-width:700px){main{width:min(100% - 24px,560px);padding-top:30px}.summary{grid-template-columns:1fr}.meter{width:100%}.grid{grid-template-columns:1fr}.accounts{font-size:12px}.accounts th,.accounts td{padding:9px 8px}.state{display:none}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Threads → Site → A8 → Tweets Operator</div>
+  <h1>案件導線づくり<br>進捗ボード</h1>
+  <p class="intro">Threadsは余白の記事へ読者を案内する入口。A8広告リンクの掲載先はWebサイトに限定し、案件ごとの専用ページ、PR表示、A8掲載URL登録をそろえてからリンクを設置する。</p>
+
+  <section class="summary" aria-label="進捗">
+    <div><strong>調査・実装をアカウント別に進行中</strong><small>読み取り調査で確定したIDとサイトを下に記録。チェック状態はこのブラウザーに保存。</small></div>
+    <div class="meter"><div class="meter-label"><span>チェック済み</span><strong id="count">0 / 0</strong></div><div class="track"><div class="fill" id="fill"></div></div></div>
+  </section>
+
+  <h2>確認できた対応関係</h2>
+  <div class="grid">
+    <article class="card"><span class="pill done">照合済み</span><h3>date_blueprints → `threads_date_blueprints`</h3><p>既存Operatorアカウント。サイトは <a href="https://yohaku.antonbase.com" target="_blank" rel="noreferrer">余白（yohaku）</a>。直近は家賃・固定費・通勤・残業など「みんなの普通」への反応が強い。余白は恋愛特化から20代の仕事・お金・暮らしへ再設計中。</p></article>
+    <article class="card"><span class="pill done">名前変更を確認</span><h3>shit_unko_man → `threads_chinsukedt`</h3><p>Operatorには旧ハンドル `shiniji_htr` で登録。直近本文・Threads投稿URLが現アカウントと一致。サイトは <a href="https://kaerimichi.antonbase.com" target="_blank" rel="noreferrer">帰り道（kaerimichi）</a>。</p></article>
+    <article class="card"><span class="pill done">改修・公開済み</span><h3>date_blueprintsのサイト</h3><p>Blog内の <code>yohaku</code> を20代の仕事・お金・暮らしの編集サイトへ改修。既存の恋愛記事は人間関係のアーカイブとして残し、Threadsで反応した家賃・通勤・固定費を新しい入口に配置。2026-09-25にmainへpushし、本番反映を確認（最新commit <code>47903fd</code>）。</p></article>
+    <article class="card"><span class="pill done">余白登録済み</span><h3>A8「余白」サイトID 017</h3><p><a href="https://yohaku.antonbase.com" target="_blank" rel="noreferrer">余白</a>を副サイト登録し、主サイトに設定。カテゴリは就職・転職、開設月は2026年8月、低トラフィック帯で登録。A8のセッション表示名は旧主サイト名のままだが、サイト一覧では余白が主サイトと確認済み。</p></article>
+    <article class="card"><span class="pill now">A8審査中</span><h3>UZUZ第二新卒・UQ mobileを申請</h3><p>余白（サイトID 017）から2026-09-25に申請し、A8の申込中一覧で2件を確認。UZUZは18〜29歳・高卒以上の第二新卒等向け（新規無料会員登録9,000円）。UQ mobileはオンラインショップ新規契約後の利用開始が条件（成果報酬は申込区分別）。承認・広告リンク・LP・URL提出までは投稿不可。</p></article>
+    <article class="card"><span class="pill now">A8審査中</span><h3>エポスカードを申請</h3><p>余白（サイトID 017）から2026-09-25に申請し、完了画面で審査中を確認。新規カード発行2,600円、申込後30日以内の発行が成果条件、確定率58.92%（A8表示）。PR表記と公開後の掲載URL提出が必要。A8のセルフバックは媒体会員本人向けで、読者特典として案内しない。</p></article>
+    <article class="card"><span class="pill now">掲載ページ審査中</span><h3>三井住友カード（NL）｜余白専用ページ</h3><p>A8案件はSNS広告リンク掲載不可だが、余白のWebページ掲載は可。専用ページを公開し、A8の「広告掲載ページ エントリーフォーム」へURLを送信済み。A8ページ審査後に提携手続きを進める。4,800円は媒体報酬で、読者特典ではない。</p></article>
+    <article class="card"><span class="pill now">A8審査中</span><h3>SBI新生銀行・ひふみNISA</h3><p>余白（サイトID 017）から提携申請済み。SBI新生銀行は新規口座開設で500円、ひふみNISAはNISA口座開設と積立買付で15,000円（いずれも媒体報酬）。口座開設や投資を特典目的で急がせない。</p></article>
+  </div>
+
+  <h2>作業チェックリスト</h2>
+  <div class="checklist" id="tasks">
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">2アカウントのOperator IDと現在のThreads名を照合</span><span class="task-note">shit_unko_man は threads_chinsukedt の名前変更。本文とURL一致を確認。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">既存サイトの対応先を特定</span><span class="task-note">date_blueprints → yohaku ／ shit_unko_man → kaerimichi。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">アカウント設定と投稿例を読み取り確認</span><span class="task-note">両方ともAmazon販促設定はON。案件返信の全体スイッチは現在OFF。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">帰り道サイトのThreadsリンクを現ハンドルへ更新</span><span class="task-note">site.json・contactページを更新し、静的サイトをビルド。distのリンクも @shit_unko_man で確認。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">余白向けA8案件を選定・提携申請</span><span class="task-note">UZUZ第二新卒（18〜29歳・高卒以上）とUQ mobile（スマホ料金見直し）を余白から申請。A8の申込中一覧で両方を確認。対象属性の狭いキャリアチケット等は今回は見送り。</span></span><span class="state">審査中2件</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">20代向けのカード・口座・NISA案件へ提携申請</span><span class="task-note">エポスカード、SBI新生銀行、ひふみNISAを余白から申請し審査中。三井住友カード（NL）はWeb専用ページを公開し、A8に掲載URLを審査依頼済み。高額案件の報酬はすべて媒体側で、読者への現金給付とは分ける。</span></span><span class="state">5件審査中＋1ページ審査中</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">余白を20代の仕事・お金・暮らしへ再設計し公開</span><span class="task-note">トップ・カテゴリ・紹介文・新規4記事を改修。旧記事URLは維持。2026-09-25にmainへpushし、本番反映を確認。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">余白にA8案件別ページを6本作成・公開</span><span class="task-note">UZUZ／UQ mobile／エポスカード／SBI新生銀行／ひふみNISA／三井住友カード（NL）。広告リンクは未承認のため未設置。各ページ冒頭にPRと審査状況を表示。<a href="https://yohaku.antonbase.com/uzuz-second-career/">UZUZ</a> ・ <a href="https://yohaku.antonbase.com/uq-mobile-fee/">UQ</a> ・ <a href="https://yohaku.antonbase.com/epos-card/">エポス</a> ・ <a href="https://yohaku.antonbase.com/sbi-shinsei-account/">SBI新生</a> ・ <a href="https://yohaku.antonbase.com/hifumi-nisa/">ひふみ</a> ・ <a href="https://yohaku.antonbase.com/smbc-card-nl/">三井住友NL</a></span></span><span class="state">公開済み</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">A8に「余白」を副サイト登録し、サイトIDを確定</span><span class="task-note">yohaku.antonbase.com、カテゴリ「就職・転職」、2026年8月、低トラフィック帯で登録完了。サイトID 017。サイト一覧で余白を主サイトに設定済み。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">A8の提携案件・掲載URL条件をアカウント別に確認</span><span class="task-note">一休・aonoの成果条件、PR表示、広告掲載URL提出条件を公式ヘルプと案件詳細で照合。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox"><span><span class="task-title">直近投稿の反応とLPテーマを決める</span><span class="task-note">date_blueprintsは生活・費用比較と恋愛設計の接点を探す。shit_unko_manは男性の初デート・身だしなみ・会話の悩みを入口にする。</span></span><span class="state">待ち</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">余白の6ページを公開状態で確認</span><span class="task-note">本番URLをブラウザで確認。PR表示はページ先頭、広告リンクはまだなし。A8承認後、案件ごとに登録ページだけへ広告リンクを追加する。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">三井住友カード（NL）の掲載ページURLをA8へ登録</span><span class="task-note">https://yohaku.antonbase.com/smbc-card-nl/ を広告掲載ページ審査フォームで送信し、A8の「応募完了しました」を確認。</span></span><span class="state">審査待ち</span></label>
+    <label class="task"><input type="checkbox" checked><span><span class="task-title">6案件をTweets Operatorの案件DBへ記録</span><span class="task-note">対象は threads_date_blueprints。A8リンク空欄・自動有効化なし。Threadsは余白記事への導線に限定し、A8広告リンクはWebページだけで使う。</span></span><span class="state">完了</span></label>
+    <label class="task"><input type="checkbox"><span><span class="task-title">Amazon販促から段階的に切り替え、少数テスト</span><span class="task-note">新導線の準備後にアカウント別設定を切り替える。全体スイッチは他アカウントへの影響も見てから。</span></span><span class="state">待ち</span></label>
+    <label class="task"><input type="checkbox"><span><span class="task-title">反応・クリック・成果を見てLPと案件を調整</span><span class="task-note">閲覧数だけで決めず、通常投稿との差・クリック・成果条件を分けて見る。</span></span><span class="state">待ち</span></label>
+  </div>
+
+  <h2>現状メモ</h2>
+  <table class="accounts"><thead><tr><th>アカウント</th><th>確認内容</th><th>現状の注意</th></tr></thead><tbody>
+    <tr><td><a href="https://www.threads.com/@date_blueprints" target="_blank" rel="noreferrer">@date_blueprints</a></td><td>Operator IDは <code>threads_date_blueprints</code>。余白（A8サイトID 017）。提携審査中: UZUZ（9,000円）、UQ mobile（申込区分別）、エポス（2,600円）、SBI新生銀行（500円）、ひふみNISA（15,000円）。いずれもA8報酬は媒体向け。三井住友カード（NL）は余白専用ページをA8へ審査申請し、提携前のページ審査中。</td><td>Threadsにはサイト記事URLだけを案内。A8広告リンクは承認後に各Webページへ設置し、PR表示・A8広告掲載URL登録・案件条件を確認してから運用する。SMBCカード（NL）の広告リンクは登録済みのWebページだけで使用。NISAページは元本割れと費用の注意を掲載。</td></tr>
+    <tr><td><a href="https://www.threads.com/@shit_unko_man" target="_blank" rel="noreferrer">@shit_unko_man</a></td><td>Operator IDは `threads_chinsukedt`。直近投稿は「男側の恋愛・初デートの愚痴」で一致。A8 aono案件は初回の新規広告主購入2,000円。顔用ケアのトライアル・定期申込LP経由で、注文後30日以内の決済確認が成果条件。</td><td>A8の帰り道登録、広告主審査、実リンク、LP公開が未完。体験していない商品は体験談にせず、製品仕様の説明に留める。</td></tr>
+  </tbody></table>
+  <div class="callout"><strong>掲載先の整理：</strong>今回のA8広告掲載先は余白のWebページです。Threadsでは記事への案内にとどめ、A8広告リンク自体は載せません。三井住友カード（NL）は専用LPのURLをA8へ提出済みで、ページ審査の後に提携手続きへ進みます。他5案件はA8提携審査中です。承認前のため、全ページの広告リンクは未設置。審査結果・リンク発行・掲載URL条件がそろうまで案件投稿の切替は保留しています。セルフバックや媒体報酬を読者が受け取る特典として案内しません。</div>
+  <footer class="sources"><span>最終更新: 2026-09-25</span><a href="https://yohaku.antonbase.com" target="_blank" rel="noreferrer">余白</a><a href="https://kaerimichi.antonbase.com" target="_blank" rel="noreferrer">帰り道</a><a href="https://www.threads.com/@date_blueprints" target="_blank" rel="noreferrer">date_blueprints</a><a href="https://www.threads.com/@shit_unko_man" target="_blank" rel="noreferrer">shit_unko_man</a><a href="https://support.a8.net/a8/as/faq/2026/post_2971.html" target="_blank" rel="noreferrer">A8 SNS用リンク・URL提出ルール</a></footer>
+</main>
+<script>
+  const tasks=[...document.querySelectorAll('#tasks input[type="checkbox"]')];
+  const key='affiliate-expansion-board-v1';
+  const saved=JSON.parse(localStorage.getItem(key)||'null');
+  if(Array.isArray(saved)&&saved.length===tasks.length)tasks.forEach((task,i)=>task.checked=saved[i]);
+  function update(){const done=tasks.filter(x=>x.checked).length;document.querySelector('#count').textContent=`${done} / ${tasks.length}`;document.querySelector('#fill').style.width=`${done/tasks.length*100}%`;tasks.forEach(x=>x.closest('.task').querySelector('.state').textContent=x.checked?'完了':'未完了');localStorage.setItem(key,JSON.stringify(tasks.map(x=>x.checked)));}
+  tasks.forEach(x=>x.addEventListener('change',update));update();
+</script>
+</body>
+</html>
+
