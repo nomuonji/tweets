@@ -403,14 +403,36 @@ export async function getOwnedContentDistributionWork(
   const [sources, allItems, postsSnapshot] = await Promise.all([
     listOwnedContentSources({ accountId, status: "active", limit: 200 }),
     listOwnedContentItems({ accountId, status: "active", limit: Math.max(limit * 5, 100) }),
-    adminDb.collection("posts").where("account_id", "==", accountId).get(),
+    adminDb.collection("posts").where("account_id", "==", accountId).limit(500).get(),
   ]);
   const sourceMap = new Map(sources.map((source) => [source.id, source]));
-  const usedCounts = new Map<string, number>();
+  const performanceByItem = new Map<string, {
+    postCount: number;
+    impressions: number;
+    likes: number;
+    replies: number;
+    reposts_or_rethreads: number;
+    link_clicks: number;
+  }>();
   for (const doc of postsSnapshot.docs) {
     const post = doc.data() as PostDoc;
-    const itemId = (post as PostDoc & { owned_content_item_id?: string }).owned_content_item_id;
-    if (itemId) usedCounts.set(itemId, (usedCounts.get(itemId) ?? 0) + 1);
+    const itemId = post.owned_content_item_id;
+    if (!itemId) continue;
+    const current = performanceByItem.get(itemId) ?? {
+      postCount: 0,
+      impressions: 0,
+      likes: 0,
+      replies: 0,
+      reposts_or_rethreads: 0,
+      link_clicks: 0,
+    };
+    current.postCount += 1;
+    current.impressions += Number(post.metrics?.impressions ?? 0);
+    current.likes += Number(post.metrics?.likes ?? 0);
+    current.replies += Number(post.metrics?.replies ?? 0);
+    current.reposts_or_rethreads += Number(post.metrics?.reposts_or_rethreads ?? 0);
+    current.link_clicks += Number(post.metrics?.link_clicks ?? 0);
+    performanceByItem.set(itemId, current);
   }
 
   const candidates = allItems
@@ -429,7 +451,15 @@ export async function getOwnedContentDistributionWork(
           base_url: source.base_url ?? null,
         },
         match,
-        previousPostCount: usedCounts.get(item.id) ?? 0,
+        previousPostCount: performanceByItem.get(item.id)?.postCount ?? 0,
+        socialPerformance: performanceByItem.get(item.id) ?? {
+          postCount: 0,
+          impressions: 0,
+          likes: 0,
+          replies: 0,
+          reposts_or_rethreads: 0,
+          link_clicks: 0,
+        },
         distributionHooks: unique([...(source.distribution_hooks ?? []), ...(item.distribution_hooks ?? [])]),
       };
     })
