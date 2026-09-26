@@ -24,7 +24,7 @@ const EMPTY_FORM: FormState = {
   account_ids: [], source_url: "", notes: "",
 };
 
-const STATUS_LABELS: Record<ProductPoolStatus, string> = { candidate: "候補", approved: "採用", archived: "保留" };
+const STATUS_LABELS: Record<ProductPoolStatus, string> = { candidate: "候補", approved: "採用", archived: "アーカイブ" };
 const STATUS_VARIANTS: Record<ProductPoolStatus, "default" | "success" | "warning"> = { candidate: "default", approved: "success", archived: "warning" };
 const LIFECYCLE_LABELS: Record<NonNullable<ProductPoolDoc["lifecycle_state"]>, string> = {
   discovered: "発見",
@@ -144,14 +144,14 @@ export function ProductPoolManager({ accounts }: Props) {
         <Stat label="全商品" value={counts.all} hint="プール内" />
         <Stat label="候補" value={counts.candidate} hint="これから検討" />
         <Stat label="採用" value={counts.approved} hint="運用に進める" />
-        <Stat label="保留" value={counts.archived} hint="いったん寝かせる" />
+        <Stat label="アーカイブ" value={counts.archived} hint="再評価まで保管" />
       </div>
 
       <Card className="border-primary/20 bg-primary/[0.03]">
         <CardContent className="space-y-4">
           <div className="flex items-start gap-3"><InboxIcon className="mt-0.5 h-5 w-5 text-primary" /><div><p className="font-medium">Amazon物販専用のカタログ</p><p className="mt-1 text-sm text-muted-foreground">ASPサービス案件や自社記事とは別DBです。候補の採否と、実際の投稿フローの進捗は別の状態として扱います。</p><a href="/monetization" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">収益化全体の見取り図を見る →</a></div></div>
           <div className="grid gap-3 md:grid-cols-3"><input className="h-10 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary" placeholder="商品名・ASIN・テーマで検索" value={query} onChange={(event) => setQuery(event.target.value)} />
-            <select className="h-10 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary" value={filter} onChange={(event) => setFilter(event.target.value as StatusFilter)}><option value="all">すべての状態</option><option value="candidate">候補</option><option value="approved">採用</option><option value="archived">保留</option></select>
+            <select className="h-10 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary" value={filter} onChange={(event) => setFilter(event.target.value as StatusFilter)}><option value="all">すべての状態</option><option value="candidate">候補</option><option value="approved">採用</option><option value="archived">アーカイブ</option></select>
             <div className="flex items-center text-sm text-muted-foreground">表示中 {visibleProducts.length}件</div>
           </div>
         </CardContent>
