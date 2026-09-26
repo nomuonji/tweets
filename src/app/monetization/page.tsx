@@ -219,7 +219,6 @@ export default async function MonetizationPage() {
     (sum, offer) => sum + Number(offer.performance?.conversions ?? 0),
     0,
   );
-  const sourceById = new Map(sources.map((source) => [source.id, source]));
   const itemsBySource = new Map<string, OwnedContentItemRecord[]>();
   for (const item of ownedItems) {
     const list = itemsBySource.get(item.source_id) ?? [];
