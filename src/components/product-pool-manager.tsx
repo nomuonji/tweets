@@ -26,6 +26,27 @@ const EMPTY_FORM: FormState = {
 
 const STATUS_LABELS: Record<ProductPoolStatus, string> = { candidate: "候補", approved: "採用", archived: "保留" };
 const STATUS_VARIANTS: Record<ProductPoolStatus, "default" | "success" | "warning"> = { candidate: "default", approved: "success", archived: "warning" };
+const LIFECYCLE_LABELS: Record<NonNullable<ProductPoolDoc["lifecycle_state"]>, string> = {
+  discovered: "発見",
+  amazon_verified: "Amazon確認",
+  creative_ready: "素材準備",
+  drafted: "下書き化",
+  posted: "投稿済み",
+  evaluated: "評価済み",
+};
+const CREATIVE_LABELS: Record<NonNullable<ProductPoolDoc["creative_status"]>, string> = {
+  not_started: "未着手",
+  planned: "企画済み",
+  ready: "準備済み",
+  archived: "保管",
+};
+
+function lifecycleVariant(state?: ProductPoolDoc["lifecycle_state"]) {
+  if (state === "posted" || state === "evaluated") return "success" as const;
+  if (state === "creative_ready" || state === "drafted") return "primary" as const;
+  if (state === "amazon_verified") return "warning" as const;
+  return "default" as const;
+}
 
 function ProductImage({ product }: { product: ProductPoolDoc }) {
   const [source, setSource] = useState<"primary" | "amazon" | "fallback">(product.image_url ? "primary" : "amazon");
@@ -117,7 +138,7 @@ export function ProductPoolManager({ accounts }: Props) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="商品カタログ" description="商品情報はここを正本にし、アカウント側には採用状態と運用設定だけを持たせます。" actions={<Button onClick={() => { resetForm(); window.scrollTo({ top: 0, behavior: "smooth" }); }}><PlusIcon className="h-4 w-4" />商品を追加</Button>} />
+      <PageHeader title="Amazon商品" description="Amazon物販の正本です。採否だけでなく、発見 → Amazon確認 → クリエイティブ → 投稿 → 評価の進捗も表示します。" actions={<Button onClick={() => { resetForm(); window.scrollTo({ top: 0, behavior: "smooth" }); }}><PlusIcon className="h-4 w-4" />商品を追加</Button>} />
 
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="全商品" value={counts.all} hint="プール内" />
@@ -128,7 +149,7 @@ export function ProductPoolManager({ accounts }: Props) {
 
       <Card className="border-primary/20 bg-primary/[0.03]">
         <CardContent className="space-y-4">
-          <div className="flex items-start gap-3"><InboxIcon className="mt-0.5 h-5 w-5 text-primary" /><div><p className="font-medium">このページの役割</p><p className="mt-1 text-sm text-muted-foreground">いきなりアカウントへ登録せず、「小さな特集として成立するか」を見ながら候補を育てる場所です。</p></div></div>
+          <div className="flex items-start gap-3"><InboxIcon className="mt-0.5 h-5 w-5 text-primary" /><div><p className="font-medium">Amazon物販専用のカタログ</p><p className="mt-1 text-sm text-muted-foreground">ASPサービス案件や自社記事とは別DBです。候補の採否と、実際の投稿フローの進捗は別の状態として扱います。</p><a href="/monetization" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">収益化全体の見取り図を見る →</a></div></div>
           <div className="grid gap-3 md:grid-cols-3"><input className="h-10 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary" placeholder="商品名・ASIN・テーマで検索" value={query} onChange={(event) => setQuery(event.target.value)} />
             <select className="h-10 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary" value={filter} onChange={(event) => setFilter(event.target.value as StatusFilter)}><option value="all">すべての状態</option><option value="candidate">候補</option><option value="approved">採用</option><option value="archived">保留</option></select>
             <div className="flex items-center text-sm text-muted-foreground">表示中 {visibleProducts.length}件</div>
@@ -147,7 +168,7 @@ export function ProductPoolManager({ accounts }: Props) {
         </CardContent>
       </Card>
 
-      {isLoading ? <SkeletonList rows={4} /> : visibleProducts.length === 0 ? <EmptyState title="該当する商品がありません" description="候補商品を追加するか、検索条件を変えてください。" /> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{visibleProducts.map((product) => <article key={product.id} className="group overflow-hidden rounded-lg border border-border bg-surface shadow-sm transition-shadow hover:shadow-md"><div className="relative overflow-hidden border-b border-border bg-muted/30"><ProductImage product={product} /><div className="absolute left-3 top-3"><Badge variant={STATUS_VARIANTS[product.status]}>{STATUS_LABELS[product.status]}</Badge></div></div><div className="space-y-3 p-4"><div><div className="flex items-start justify-between gap-3"><h2 className="line-clamp-2 font-semibold leading-snug">{product.title}</h2><span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{product.score ?? "--"}<span className="font-normal text-muted-foreground"> / 25</span></span></div><p className="mt-2 text-xs text-muted-foreground">{product.price || "価格未設定"} · {product.asin}</p></div><div className="min-h-12"><p className="text-sm font-medium">{product.theme || "テーマ未設定"}</p>{product.promo_hook ? <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{product.promo_hook}</p> : null}</div><div className="flex items-center justify-between gap-2 border-t border-border pt-3"><span className="text-xs text-muted-foreground">{product.role || "役割未設定"}{product.account_ids?.length ? ` · ${product.account_ids.map(accountName).join(", ")}` : " · 共通プール"}</span><div className="flex shrink-0 items-center gap-1"><Button size="icon" variant="ghost" aria-label="編集" onClick={() => edit(product)}><PencilIcon className="h-4 w-4" /></Button><Button size="icon" variant="ghost" aria-label="削除" onClick={() => handleDelete(product)} className="text-destructive hover:text-destructive"><TrashIcon className="h-4 w-4" /></Button>{product.url ? <a href={product.url} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-primary" aria-label="Amazonを開く"><ExternalLinkIcon className="h-4 w-4" /></a> : null}</div></div></div></article>)}</div>}
+      {isLoading ? <SkeletonList rows={4} /> : visibleProducts.length === 0 ? <EmptyState title="該当する商品がありません" description="候補商品を追加するか、検索条件を変えてください。" /> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{visibleProducts.map((product) => <article key={product.id} className="group overflow-hidden rounded-lg border border-border bg-surface shadow-sm transition-shadow hover:shadow-md"><div className="relative overflow-hidden border-b border-border bg-muted/30"><ProductImage product={product} /><div className="absolute left-3 top-3"><Badge variant={STATUS_VARIANTS[product.status]}>{STATUS_LABELS[product.status]}</Badge></div></div><div className="space-y-3 p-4"><div><div className="flex items-start justify-between gap-3"><h2 className="line-clamp-2 font-semibold leading-snug">{product.title}</h2><span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{product.score ?? "--"}<span className="font-normal text-muted-foreground"> / 25</span></span></div><p className="mt-2 text-xs text-muted-foreground">{product.price || "価格未設定"} · {product.asin}</p><div className="mt-2 flex flex-wrap gap-1.5"><Badge variant={lifecycleVariant(product.lifecycle_state)}>{product.lifecycle_state ? LIFECYCLE_LABELS[product.lifecycle_state] : "進捗未設定"}</Badge><Badge variant={product.amazon_verified ? "success" : "outline"}>Amazon {product.amazon_verified ? "確認済み" : "未確認"}</Badge>{product.creative_status ? <Badge variant={product.creative_status === "ready" ? "primary" : "outline"}>素材 {CREATIVE_LABELS[product.creative_status]}</Badge> : null}{typeof product.viral_score === "number" ? <Badge variant="outline">viral {product.viral_score}</Badge> : null}</div></div><div className="min-h-12"><p className="text-sm font-medium">{product.theme || "テーマ未設定"}</p>{product.promo_hook ? <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{product.promo_hook}</p> : null}</div><div className="flex items-center justify-between gap-2 border-t border-border pt-3"><span className="text-xs text-muted-foreground">{product.role || "役割未設定"}{product.account_ids?.length ? ` · ${product.account_ids.map(accountName).join(", ")}` : " · 共通プール"}</span><div className="flex shrink-0 items-center gap-1"><Button size="icon" variant="ghost" aria-label="編集" onClick={() => edit(product)}><PencilIcon className="h-4 w-4" /></Button><Button size="icon" variant="ghost" aria-label="削除" onClick={() => handleDelete(product)} className="text-destructive hover:text-destructive"><TrashIcon className="h-4 w-4" /></Button>{product.url ? <a href={product.url} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-primary" aria-label="Amazonを開く"><ExternalLinkIcon className="h-4 w-4" /></a> : null}</div></div></div></article>)}</div>}
     </div>
   );
 }
