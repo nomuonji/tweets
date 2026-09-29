@@ -57,11 +57,11 @@ Use Tweets Operator as a remote MCP tool:
   "server_url": "https://tweets-lime.vercel.app/api/mcp",
   "server_label": "tweets_operator",
   "server_description": "Manage X and Threads accounts, drafts, publishing, affiliate distribution, owned-content distribution, and operator context.",
-  "authorization": "<TWEETS_GROK_MCP_TOKEN>"
+  "authorization": "Bearer <TWEETS_GROK_MCP_TOKEN>"
 }
 ```
 
-xAI sends the `authorization` value as the HTTP Authorization credential for the MCP server.
+xAI sends the `authorization` value as the HTTP `Authorization` header value, so include the `Bearer ` prefix explicitly.
 
 If the client/runtime supports custom MCP headers, this is also valid:
 
