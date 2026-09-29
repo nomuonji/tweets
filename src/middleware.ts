@@ -4,7 +4,14 @@ import type { NextRequest } from 'next/server';
 export function middleware(req: NextRequest) {
     // MCP has its own mandatory Bearer token at the route handler. Do not
     // attempt to parse that token as Basic credentials here.
-    if (req.nextUrl.pathname === '/api/mcp' || req.nextUrl.pathname.startsWith('/api/mcp/')) {
+    const pathname = req.nextUrl.pathname;
+
+    if (
+        pathname === '/api/mcp' ||
+        pathname.startsWith('/api/mcp/') ||
+        pathname.startsWith('/oauth/') ||
+        pathname.startsWith('/.well-known/')
+    ) {
         return NextResponse.next();
     }
     const basicAuth = req.headers.get('authorization');
@@ -47,7 +54,9 @@ export const config = {
          * - _next/image (image optimization files)
          * - favicon.ico (favicon file)
          * - /api/oauth (OAuth callbacks like Twitter/Threads shouldn't be blocked by basic auth)
+         * - /oauth (remote MCP OAuth authorization/token endpoints)
+         * - /.well-known (OAuth discovery metadata)
          */
-        '/((?!_next/static|_next/image|favicon.ico|api/oauth).*)',
+        '/((?!_next/static|_next/image|favicon.ico|api/oauth|oauth|\.well-known).*)',
     ],
 };
