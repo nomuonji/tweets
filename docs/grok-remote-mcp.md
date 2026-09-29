@@ -1,5 +1,30 @@
 # Grok / xAI Remote MCP connection
 
+## Grok Custom Connector UI (OAuth PKCE)
+
+If the Grok UI shows **OAuth Credentials Required**, use these values:
+
+```text
+Client ID: groq
+Client Secret: (leave blank)
+Authorization Endpoint: https://tweets-lime.vercel.app/oauth/authorize
+Token Endpoint: https://tweets-lime.vercel.app/oauth/token
+Scopes: tweets-operator
+Token Auth Method: none (PKCE only)
+```
+
+The Client ID is only used as the OAuth client identifier; this server does not require a registered client secret.
+
+After **Save & Connect**, the browser is redirected to Tweets Operator's authorization page. Enter the existing `AGENT_MCP_TOKEN` as the access key there. The token is used only to approve the OAuth grant; the connector receives a short-lived OAuth access token and refresh token rather than the raw `AGENT_MCP_TOKEN`.
+
+OAuth discovery metadata is also published at:
+
+```text
+https://tweets-lime.vercel.app/.well-known/oauth-authorization-server
+https://tweets-lime.vercel.app/.well-known/oauth-protected-resource
+```
+
+
 Tweets Operator exposes a stateless Streamable HTTP MCP endpoint:
 
 ```text

@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { isMcpRequestAuthorized } from "../src/lib/mcp/auth";
+import { signOAuthToken } from "../src/lib/mcp/oauth";
 
 const old = {
   agent: process.env.AGENT_MCP_TOKEN,
@@ -18,6 +19,8 @@ try {
 
   assert.equal(isMcpRequestAuthorized(request({ Authorization: "Bearer agent-secret" })), true);
   assert.equal(isMcpRequestAuthorized(request({ Authorization: "Bearer grok-secret" })), true);
+  const oauthAccess = signOAuthToken("access", { clientId: "groq", scope: "tweets-operator" });
+  assert.equal(isMcpRequestAuthorized(request({ Authorization: `Bearer ${oauthAccess}` })), true);
   assert.equal(isMcpRequestAuthorized(request({ "x-api-key": "grok-secret" })), true);
   assert.equal(isMcpRequestAuthorized(request(), "legacy-capability"), true);
 

@@ -7,7 +7,7 @@ export async function handleMcpRequest(request: Request, capability?: string) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: {
-        "WWW-Authenticate": "Bearer",
+        "WWW-Authenticate": `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource", request.url).toString()}"`,
         "content-type": "application/json",
       },
     });
