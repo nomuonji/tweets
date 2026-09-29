@@ -1,3 +1,4 @@
+import { oauthAccessTokenValid } from "@/lib/mcp/oauth";
 import { timingSafeEqual } from "crypto";
 
 function equal(value: string | undefined | null, expected: string | undefined | null) {
@@ -24,6 +25,7 @@ export function isMcpRequestAuthorized(request: Request, capability?: string) {
   return (
     equal(bearer, agentToken) ||
     equal(bearer, grokToken) ||
+    Boolean(bearer && oauthAccessTokenValid(bearer)) ||
     equal(apiKey, grokToken) ||
     equal(capability, process.env.MCP_WEB_CAPABILITY)
   );
