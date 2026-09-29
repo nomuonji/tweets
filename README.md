@@ -20,6 +20,14 @@ Internal tool for analysing X (Twitter) and Threads posts, generating AI-assiste
    - OAuth 2.0 Bearer tokens (with optional refresh token / expiry / scopes).
    - OAuth 1.0a credentials (Consumer Key, Consumer Secret, Access Token, Access Token Secret). These are saved with `oauth_version: "oauth1"` so legacy keys such as `TWITTER_APP_KEY / TWITTER_APP_SECRET / TWITTER_ACCESS_TOKEN / TWITTER_ACCESS_SECRET` work without PKCE.
 
+### Remote MCP (Grok / xAI)
+
+Tweets Operator exposes a remote MCP endpoint at `https://tweets-lime.vercel.app/api/mcp`.
+
+It accepts the existing `AGENT_MCP_TOKEN` Bearer credential and an optional dedicated `TWEETS_GROK_MCP_TOKEN` via either Bearer auth or `x-api-key`. When the dedicated token is absent, Grok auth falls back to `AGENT_MCP_TOKEN`.
+
+See [`docs/grok-remote-mcp.md`](docs/grok-remote-mcp.md) for Grok CLI, xAI Responses API, and `allowed_tools` examples.
+
 ### Tech Stack
 - **Frontend**: Next.js App Router, Tailwind CSS
 - **Data**: Firestore (Admin SDK on the server, Web SDK on the client)
