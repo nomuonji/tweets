@@ -12,6 +12,36 @@ export type GenerationStrategy = "external";
 
 export type ReferenceAccountStatus = "candidate" | "approved" | "excluded";
 
+export type InspirationPlatform =
+  | "x"
+  | "threads"
+  | "instagram"
+  | "tiktok"
+  | "youtube"
+  | "other";
+export type InspirationAccountStatus = "active" | "paused" | "archived";
+export type InspirationWatchPriority = "low" | "normal" | "high";
+
+export interface InspirationAccountDoc {
+  id: string;
+  platform: InspirationPlatform;
+  handle: string;
+  display_name?: string;
+  profile_url?: string;
+  status: InspirationAccountStatus;
+  watch_priority?: InspirationWatchPriority;
+  why_useful?: string;
+  tags?: string[];
+  themes?: string[];
+  target_account_ids?: string[];
+  notes?: string;
+  source?: string;
+  last_reviewed_at?: string;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
 export interface PostPattern {
   hook: string;
   structure: string;
