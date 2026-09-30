@@ -14,7 +14,8 @@ import { normalizeProductCatalogInput, productCatalogUpdateSchema } from "@/lib/
 import { DEFAULT_AFFILIATE_CONTEXT_KEY, getAffiliateDistributionRuntimeState, getProjectContext, updateProjectContext } from "@/lib/services/project-context-service";
 import { getProductPerformanceWork } from "@/lib/services/affiliate-tracking-service";
 import { listAffiliateOffers, getAffiliateOffer, saveAffiliateOffer, archiveAffiliateOffer, getAffiliateReplyWork, createAffiliateReplyDraft, publishAffiliateReply, reconcileAffiliateReply, updateAffiliateOfferPerformance } from "@/lib/services/affiliate-offer-service";
-import { getOwnedContentDistributionWork, listOwnedContentItems, listOwnedContentSources, saveOwnedContentItem, saveOwnedContentSource, syncOwnedContentItems } from "@/lib/services/owned-content-service";\nimport { archiveInspirationAccount, getInspirationAccount, getInspirationResearchWork, listInspirationAccounts, saveInspirationAccount } from "@/lib/services/inspiration-account-service";
+import { getOwnedContentDistributionWork, listOwnedContentItems, listOwnedContentSources, saveOwnedContentItem, saveOwnedContentSource, syncOwnedContentItems } from "@/lib/services/owned-content-service";
+import { archiveInspirationAccount, getInspirationAccount, getInspirationResearchWork, listInspirationAccounts, saveInspirationAccount } from "@/lib/services/inspiration-account-service";
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
 const page = z.number().int().min(1).default(1); const limit = z.number().int().min(1).max(50).default(20);
@@ -121,7 +122,8 @@ async function assertUpdated(ref: FirebaseFirestore.DocumentReference, expected:
 const SERVER_VERSION = "1.5.0";
 const MCP_TOOLS = [
   "get_system_health","list_accounts","get_account","get_generation_work","list_drafts","list_recent_posts","get_schedule","list_guidance",
-  "get_project_context","update_project_context","list_products","get_product_discovery_work","get_product_performance_work",\n  "list_inspiration_accounts","get_inspiration_account","get_inspiration_research_work","save_inspiration_account","archive_inspiration_account",
+  "get_project_context","update_project_context","list_products","get_product_discovery_work","get_product_performance_work",
+  "list_inspiration_accounts","get_inspiration_account","get_inspiration_research_work","save_inspiration_account","archive_inspiration_account",
   "list_owned_content_sources","save_owned_content_source","list_owned_content_items","save_owned_content_item","sync_owned_content_items","get_owned_content_distribution_work",
   "create_drafts","update_draft","delete_draft","publish_draft","update_account","sync_posts","save_product","archive_product","save_guidance","delete_guidance",
   "list_affiliate_offers","get_affiliate_offer","save_affiliate_offer","archive_affiliate_offer","get_affiliate_reply_work",
