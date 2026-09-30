@@ -1,4 +1,4 @@
-## SNS Analytics & Publishing Hub
+- `/inspiration_accounts` — cross-platform SNS inspiration/research pool (X, Threads, Instagram, TikTok, YouTube, other). This is deliberately separate from the X-only `reference_accounts` external-sync pipeline. Managed at `/inspiration` and through MCP.\n## SNS Analytics & Publishing Hub
 
 Internal tool for analysing X (Twitter) and Threads posts, generating AI-assisted drafts, and managing scheduled publishing. All data is stored in Firestore and recurring jobs run via GitHub Actions (no Cloud Functions required).
 
