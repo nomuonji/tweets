@@ -360,7 +360,7 @@ export default function InspirationAccountsPage() {
 
                   {(item.tags?.length ?? 0) > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {item.tags.map((tag) => (
+                      {(item.tags ?? []).map((tag) => (
                         <Badge key={tag} variant="primary">
                           {tag}
                         </Badge>
@@ -383,7 +383,7 @@ export default function InspirationAccountsPage() {
                       最終確認: {item.last_reviewed_at ? item.last_reviewed_at.slice(0, 10) : "未確認"}
                     </span>
                     {(item.target_account_ids?.length ?? 0) > 0 ? (
-                      <span>対象: {item.target_account_ids.join(", ")}</span>
+                      <span>対象: {(item.target_account_ids ?? []).join(", ")}</span>
                     ) : null}
                   </div>
                 </article>
