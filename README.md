@@ -1,4 +1,4 @@
-- `/inspiration_accounts` — cross-platform SNS inspiration/research pool (X, Threads, Instagram, TikTok, YouTube, other). This is deliberately separate from the X-only `reference_accounts` external-sync pipeline. Managed at `/inspiration` and through MCP.\n## SNS Analytics & Publishing Hub
+## SNS Analytics & Publishing Hub
 
 Internal tool for analysing X (Twitter) and Threads posts, generating AI-assisted drafts, and managing scheduled publishing. All data is stored in Firestore and recurring jobs run via GitHub Actions (no Cloud Functions required).
 
@@ -86,6 +86,7 @@ scripts/               # Node entry points for GitHub Actions / local runs
 - `/accounts/{accountId}/promo_replies`  ERecord of auto-posted product-promotion replies (and failed attempts). With `promoReplyEnabled`, the sync flow auto-replies with a product intro under any post that crosses the configured score / impression thresholds (see the accounts page).
 - `/settings/default`  Escoring configuration, generation preferences, slot templates, timezone.
 - `/reference_accounts`  Eapproved X accounts used only as external pattern sources.
+- `/inspiration_accounts` — cross-platform SNS inspiration/research pool (X, Threads, Instagram, TikTok, YouTube, other). Kept separate from the X-only `reference_accounts` sync pipeline. Managed at `/inspiration` and through MCP.
 - `/external_posts`  Ecached external candidates and extracted performance signals.
 
 ### Recommended Follow-up
