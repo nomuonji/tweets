@@ -16,6 +16,7 @@ export const navItems = [
   { href: "/analytics", label: "分析", Icon: TrophyIcon },
   { href: "/monetization", label: "収益化", Icon: FlaskIcon },
   { href: "/products", label: "Amazon商品", Icon: InboxIcon },
+  { href: "/inspiration", label: "参考SNS", Icon: FlaskIcon },
   { href: "/accounts", label: "アカウント", Icon: UsersIcon },
 ];
 
