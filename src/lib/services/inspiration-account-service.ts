@@ -191,7 +191,7 @@ export async function saveInspirationAccount({
     }
 
     const now = nowIso();
-    const next: Omit<InspirationAccountDoc, "id"> = {
+    const next = Object.fromEntries(Object.entries({
       platform,
       handle: normalizeHandle(handle),
       display_name: patch.display_name ?? existing?.display_name ?? "",
@@ -211,7 +211,7 @@ export async function saveInspirationAccount({
       created_at: existing?.created_at ?? now,
       updated_at: now,
       revision: (existing?.revision ?? 0) + 1,
-    };
+    }).filter(([, value]) => value !== undefined)) as Omit<InspirationAccountDoc, "id">;
 
     transaction.set(ref, next, { merge: false });
   });
