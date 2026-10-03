@@ -120,7 +120,7 @@ async function assertUpdated(ref: FirebaseFirestore.DocumentReference, expected:
   return snap;
 }
 
-const SERVER_VERSION = "1.6.1";
+const SERVER_VERSION = "1.6.2";
 const MCP_TOOLS = [
   "get_system_health","list_accounts","get_account","get_generation_work","list_drafts","list_recent_posts","get_schedule","list_guidance",
   "get_project_context","update_project_context","list_products","get_product_discovery_work","get_product_performance_work",
