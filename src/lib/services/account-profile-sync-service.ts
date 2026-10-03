@@ -95,7 +95,7 @@ export async function syncAccountProfiles(
   for (const account of targets) {
     const previous = {
       handle: account.handle,
-      displayName: account.display_name,
+      displayName: account.display_name ?? "",
     };
 
     try {
@@ -197,5 +197,8 @@ export async function syncAccountProfiles(
     }
   }
 
-  return results;
+  // Idempotent MCP operations persist their result in Firestore. Strip any
+  // optional undefined values recursively so legacy account records cannot
+  // make the operation log itself fail.
+  return JSON.parse(JSON.stringify(results)) as AccountProfileSyncResult[];
 }
