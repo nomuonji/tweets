@@ -124,6 +124,7 @@ async function handleXCallback(code: string, state: string, requestUrl: URL) {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt,
+      userId: userData.data.id,
     },
     extra: {
       twitter_user_id: userData.data.id,
