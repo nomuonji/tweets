@@ -1,4 +1,6 @@
 import { DateTime } from "luxon";
+import { generateSuggestion, GenerationUnavailableError } from "@/lib/ai/generation-client";
+import { requestGrok } from "@/lib/grok/client";
 import { adminDb } from "@/lib/firebase/admin";
 import { publishXReply } from "@/lib/platforms/x";
 import { publishThreadsReply } from "@/lib/platforms/threads";
@@ -31,6 +33,7 @@ const DEFAULT_OFFER_COOLDOWN_MINUTES = 60;
 const DEFAULT_LOOKBACK_DAYS = 3;
 const DEFAULT_MIN_SCORE = 1000;
 const DEFAULT_MIN_IMPRESSIONS = 1000;
+const MAX_AFFILIATE_GENERATION_ATTEMPTS = 3;
 
 type OfferFilters = {
   status?: string;
@@ -80,6 +83,16 @@ type PerformanceUpdate = {
   revenue?: number;
   bestHook?: string;
   bestAccount?: string;
+};
+
+export type AffiliateAutoReplyAttemptResult = {
+  outcome: "posted" | "skipped" | "failed";
+  attempted: boolean;
+  haltAccount: boolean;
+  reply?: AffiliateReplyRecord;
+  offerId?: string;
+  parentPostId?: string;
+  reason?: string;
 };
 
 function offerCollection() {
@@ -581,6 +594,217 @@ async function assertReplyCreationGates(
     throw new Error(
       `Affiliate reply is not eligible: ${blocks.join(", ")}`,
     );
+  }
+}
+
+function buildAffiliateReplyPrompt(
+  account: AccountDoc & AffiliateAccountSettings,
+  post: PostDoc,
+  offer: AffiliateOfferRecord,
+): string {
+  const affiliateUrl = offer.affiliateUrl?.trim() ?? "";
+  const maxLength = Math.min(account.maxPostLength ?? 220, 300);
+  const lines = [
+    `You write a reply to this account's own high-performing ${post.platform.toUpperCase()} post.`,
+    "",
+    "# ACCOUNT VOICE",
+    (account.concept ?? "Keep the account's existing voice and tone.").slice(0, 1600),
+    "",
+    "# ORIGINAL POST",
+    post.text.slice(0, 700),
+    "",
+    "# AFFILIATE OFFER",
+    `- title: ${offer.title}`,
+    offer.description ? `- description: ${offer.description.slice(0, 1000)}` : "",
+    offer.category ? `- category: ${offer.category}` : "",
+    offer.themes?.length ? `- themes: ${offer.themes.join(", ")}` : "",
+    offer.conversionAction ? `- conversion condition: ${offer.conversionAction.slice(0, 700)}` : "",
+    offer.promoHooks?.length ? `- suggested hooks: ${offer.promoHooks.slice(0, 3).join(" / ")}` : "",
+    `- exact URL to include: ${affiliateUrl}`,
+    "",
+    "# GOAL",
+    "Write a natural follow-up reply that is directly connected to the original post and introduces this offer only when it is a plausible next step for the reader.",
+    "It must read like the same person continuing the conversation, not a standalone ad.",
+    "",
+    "# RULES",
+    "- Include the exact URL once.",
+    "- Do not invent personal experience, results, prices, discounts, approval status, or claims not present in the offer data.",
+    "- Do not promise outcomes or imply that fortune-telling or consultation can guarantee reconciliation, fidelity, or a partner's feelings.",
+    "- Do not pressure vulnerable readers. Present the service as an optional way to talk or think through the situation.",
+    "- Do not add a PR/ad disclosure; the system prepends the configured disclosure separately.",
+    `- Keep the body concise; target 70-${Math.max(100, maxLength - 25)} characters when writing Japanese, while staying within the platform limit.`,
+  ].filter(Boolean);
+
+  return `${lines.join("\n")}
+
+Output strictly in JSON:
+{
+  "tweet": "Content...",
+  "explanation": "Reasoning..."
+}`;
+}
+
+async function generateAffiliateReplyText(
+  account: AccountDoc & AffiliateAccountSettings,
+  post: PostDoc,
+  offer: AffiliateOfferRecord,
+): Promise<string> {
+  const affiliateUrl = offer.affiliateUrl?.trim();
+  if (!affiliateUrl) throw new Error("Affiliate offer has no affiliateUrl.");
+  const prompt = buildAffiliateReplyPrompt(account, post, offer);
+
+  if (account.r18Mode) {
+    const xaiApiKey = process.env.XAI_API_KEY;
+    if (!xaiApiKey) {
+      throw new Error("XAI_API_KEY environment variable is not configured.");
+    }
+    const suggestion = await requestGrok(prompt, xaiApiKey);
+    const text = suggestion.tweet.trim();
+    if (!text.includes(affiliateUrl)) {
+      throw new Error("Generated affiliate reply does not contain the exact affiliate URL.");
+    }
+    return text;
+  }
+
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= MAX_AFFILIATE_GENERATION_ATTEMPTS; attempt += 1) {
+    try {
+      const suggestion = (await generateSuggestion(prompt)).value;
+      const text = suggestion.tweet.trim();
+      if (!text.includes(affiliateUrl)) {
+        throw new Error("Generated affiliate reply does not contain the exact affiliate URL.");
+      }
+      return text;
+    } catch (error) {
+      if (error instanceof GenerationUnavailableError) throw error;
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw new Error(
+    `Affiliate reply generation remained invalid after ${MAX_AFFILIATE_GENERATION_ATTEMPTS} attempts: ${lastError?.message ?? "Unknown error"}`,
+  );
+}
+
+export async function maybeAffiliateOfferReply(
+  account: AccountDoc,
+  post: PostDoc,
+  now: DateTime = DateTime.utc(),
+): Promise<AffiliateAutoReplyAttemptResult> {
+  let draft: AffiliateReplyRecord | undefined;
+  let offer: AffiliateOfferRecord | undefined;
+  try {
+    const settings = toAccountSettings(account);
+    if (settings.promoReplyEnabled !== true || !allowsAffiliateOfferReply(settings)) {
+      return { outcome: "skipped", attempted: false, haltAccount: false };
+    }
+
+    const [allReplies, distributionRuntime, offers] = await Promise.all([
+      loadAffiliateReplies(),
+      getAffiliateDistributionRuntimeState(),
+      listAffiliateOffers({
+        accountId: settings.id,
+        platform: settings.platform,
+        status: "active",
+        limit: 200,
+      }),
+    ]);
+
+    const blocks = [
+      ...parentGateReasons(settings, post, now),
+      ...accountRuntimeBlockReasons(settings, allReplies, now),
+    ];
+    if (!distributionRuntime.offerRepliesEnabled) {
+      blocks.push(distributionRuntime.blockReason ?? "affiliate_offer_replies_disabled");
+    }
+    if (existingParentReply(post.id, allReplies)) {
+      blocks.push("existing_affiliate_reply");
+    }
+    if (blocks.length > 0) {
+      return {
+        outcome: "skipped",
+        attempted: false,
+        haltAccount: false,
+        parentPostId: post.id,
+        reason: Array.from(new Set(blocks)).join(","),
+      };
+    }
+
+    const ranked = offers
+      .map((candidate) => {
+        const match = matchAffiliateOffer(settings, post, candidate, now);
+        const blockReasons = [...match.blockReasons];
+        if (offerCooldownBlocked(candidate, allReplies, now)) {
+          blockReasons.push("offer_cooldown");
+        }
+        return { offer: candidate, score: match.score, blockReasons };
+      })
+      .filter((item) => item.blockReasons.length === 0)
+      .sort((a, b) => b.score - a.score);
+
+    offer = ranked[0]?.offer;
+    if (!offer) {
+      return {
+        outcome: "skipped",
+        attempted: false,
+        haltAccount: false,
+        parentPostId: post.id,
+        reason: "no_eligible_affiliate_offer",
+      };
+    }
+
+    const disclosure = offer.disclosureText?.trim() || "PR（広告）";
+    const text = await generateAffiliateReplyText(settings, post, offer);
+    draft = await createAffiliateReplyDraft({
+      parentPostId: post.id,
+      offerId: offer.id,
+      text,
+      disclosure,
+      hookVersion: "sync-auto-v1",
+    });
+
+    const result = await publishAffiliateReply(draft.id, draft.updated_at);
+    const reply = result && typeof result === "object" && "reply" in result
+      ? (result.reply as AffiliateReplyRecord | undefined)
+      : undefined;
+    const status = result && typeof result === "object" && "status" in result
+      ? String(result.status)
+      : "unknown";
+
+    if (status === "published" || status === "reconciled" || status === "already_published") {
+      return {
+        outcome: "posted",
+        attempted: true,
+        haltAccount: false,
+        reply: reply ?? draft,
+        offerId: offer.id,
+        parentPostId: post.id,
+      };
+    }
+
+    return {
+      outcome: "failed",
+      attempted: true,
+      haltAccount: status === "reconciliation_required" || status === "external_published_unpersisted" || status === "pending_reconciliation",
+      reply: reply ?? draft,
+      offerId: offer.id,
+      parentPostId: post.id,
+      reason: status,
+    };
+  } catch (error) {
+    const providerUnavailable = error instanceof GenerationUnavailableError;
+    return {
+      outcome: "failed",
+      attempted: true,
+      haltAccount: providerUnavailable,
+      ...(draft ? { reply: draft } : {}),
+      ...(offer ? { offerId: offer.id } : {}),
+      parentPostId: post.id,
+      reason: providerUnavailable
+        ? "provider_unavailable"
+        : error instanceof Error
+          ? error.message
+          : String(error),
+    };
   }
 }
 
