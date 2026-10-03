@@ -8,6 +8,7 @@ import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
 import { getAccounts, upsertPost } from "./firestore.server";
 import { reconcileAffiliateLinkForPost } from "./affiliate-tracking-service";
+import { maybeAffiliateOfferReply } from "./affiliate-offer-service";
 import {
   getLastSuccessfulPromoReplyTime,
   isPromoReplyEligible,
@@ -42,6 +43,10 @@ export type SyncResult = {
   promoFailures?: number;
   promoHaltedReason?: string;
   affiliateLinksReconciled?: number;
+  affiliateOfferReplies?: number;
+  affiliateOfferAttempts?: number;
+  affiliateOfferFailures?: number;
+  affiliateOfferHaltedReason?: string;
   error?: string;
   debug: string[];
 };
@@ -249,6 +254,39 @@ export async function syncPostsForAllAccounts(
         }
       }
 
+      // Affiliate Offer replies use the same high-performing parent posts but a
+      // separate offer catalog and attribution path. Unlike the legacy Amazon
+      // flow, all creation/publish gates are revalidated inside the service.
+      let affiliateOfferReplies = 0;
+      let affiliateOfferAttempts = 0;
+      let affiliateOfferFailures = 0;
+      let affiliateOfferHaltedReason: string | undefined;
+      const affiliateCandidates = [...posts].sort((a, b) =>
+        b.score - a.score ||
+        (b.metrics.impressions ?? 0) - (a.metrics.impressions ?? 0),
+      );
+      for (const post of affiliateCandidates) {
+        if (
+          affiliateOfferReplies >= MAX_PROMO_REPLIES_PER_SYNC ||
+          affiliateOfferAttempts >= MAX_PROMO_REPLIES_PER_SYNC ||
+          affiliateOfferHaltedReason
+        ) break;
+        const attempt = await maybeAffiliateOfferReply(account, post, promoNow);
+        if (attempt.attempted) affiliateOfferAttempts += 1;
+        if (attempt.outcome === "posted") affiliateOfferReplies += 1;
+        if (attempt.outcome === "failed") affiliateOfferFailures += 1;
+        if (attempt.haltAccount) {
+          affiliateOfferHaltedReason = attempt.reason ?? "provider_unavailable";
+        }
+        // A successful affiliate reply updates lastPromoReplyAt. Respect the
+        // configured account cooldown rather than trying a second reply in the
+        // same sync; the daily limit can be reached on a later sync.
+        if (
+          attempt.outcome === "posted" &&
+          (account.promoReplyCooldownMinutes ?? 60) > 0
+        ) break;
+      }
+
       if (payloads.length > 0) {
         const latest = payloads
           .map((item) => item.created_at)
@@ -271,6 +309,10 @@ export async function syncPostsForAllAccounts(
         promoFailures,
         ...(promoHaltedReason ? { promoHaltedReason } : {}),
         affiliateLinksReconciled,
+        affiliateOfferReplies,
+        affiliateOfferAttempts,
+        affiliateOfferFailures,
+        ...(affiliateOfferHaltedReason ? { affiliateOfferHaltedReason } : {}),
         debug: [
           ...debug,
           `Fetched payloads: ${payloads.length}`,
@@ -280,6 +322,12 @@ export async function syncPostsForAllAccounts(
           `Promo reply attempts: ${promoAttempts}`,
           `Promo reply failures: ${promoFailures}`,
           `Affiliate links reconciled: ${affiliateLinksReconciled}`,
+          `Affiliate Offer replies posted: ${affiliateOfferReplies}`,
+          `Affiliate Offer reply attempts: ${affiliateOfferAttempts}`,
+          `Affiliate Offer reply failures: ${affiliateOfferFailures}`,
+          ...(affiliateOfferHaltedReason
+            ? [`Affiliate Offer replies halted: ${affiliateOfferHaltedReason}`]
+            : []),
           ...(promoHaltedReason
             ? [`Promo replies halted: ${promoHaltedReason}`]
             : []),
