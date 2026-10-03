@@ -925,6 +925,23 @@ function buildXClient(account: AccountDoc) {
   return client.readWrite;
 }
 
+export async function getXUserProfile(account: AccountDoc): Promise<{
+  id: string;
+  username: string;
+  name: string;
+}> {
+  const client = buildXClient(account);
+  const { data } = await client.v2.me();
+  if (!data?.id || !data.username) {
+    throw new Error("Could not retrieve X user profile.");
+  }
+  return {
+    id: data.id,
+    username: data.username,
+    name: data.name ?? data.username,
+  };
+}
+
 export async function publishXPost(
   account: AccountDoc,
   payload: { text: string },
