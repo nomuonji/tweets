@@ -108,7 +108,7 @@ export async function syncAccountProfiles(
           platform: account.platform,
           status: "error",
           platformUserId: profile.id,
-          storedPlatformUserId,
+          ...(storedPlatformUserId ? { storedPlatformUserId } : {}),
           previous,
           error:
             "Platform user ID mismatch. Refusing to update handle/display_name because the token resolved to a different account.",
@@ -152,7 +152,7 @@ export async function syncAccountProfiles(
           platform: account.platform,
           status: "unchanged",
           platformUserId: profile.id,
-          storedPlatformUserId,
+          ...(storedPlatformUserId ? { storedPlatformUserId } : {}),
           previous,
           current: {
             handle: nextHandle,
@@ -175,7 +175,7 @@ export async function syncAccountProfiles(
         platform: account.platform,
         status: options.dryRun ? "dry_run" : "updated",
         platformUserId: profile.id,
-        storedPlatformUserId,
+        ...(storedPlatformUserId ? { storedPlatformUserId } : {}),
         previous,
         current: {
           handle: nextHandle,
@@ -188,7 +188,9 @@ export async function syncAccountProfiles(
         accountId: account.id,
         platform: account.platform,
         status: "error",
-        storedPlatformUserId: getStoredPlatformUserId(account),
+        ...(getStoredPlatformUserId(account)
+          ? { storedPlatformUserId: getStoredPlatformUserId(account)! }
+          : {}),
         previous,
         error: error instanceof Error ? error.message : String(error),
       });
