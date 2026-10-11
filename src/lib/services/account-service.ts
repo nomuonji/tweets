@@ -167,6 +167,9 @@ export async function updateAccount(
   accountId: string,
   params: UpdateAccountParams,
 ) {
+  if ("promoReplyRate" in params) {
+    throw new Error("promoReplyRate has been removed; affiliate replies have no probability gate.");
+  }
   const now = DateTime.utc().toISO()!;
   const accountRef = adminDb.collection("accounts").doc(accountId);
 
