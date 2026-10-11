@@ -57,6 +57,8 @@ export interface AffiliateOfferRecord {
   affiliateUrl?: string;
   category?: string;
   themes?: string[];
+  /** Require at least one literal offer theme hit in the actual parent post. */
+  requirePostThemeMatch?: boolean;
   conversionAction?: string;
   reward?: AffiliateOfferReward;
   status: AffiliateOfferStatus;
@@ -273,6 +275,12 @@ export function matchAffiliateOffer(
   if (postThemeHits.length > 0) {
     score += Math.min(20, postThemeHits.length * 10);
     reasons.push(`post_theme_match:${postThemeHits.join(",")}`);
+  }
+  // Optional hard gate for self-site affiliate LPs that address a single topic.
+  // An account allowlist or broad account theme must never substitute for
+  // relevance to this specific parent post. Unflagged legacy offers are unchanged.
+  if (offer.requirePostThemeMatch === true && postThemeHits.length === 0) {
+    blockReasons.push("post_theme_mismatch");
   }
 
   if (offer.category && textContainsTheme(post.text, offer.category)) {
