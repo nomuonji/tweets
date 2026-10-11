@@ -166,9 +166,9 @@ async function main() {
     ...tenPhoneReplies[0],
     account_id: "threads_another_account",
   }];
-  assert.equal(
-    rankAffiliateOffers(candidates, kanna.id, otherAccount, now)[0].offer.id,
-    candidates.sort((a, b) => b.score - a.score)[0].offer.id,
+  assert.deepEqual(
+    rankAffiliateOffers(candidates, kanna.id, otherAccount, now).map((item) => item.offer.id),
+    rankAffiliateOffers(candidates, kanna.id, [], now).map((item) => item.offer.id),
     "a different account's replies must not affect Kanna's ranking",
   );
   assert.equal(
