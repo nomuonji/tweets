@@ -17,6 +17,7 @@ import {
   getAffiliateReplyPublishAction,
   isReplyOccupyingParent,
   matchAffiliateOffer,
+  rankAffiliateOffers,
   passesPromoReplyRate,
   resolvePromoReplyMode,
   validateDisclosure,
@@ -444,7 +445,7 @@ export async function getAffiliateReplyWork({
       const priorReply = existingParentReply(post.id, allReplies);
       if (priorReply) blockReasons.push("existing_affiliate_reply");
 
-      const ranked = allOffers
+      const scoredOffers = allOffers
         .map((offer) => {
           const match = matchAffiliateOffer(account, post, offer, now);
           const offerBlocks = [...match.blockReasons];
@@ -472,19 +473,24 @@ export async function getAffiliateReplyWork({
             blockReasons: Array.from(new Set(offerBlocks)),
             eligible: match.eligible && offerBlocks.length === 0,
           };
-        })
-        .sort(
-          (a, b) =>
-            Number(b.eligible) - Number(a.eligible) ||
-            b.matchScore - a.matchScore,
-        );
+        });
+      // Preview the exact same eligible-offer rotation used by auto-publishing.
+      const rankedEligible = rankAffiliateOffers(
+        scoredOffers
+          .filter((item) => item.eligible)
+          .map((item) => ({ ...item, score: item.matchScore })),
+        account.id,
+        allReplies,
+        now,
+      );
 
       const eligibleOffers =
         blockReasons.length === 0
-          ? ranked.filter((item) => item.eligible).slice(0, 10)
+          ? rankedEligible.slice(0, 10).map(({ score, ...item }) => item)
           : [];
-      const blockedOffers = ranked
+      const blockedOffers = scoredOffers
         .filter((item) => !item.eligible)
+        .sort((a, b) => b.matchScore - a.matchScore)
         .slice(0, 5);
 
       candidatePosts.push({
@@ -729,17 +735,21 @@ export async function maybeAffiliateOfferReply(
       };
     }
 
-    const ranked = offers
-      .map((candidate) => {
-        const match = matchAffiliateOffer(settings, post, candidate, now);
-        const blockReasons = [...match.blockReasons];
-        if (offerCooldownBlocked(candidate, allReplies, now)) {
-          blockReasons.push("offer_cooldown");
-        }
-        return { offer: candidate, score: match.score, blockReasons };
-      })
-      .filter((item) => item.blockReasons.length === 0)
-      .sort((a, b) => b.score - a.score);
+    const ranked = rankAffiliateOffers(
+      offers
+        .map((candidate) => {
+          const match = matchAffiliateOffer(settings, post, candidate, now);
+          const blockReasons = [...match.blockReasons];
+          if (offerCooldownBlocked(candidate, allReplies, now)) {
+            blockReasons.push("offer_cooldown");
+          }
+          return { offer: candidate, score: match.score, blockReasons };
+        })
+        .filter((item) => item.blockReasons.length === 0),
+      settings.id,
+      allReplies,
+      now,
+    );
 
     offer = ranked[0]?.offer;
     if (!offer) {
