@@ -114,7 +114,6 @@ export interface AffiliateReplyRecord {
 export type AffiliateAccountSettings = {
   monetizationThemes?: string[];
   affiliateThirdPartyEnabled?: boolean;
-  promoReplyRate?: number;
   promoReplyDailyLimit?: number;
   promoReplyMode?: PromoReplyMode;
 };
@@ -344,6 +343,37 @@ export function matchAffiliateOffer(
  * Eligibility, advertiser restrictions and offer cooldowns are enforced
  * before this function is called.
  */
+/**
+ * Eligibility of a parent post for an affiliate reply.
+ * There is deliberately no random/rate-based gate: a matching post must
+ * not be discarded after passing explicit quality and safety checks.
+ */
+export function getAffiliateParentGateReasons(
+  account: AccountDoc & AffiliateAccountSettings,
+  post: PostDoc,
+  now: DateTime,
+): string[] {
+  const reasons: string[] = [];
+  if (account.promoReplyEnabled !== true) reasons.push("promo_reply_disabled");
+  if (!allowsAffiliateOfferReply(account)) reasons.push("affiliate_offer_mode_disabled");
+  if (post.promo_replied_at) reasons.push("parent_already_promo_replied");
+  if (post.metrics.impressions == null) {
+    reasons.push("impressions_unavailable");
+  } else if (post.metrics.impressions < (account.promoReplyMinImpressions ?? 1000)) {
+    reasons.push("below_min_impressions");
+  }
+  if (post.score < (account.promoReplyMinScore ?? 1000)) {
+    reasons.push("below_min_score");
+  }
+  const created = DateTime.fromISO(post.created_at);
+  if (!created.isValid) {
+    reasons.push("invalid_parent_created_at");
+  } else if (now.diff(created, "days").days > (account.promoReplyLookbackDays ?? 3)) {
+    reasons.push("outside_lookback");
+  }
+  return reasons;
+}
+
 export function rankAffiliateOffers<T extends {
   offer: Pick<AffiliateOfferRecord, "id">;
   score: number;
@@ -397,23 +427,6 @@ export function rankAffiliateOffers<T extends {
       b.score - a.score ||
       a.offer.id.localeCompare(b.offer.id),
     );
-}
-
-export function passesPromoReplyRate(
-  accountId: string,
-  parentPostId: string,
-  rate: number,
-): boolean {
-  if (rate >= 1) return true;
-  if (rate <= 0) return false;
-  const input = `${accountId}:${parentPostId}`;
-  let hash = 2166136261;
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  const bucket = (hash >>> 0) / 0xffffffff;
-  return bucket < rate;
 }
 
 export function isRecognizedDisclosure(value: string): boolean {
