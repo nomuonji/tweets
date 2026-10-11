@@ -486,7 +486,7 @@ export async function getAffiliateReplyWork({
 
       const eligibleOffers =
         blockReasons.length === 0
-          ? rankedEligible.slice(0, 10).map(({ score, ...item }) => item)
+          ? rankedEligible.slice(0, 10)
           : [];
       const blockedOffers = scoredOffers
         .filter((item) => !item.eligible)
