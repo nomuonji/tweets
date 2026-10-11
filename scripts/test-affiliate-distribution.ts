@@ -117,6 +117,40 @@ async function main() {
   assert.ok(good.score > 0);
   assert.ok(good.themeOverlap.includes("career"));
 
+  // A Ken LP offer needs a literal match to the parent's topic, not just
+  // account-level permission. Legacy Kanna offers remain unchanged.
+  const ken = account({
+    id: "threads_plansetting",
+    monetizationThemes: ["career", "self_investment", "saving"],
+  });
+  const kenOffer = offer({
+    id: "ken-onsuku",
+    allowedAccountIds: [ken.id],
+    themes: ["self_investment", "自己投資", "資格", "勉強"],
+    requirePostThemeMatch: true,
+  });
+  const unrelatedPost = post({
+    account_id: ken.id,
+    text: "20代の俺が疲れないようにしている生活のルール。睡眠7時間、湯船を週4回。",
+  });
+  const unrelated = matchAffiliateOffer(ken, unrelatedPost, kenOffer, now);
+  assert.equal(unrelated.eligible, false);
+  assert.ok(unrelated.blockReasons.includes("post_theme_mismatch"));
+  assert.ok(unrelated.score > 0, "account allowlist alone must not bypass relevance");
+  const relevant = matchAffiliateOffer(ken, post({
+    account_id: ken.id,
+    text: "20代の自己投資でやってよかったこと。資格の勉強は少しずつ。",
+  }), kenOffer, now);
+  assert.equal(relevant.eligible, true);
+  assert.ok(relevant.reasons.some((reason) => reason.includes("post_theme_match")));
+  const otherAccountOffer = offer({
+    id: "legacy-offer",
+    allowedAccountIds: [ken.id],
+    themes: ["study"],
+  });
+  assert.equal(matchAffiliateOffer(ken, unrelatedPost, otherAccountOffer, now).eligible, true,
+    "unchanged unflagged offers preserve legacy eligibility");
+
   // Kanna's account themes are in English, but the four approved
   // distribution records have Japanese offer themes.
   const kanna = account({
