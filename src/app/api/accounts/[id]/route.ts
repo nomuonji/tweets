@@ -16,7 +16,6 @@ const payloadSchema = z.object({
   explorationRate: z.number().min(0).max(1).optional(),
   promoEnabled: z.boolean().optional(),
   promoRate: z.number().min(0).max(1).optional(),
-  promoReplyRate: z.number().min(0).max(1).optional(),
   promoReplyDailyLimit: z.number().int().min(0).max(50).optional(),
   promoReplyMode: z.enum(["off", "amazon", "affiliate_offer", "mixed"]).optional(),
   monetizationThemes: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
