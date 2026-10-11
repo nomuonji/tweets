@@ -335,15 +335,6 @@ export function matchAffiliateOffer(
 }
 
 /**
- * Rank only pre-validated eligible offers. Rotation is scoped to one account;
- * never let a different account's replies affect this account's selection.
- *
- * An immediate repeat is heavily penalized when an alternative is eligible,
- * while the seven-day usage count provides gradual exposure balancing.
- * Eligibility, advertiser restrictions and offer cooldowns are enforced
- * before this function is called.
- */
-/**
  * Eligibility of a parent post for an affiliate reply.
  * There is deliberately no random/rate-based gate: a matching post must
  * not be discarded after passing explicit quality and safety checks.
@@ -374,6 +365,15 @@ export function getAffiliateParentGateReasons(
   return reasons;
 }
 
+/**
+ * Rank only pre-validated eligible offers. Rotation is scoped to one account;
+ * never let a different account's replies affect this account's selection.
+ *
+ * An immediate repeat is heavily penalized when an alternative is eligible,
+ * while the seven-day usage count provides gradual exposure balancing.
+ * Eligibility, advertiser restrictions and offer cooldowns are enforced
+ * before this function is called.
+ */
 export function rankAffiliateOffers<T extends {
   offer: Pick<AffiliateOfferRecord, "id">;
   score: number;
