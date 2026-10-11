@@ -7,6 +7,7 @@ import {
   getAffiliateReplyPublishAction,
   isReplyOccupyingParent,
   matchAffiliateOffer,
+  rankAffiliateOffers,
   passesPromoReplyRate,
   resolvePromoReplyMode,
   validateDisclosure,
@@ -115,6 +116,74 @@ async function main() {
   assert.equal(good.eligible, true);
   assert.ok(good.score > 0);
   assert.ok(good.themeOverlap.includes("career"));
+
+  // Kanna's account themes are in English, but the four approved
+  // distribution records have Japanese offer themes.
+  const kanna = account({
+    id: "threads_uwaki_neko_xx",
+    handle: "kanna_neko_xx",
+    monetizationThemes: ["relationship", "love", "fidelity", "consultation", "fortune_telling"],
+  });
+  const kannaPost = post({
+    account_id: kanna.id,
+    text: "恋人の浮気を知ったら、信頼は元に戻るのかな？",
+  });
+  const phone = offer({
+    id: "phone",
+    allowedAccountIds: [kanna.id],
+    themes: ["占い", "恋愛", "復縁", "不倫相談"],
+  });
+  const chat = offer({
+    id: "chat",
+    allowedAccountIds: [kanna.id],
+    themes: ["占い", "恋愛相談", "チャット相談", "悩み相談"],
+  });
+  const phoneMatch = matchAffiliateOffer(kanna, kannaPost, phone, now);
+  const chatMatch = matchAffiliateOffer(kanna, kannaPost, chat, now);
+  assert.equal(phoneMatch.eligible, true);
+  assert.equal(chatMatch.eligible, true);
+  assert.ok(phoneMatch.themeOverlap.includes("relationship"));
+  assert.ok(phoneMatch.themeOverlap.includes("fortune_telling"));
+  assert.ok(phoneMatch.themeOverlap.includes("fidelity"));
+  assert.ok(chatMatch.themeOverlap.includes("consultation"));
+
+  const candidates = [
+    { offer: phone, score: phoneMatch.score },
+    { offer: chat, score: chatMatch.score },
+  ];
+  const tenPhoneReplies = Array.from({ length: 10 }, (_, index) => ({
+    account_id: kanna.id,
+    offer_id: phone.id,
+    status: "published" as const,
+    created_at: now.minus({ hours: index + 1 }).toISO()!,
+  }));
+  const rotated = rankAffiliateOffers(candidates, kanna.id, tenPhoneReplies, now);
+  assert.equal(rotated[0].offer.id, chat.id, "ten repeated phone replies must not beat an eligible alternative");
+  assert.equal(rotated.find((item) => item.offer.id === phone.id)?.recent7dUses, 10);
+  assert.equal(rotated.find((item) => item.offer.id === phone.id)?.wasLastUsed, true);
+
+  const otherAccount = [{
+    ...tenPhoneReplies[0],
+    account_id: "threads_another_account",
+  }];
+  assert.deepEqual(
+    rankAffiliateOffers(candidates, kanna.id, otherAccount, now).map((item) => item.offer.id),
+    rankAffiliateOffers(candidates, kanna.id, [], now).map((item) => item.offer.id),
+    "a different account's replies must not affect Kanna's ranking",
+  );
+  assert.equal(
+    rankAffiliateOffers(candidates, kanna.id, [
+      { ...tenPhoneReplies[0], status: "failed" },
+      { ...tenPhoneReplies[0], created_at: now.minus({ days: 8 }).toISO()! },
+    ], now).find((item) => item.offer.id === phone.id)?.recent7dUses,
+    0,
+    "failed and old replies must not distort seven-day exposure",
+  );
+  assert.equal(
+    rankAffiliateOffers([candidates[0]], kanna.id, tenPhoneReplies, now)[0].offer.id,
+    phone.id,
+    "rotation must not disable the only valid available offer",
+  );
 
   for (const status of ["candidate", "pending_approval", "approved", "paused", "archived"] as const) {
     const result = matchAffiliateOffer(account(), post(), offer({ status }), now);

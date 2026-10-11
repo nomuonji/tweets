@@ -149,8 +149,27 @@ function normalized(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, " ");
 }
 
+const THEME_ALIASES: Record<string, string> = {
+  love: "relationship",
+  relationship: "relationship",
+  恋愛: "relationship",
+  恋愛相談: "relationship",
+  復縁: "relationship",
+  fidelity: "fidelity",
+  不倫相談: "fidelity",
+  浮気: "fidelity",
+  consultation: "consultation",
+  相談: "consultation",
+  悩み相談: "consultation",
+  チャット相談: "consultation",
+  fortune_telling: "fortune_telling",
+  占い: "fortune_telling",
+  電話占い: "fortune_telling",
+};
+
 function normalizedTheme(value: string): string {
-  return normalized(value).replace(/\s+/g, "_");
+  const token = normalized(value).replace(/\s+/g, "_");
+  return THEME_ALIASES[token] ?? token;
 }
 
 function unique(values: string[]): string[] {
@@ -246,7 +265,9 @@ export function matchAffiliateOffer(
     reasons.push(`theme_overlap:${themeOverlap.join(",")}`);
   }
 
-  const postThemeHits = offerThemes.filter((theme) =>
+  // Preserve the original language for matching against the post text.
+  // Canonical themes are used only for cross-language account/offer overlap.
+  const postThemeHits = (offer.themes ?? []).filter((theme) =>
     textContainsTheme(post.text, theme),
   );
   if (postThemeHits.length > 0) {
@@ -304,6 +325,70 @@ export function matchAffiliateOffer(
     blockReasons: unique(blockReasons),
     themeOverlap,
   };
+}
+
+/**
+ * Rank only pre-validated eligible offers. Rotation is scoped to one account;
+ * never let a different account's replies affect this account's selection.
+ *
+ * An immediate repeat is heavily penalized when an alternative is eligible,
+ * while the seven-day usage count provides gradual exposure balancing.
+ * Eligibility, advertiser restrictions and offer cooldowns are enforced
+ * before this function is called.
+ */
+export function rankAffiliateOffers<T extends {
+  offer: Pick<AffiliateOfferRecord, "id">;
+  score: number;
+}>(
+  candidates: T[],
+  accountId: string,
+  replies: Array<Pick<
+    AffiliateReplyRecord,
+    "account_id" | "offer_id" | "status" | "created_at"
+  >>,
+  now: DateTime,
+): Array<T & {
+  selectionScore: number;
+  recent7dUses: number;
+  wasLastUsed: boolean;
+}> {
+  const recent = replies
+    .filter((reply) =>
+      reply.account_id === accountId &&
+      ["publishing", "pending_reconciliation", "published", "reconciled"].includes(reply.status),
+    )
+    .map((reply) => ({ reply, created: DateTime.fromISO(reply.created_at) }))
+    .filter(({ created }) =>
+      created.isValid &&
+      now.diff(created, "milliseconds").milliseconds >= 0 &&
+      now.diff(created, "days").days <= 7,
+    )
+    .sort((a, b) => b.created.toMillis() - a.created.toMillis());
+
+  const lastOfferId = recent[0]?.reply.offer_id;
+  const counts = new Map<string, number>();
+  for (const item of recent) {
+    counts.set(item.reply.offer_id, (counts.get(item.reply.offer_id) ?? 0) + 1);
+  }
+
+  return candidates
+    .map((candidate) => {
+      const recent7dUses = counts.get(candidate.offer.id) ?? 0;
+      const wasLastUsed = candidate.offer.id === lastOfferId;
+      const usagePenalty = Math.min(recent7dUses * 12, 84);
+      const repeatPenalty = candidates.length > 1 && wasLastUsed ? 100 : 0;
+      return {
+        ...candidate,
+        selectionScore: candidate.score - usagePenalty - repeatPenalty,
+        recent7dUses,
+        wasLastUsed,
+      };
+    })
+    .sort((a, b) =>
+      b.selectionScore - a.selectionScore ||
+      b.score - a.score ||
+      a.offer.id.localeCompare(b.offer.id),
+    );
 }
 
 export function passesPromoReplyRate(
