@@ -117,10 +117,6 @@ explorationRate?: number;
   promoEnabled?: boolean;
   /** 0..1. Legacy Amazon product-generation probability. Defaults to 0. */
   promoRate?: number;
-  /** 0..1. Affiliate Distribution: deterministic fraction of otherwise eligible
-   * viral parent posts that may receive a promo reply. Falls back to promoRate
-   * only for backward compatibility when this field is unset. */
-  promoReplyRate?: number;
   /** Maximum affiliate promo replies per JST calendar day. Defaults to 2. */
   promoReplyDailyLimit?: number;
   /** Which commerce source may be attached as a reply to a high-performing post.
