@@ -8,7 +8,7 @@ import {
   isReplyOccupyingParent,
   matchAffiliateOffer,
   rankAffiliateOffers,
-  passesPromoReplyRate,
+  getAffiliateParentGateReasons,
   resolvePromoReplyMode,
   validateDisclosure,
   type AffiliateOfferRecord,
@@ -279,10 +279,56 @@ async function main() {
     "PR\n詳しくはこちら https://example.com/affiliate",
   );
 
-  const sampleGate = passesPromoReplyRate("account", "post", 0.35);
-  assert.equal(sampleGate, passesPromoReplyRate("account", "post", 0.35));
-  assert.equal(passesPromoReplyRate("account", "post", 0), false);
-  assert.equal(passesPromoReplyRate("account", "post", 1), true);
+  // No sampling: historical zero-valued fields may exist in Firestore,
+  // but every qualifying parent post remains eligible for reply evaluation.
+  const legacyZeroRate = account({ promoRate: 0 });
+  Object.assign(legacyZeroRate, { promoReplyRate: 0 });
+  assert.deepEqual(
+    getAffiliateParentGateReasons(legacyZeroRate, post(), now),
+    [],
+    "zero legacy promo rates must not suppress qualified affiliate replies",
+  );
+  assert.deepEqual(
+    getAffiliateParentGateReasons(account({ promoRate: 1 }), post(), now),
+    [],
+    "high-quality posts are considered without an arbitrary chance gate",
+  );
+  assert.ok(
+    getAffiliateParentGateReasons(account(), post({ score: 999 }), now).includes("below_min_score"),
+    "score threshold remains enforced",
+  );
+  assert.ok(
+    getAffiliateParentGateReasons(
+      account(),
+      post({ metrics: { ...post().metrics, impressions: 999 } }),
+      now,
+    ).includes("below_min_impressions"),
+    "impression threshold remains enforced",
+  );
+  assert.ok(
+    getAffiliateParentGateReasons(
+      account({ promoReplyEnabled: false }),
+      post(),
+      now,
+    ).includes("promo_reply_disabled"),
+    "master enable gate remains enforced",
+  );
+  assert.ok(
+    getAffiliateParentGateReasons(
+      account({ promoReplyMode: "amazon" }),
+      post(),
+      now,
+    ).includes("affiliate_offer_mode_disabled"),
+    "commerce source mode remains enforced",
+  );
+  assert.ok(
+    getAffiliateParentGateReasons(
+      account(),
+      post({ created_at: now.minus({ days: 5 }).toISO()! }),
+      now,
+    ).includes("outside_lookback"),
+    "lookback gate remains enforced",
+  );
 
   assert.equal(getAffiliateReplyPublishAction("draft"), "publish");
   assert.equal(
