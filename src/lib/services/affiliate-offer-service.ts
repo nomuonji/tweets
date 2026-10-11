@@ -18,7 +18,7 @@ import {
   isReplyOccupyingParent,
   matchAffiliateOffer,
   rankAffiliateOffers,
-  passesPromoReplyRate,
+  getAffiliateParentGateReasons,
   resolvePromoReplyMode,
   validateDisclosure,
   type AffiliateAccountSettings,
@@ -31,9 +31,6 @@ import {
 const DEFAULT_DAILY_PROMO_LIMIT = 2;
 const DEFAULT_ACCOUNT_COOLDOWN_MINUTES = 60;
 const DEFAULT_OFFER_COOLDOWN_MINUTES = 60;
-const DEFAULT_LOOKBACK_DAYS = 3;
-const DEFAULT_MIN_SCORE = 1000;
-const DEFAULT_MIN_IMPRESSIONS = 1000;
 const MAX_AFFILIATE_GENERATION_ATTEMPTS = 3;
 
 type OfferFilters = {
@@ -169,45 +166,6 @@ function startedToday(value: string, now: DateTime): boolean {
   if (!date.isValid) return false;
   const start = now.setZone("Asia/Tokyo").startOf("day").toUTC();
   return date.toUTC().toMillis() >= start.toMillis();
-}
-
-function parentGateReasons(
-  account: AccountDoc & AffiliateAccountSettings,
-  post: PostDoc,
-  now: DateTime,
-): string[] {
-  const reasons: string[] = [];
-  if (account.promoReplyEnabled !== true) reasons.push("promo_reply_disabled");
-  if (!allowsAffiliateOfferReply(account)) reasons.push("affiliate_offer_mode_disabled");
-  if (post.promo_replied_at) reasons.push("parent_already_promo_replied");
-  if (post.metrics.impressions == null) {
-    reasons.push("impressions_unavailable");
-  } else if (
-    post.metrics.impressions <
-    (account.promoReplyMinImpressions ?? DEFAULT_MIN_IMPRESSIONS)
-  ) {
-    reasons.push("below_min_impressions");
-  }
-  if (post.score < (account.promoReplyMinScore ?? DEFAULT_MIN_SCORE)) {
-    reasons.push("below_min_score");
-  }
-  const created = DateTime.fromISO(post.created_at);
-  if (!created.isValid) {
-    reasons.push("invalid_parent_created_at");
-  } else if (
-    now.diff(created, "days").days >
-    (account.promoReplyLookbackDays ?? DEFAULT_LOOKBACK_DAYS)
-  ) {
-    reasons.push("outside_lookback");
-  }
-  const rate =
-    account.promoReplyRate ??
-    account.promoRate ??
-    1;
-  if (!passesPromoReplyRate(account.id, post.id, rate)) {
-    reasons.push("promo_reply_rate_gate");
-  }
-  return reasons;
 }
 
 async function loadAffiliateReplies(): Promise<AffiliateReplyRecord[]> {
@@ -431,7 +389,6 @@ export async function getAffiliateReplyWork({
       promoEnabled: account.promoEnabled === true,
       promoReplyEnabled: account.promoReplyEnabled === true,
       promoReplyMode: resolvePromoReplyMode(account),
-      promoReplyRate: account.promoReplyRate ?? account.promoRate ?? 1,
       promoReplyDailyLimit:
         account.promoReplyDailyLimit ?? DEFAULT_DAILY_PROMO_LIMIT,
       runtimeBlocks,
@@ -439,7 +396,7 @@ export async function getAffiliateReplyWork({
 
     for (const post of posts) {
       const blockReasons = [
-        ...parentGateReasons(account, post, now),
+        ...getAffiliateParentGateReasons(account, post, now),
         ...runtimeBlocks,
       ];
       const priorReply = existingParentReply(post.id, allReplies);
@@ -550,8 +507,6 @@ export async function getAffiliateReplyWork({
     },
     distributionRuntime,
     semantics: {
-      promoRate:
-        "Affiliate Distribution uses promoReplyRate when present; promoRate is a backward-compatible fallback. It means the deterministic fraction of otherwise eligible viral parent posts that may receive a promo reply.",
       productIsolation:
         "Amazon /products remains the legacy physical-product domain. /affiliate_offers is the generic service/lead/subscription/owned-product domain.",
       promoReplyMode:
@@ -576,7 +531,7 @@ async function assertReplyCreationGates(
   const now = DateTime.utc();
   const distributionRuntime = await getAffiliateDistributionRuntimeState();
   const parentBlocks = [
-    ...parentGateReasons(account, post, now),
+    ...getAffiliateParentGateReasons(account, post, now),
     ...accountRuntimeBlockReasons(account, allReplies, now),
   ];
   if (!distributionRuntime.offerRepliesEnabled && distributionRuntime.blockReason) {
@@ -716,7 +671,7 @@ export async function maybeAffiliateOfferReply(
     ]);
 
     const blocks = [
-      ...parentGateReasons(settings, post, now),
+      ...getAffiliateParentGateReasons(settings, post, now),
       ...accountRuntimeBlockReasons(settings, allReplies, now),
     ];
     if (!distributionRuntime.offerRepliesEnabled) {
@@ -993,7 +948,7 @@ async function revalidatePublishGates(
   const now = DateTime.utc();
   const distributionRuntime = await getAffiliateDistributionRuntimeState();
   const blocks = [
-    ...parentGateReasons(account, post, now),
+    ...getAffiliateParentGateReasons(account, post, now),
     ...accountRuntimeBlockReasons(account, allReplies, now, reply.id),
   ];
   if (!distributionRuntime.offerRepliesEnabled && distributionRuntime.blockReason) {
