@@ -15,7 +15,11 @@ import { belongsToCharacterVersion } from "@/lib/character-version";
 // --- Account Functions ---
 export async function getAccounts(): Promise<AccountDoc[]> {
     const snapshot = await adminDb.collection("accounts").orderBy("created_at", "asc").get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccountDoc));
+    return snapshot.docs.map(doc => {
+        const data = { ...(doc.data() ?? {}) };
+        delete data.promoReplyRate; // Legacy, ignored reply lottery setting.
+        return { id: doc.id, ...data } as AccountDoc;
+    });
 }
 
 export async function getAccount(id: string): Promise<AccountDoc | null> {
@@ -23,7 +27,9 @@ export async function getAccount(id: string): Promise<AccountDoc | null> {
     if (!doc.exists) {
         return null;
     }
-    return { id: doc.id, ...doc.data() } as AccountDoc;
+    const data = { ...(doc.data() ?? {}) };
+    delete data.promoReplyRate; // Never expose an inert probability setting.
+    return { id: doc.id, ...data } as AccountDoc;
 }
 
 // --- Post & Ranking Functions ---
