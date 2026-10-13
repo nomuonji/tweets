@@ -21,7 +21,7 @@ const PROHIBITION_REASONS = new Set([
 ]);
 
 export const isA8Offer = (offer: Pick<AffiliateOfferRecord, "network">): boolean =>
-  /^a8(?:\\.net)?$/i.test(offer.network.trim());
+  /^a8(?:\.net)?$/i.test(offer.network.trim());
 
 function ownedLandingUrl(value: string): URL | null {
   try {
@@ -51,14 +51,14 @@ export async function checkPublicLpReady(lpUrl: string): Promise<PlacementDecisi
     const html = await response.text();
     if (html.length > 800000) return {allowed:false,reasons:["lp_response_too_large"]};
     const withoutScripts = html
-      .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, "")
-      .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, "")
-      .replace(/<!--[\\s\\S]*?-->/g,"");
-    const visible = withoutScripts.replace(/<[^>]*>/g," ").replace(/\\s+/g," ");
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<!--[\s\S]*?-->/g,"");
+    const visible = withoutScripts.replace(/<[^>]*>/g," ").replace(/\s+/g," ");
     if (!/(?:^|[^a-z])PR(?:[^a-z]|$)|アフィリエイト広告|広告を含|プロモーションを含/i.test(visible)) {
       return {allowed:false,reasons:["lp_disclosure_missing"]};
     }
-    if (!/<a\\b[^>]*\\bhref\\s*=\\s*["']https:\\/\\/px\\.a8\\.net\\/[^"']+["'][^>]*>/i.test(withoutScripts)) {
+    if (!/<a\b[^>]*\bhref\s*=\s*["']https:\/\/px\.a8\.net\/[^"']+["'][^>]*>/i.test(withoutScripts)) {
       return {allowed:false,reasons:["lp_affiliate_cta_missing"]};
     }
     return {allowed:true,reasons:[]};
