@@ -41,7 +41,20 @@ export async function checkCanonicalPlacement(
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok) return { allowed: false, reasons: ["canonical_policy_http_" + response.status] };
+    if (!response.ok) {
+      const reasons=["canonical_policy_http_" + response.status];
+      if (response.status===503) {
+        const diagnostics=await response.json().catch(()=>null);
+        if (diagnostics && typeof diagnostics==="object") {
+          const code=(diagnostics as Record<string,unknown>).backendCode;
+          // Only propagate predefined status classifications, never raw backend messages.
+          if (typeof code==="string" &&
+            /^(?:firestore_http_(?:401|403|404|408|429|500|502|503|504)|config_missing|backend_unavailable)$/.test(code))
+            reasons.push("canonical_policy_backend_"+code);
+        }
+      }
+      return {allowed:false,reasons};
+    }
     const result: unknown = await response.json();
     if (!result || typeof result !== "object") {
       return { allowed: false, reasons: ["canonical_policy_invalid"] };

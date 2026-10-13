@@ -57,6 +57,13 @@ async function run(){
   assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["canonical_policy_identity_mismatch"]);
   globalThis.fetch=async()=>new Response(JSON.stringify({error:"unavailable"}),{status:503});
   assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["canonical_policy_http_503"]);
+  globalThis.fetch=async()=>new Response(JSON.stringify({error:"eligibility_unavailable",
+    backendCode:"firestore_http_429"}),{status:503});
+  assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,
+    ["canonical_policy_http_503","canonical_policy_backend_firestore_http_429"]);
+  globalThis.fetch=async()=>new Response(JSON.stringify({error:"eligibility_unavailable",
+    backendCode:"secret_backend_debug"}),{status:503});
+  assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["canonical_policy_http_503"]);
   console.log("Canonical affiliate placement boundary tests passed.");
 }
 run().finally(()=>{
