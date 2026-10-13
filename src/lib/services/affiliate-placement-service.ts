@@ -6,13 +6,21 @@ export type PlacementDecision = {
   warnings?: string[];
 };
 
-// The owner has opted for an LP-first, limited live experiment. These two
-// campaign/LP pairs have *observed* CTA mismatches with the canonical catalog.
-// Keep them blocked until the tracking-media discrepancy is reconciled.
-const UNRESOLVED_CTA_MISMATCHES = new Set([
-  "BA0Wz65EVGpOXBOk7AHZ", // Veruni normal / Bloom
-  "BFTZwJaQ07PGzGycS1bg", // Coconala phone / Bloom
-]);
+// Canonical A8 site 015 CTA material for the two Bloom LPs.
+// Require the exact tracking link: a different A8 creative is not proof
+// that the LP matches the program's recorded placement.
+const BLOOM_CANONICAL_CTA: Record<string, { programId:string; siteId:string; lpUrl:string; ctaUrl:string }> = {
+  BA0Wz65EVGpOXBOk7AHZ: {
+    programId:"s00000011537001", siteId:"015",
+    lpUrl:"https://bloom.antonbase.com/uranai-soudan/",
+    ctaUrl:"https://px.a8.net/svt/ejp?a8mat=45IGP4+7GITEQ+2H0Q+661TT",
+  },
+  BFTZwJaQ07PGzGycS1bg: {
+    programId:"s00000012624002", siteId:"015",
+    lpUrl:"https://bloom.antonbase.com/uranai-denwa-soudan/",
+    ctaUrl:"https://px.a8.net/svt/ejp?a8mat=3B9EG8+6LK9YA+2PEO+C5GGH",
+  },
+};
 const PROHIBITION_REASONS = new Set([
   "partnership_not_approved", "website_not_permitted", "sns_not_permitted",
   "lp_not_permitted", "site_link_not_issued", "cta_program_mismatch",
@@ -36,7 +44,7 @@ function ownedLandingUrl(value: string): URL | null {
   }
 }
 
-export async function checkPublicLpReady(lpUrl: string): Promise<PlacementDecision> {
+export async function checkPublicLpReady(lpUrl: string, expectedCtaUrl?: string): Promise<PlacementDecision> {
   const url = ownedLandingUrl(lpUrl);
   if (!url) return {allowed:false,reasons:["lp_url_invalid"]};
   try {
@@ -58,8 +66,15 @@ export async function checkPublicLpReady(lpUrl: string): Promise<PlacementDecisi
     if (!/(?:^|[^a-z])PR(?:[^a-z]|$)|アフィリエイト広告|広告を含|プロモーションを含/i.test(visible)) {
       return {allowed:false,reasons:["lp_disclosure_missing"]};
     }
-    if (!/<a\b[^>]*\bhref\s*=\s*["']https:\/\/px\.a8\.net\/[^"']+["'][^>]*>/i.test(withoutScripts)) {
-      return {allowed:false,reasons:["lp_affiliate_cta_missing"]};
+    const a8Ctas: string[] = [];
+    const ctaPattern = /<a\b[^>]*\bhref\s*=\s*["'](https:\/\/px\.a8\.net\/[^"']+)["'][^>]*>/gi;
+    let ctaMatch: RegExpExecArray | null;
+    while ((ctaMatch = ctaPattern.exec(withoutScripts)) !== null) {
+      a8Ctas.push(ctaMatch[1].replace(/&amp;/gi,"&"));
+    }
+    if (a8Ctas.length===0) return {allowed:false,reasons:["lp_affiliate_cta_missing"]};
+    if (expectedCtaUrl && !a8Ctas.includes(expectedCtaUrl)) {
+      return {allowed:false,reasons:["lp_cta_mismatch_known"]};
     }
     return {allowed:true,reasons:[]};
   } catch {
@@ -120,10 +135,12 @@ export async function checkCanonicalPlacement(offer: AffiliateOfferRecord): Prom
   if (!/^s[0-9]{8,20}$/.test(programId) || !/^[0-9]{3}$/.test(siteId)) {
     return {allowed:false,reasons:["canonical_placement_identity_missing"]};
   }
-  if (UNRESOLVED_CTA_MISMATCHES.has(offer.id)) {
+  const verified = BLOOM_CANONICAL_CTA[offer.id];
+  if (verified && (programId !== verified.programId || siteId !== verified.siteId ||
+    offer.affiliateUrl?.trim() !== verified.lpUrl)) {
     return {allowed:false,reasons:["lp_cta_mismatch_known"]};
   }
-  const lp=await checkPublicLpReady(offer.affiliateUrl?.trim()??"");
+  const lp=await checkPublicLpReady(offer.affiliateUrl?.trim()??"",verified?.ctaUrl);
   if (!lp.allowed) return lp;
   const advice=await canonicalPolicyAdvice(offer);
   return {allowed:advice.reasons.length===0,reasons:advice.reasons,
