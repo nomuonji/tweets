@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { checkCanonicalPlacement, isA8Offer } from "@/lib/services/affiliate-placement-service";
 import { generateSuggestion, GenerationUnavailableError } from "@/lib/ai/generation-client";
 import { requestGrok } from "@/lib/grok/client";
 import { adminDb } from "@/lib/firebase/admin";
@@ -369,6 +370,11 @@ export async function getAffiliateReplyWork({
   const accounts = accountId
     ? allAccounts.filter((account) => account.id === accountId)
     : allAccounts;
+  // One canonical read per eligible A8 offer for this work-preview request,
+  // not one lookup per post or a locally duplicated approval ledger.
+  const policyDecisions = new Map(await Promise.all(allOffers
+    .filter(item => item.status === "active" && isA8Offer(item))
+    .map(async item => [item.id, await checkCanonicalPlacement(item)] as const)));
 
   const candidatePosts: Array<Record<string, unknown>> = [];
   const accountSummaries: Array<Record<string, unknown>> = [];
@@ -406,7 +412,8 @@ export async function getAffiliateReplyWork({
       const scoredOffers = allOffers
         .map((offer) => {
           const match = matchAffiliateOffer(account, post, offer, now);
-          const offerBlocks = [...match.blockReasons];
+          const offerBlocks = [...match.blockReasons,
+            ...(policyDecisions.get(offer.id)?.reasons ?? [])];
           if (offerCooldownBlocked(offer, allReplies, now)) {
             offerBlocks.push("offer_cooldown");
           }
@@ -542,6 +549,7 @@ async function assertReplyCreationGates(
     parentBlocks.push("existing_affiliate_reply");
   }
   const match = matchAffiliateOffer(account, post, offer, now);
+  match.blockReasons.push(...(await checkCanonicalPlacement(offer)).reasons);
   if (offerCooldownBlocked(offer, allReplies, now)) {
     match.blockReasons.push("offer_cooldown");
   }
@@ -707,7 +715,14 @@ export async function maybeAffiliateOfferReply(
       now,
     );
 
-    offer = ranked[0]?.offer;
+    // Even a highly-ranked offer cannot run until Affiliate Operator confirms
+    // the exact registered site, LP and link conditions.
+    for (const item of ranked) {
+      if ((await checkCanonicalPlacement(item.offer)).allowed) {
+        offer = item.offer;
+        break;
+      }
+    }
     if (!offer) {
       return {
         outcome: "skipped",
@@ -957,6 +972,7 @@ async function revalidatePublishGates(
   }
   const match = matchAffiliateOffer(account, post, offer, now);
   blocks.push(...match.blockReasons);
+  blocks.push(...(await checkCanonicalPlacement(offer)).reasons);
   if (offerCooldownBlocked(offer, allReplies, now, reply.id)) {
     blocks.push("offer_cooldown");
   }
