@@ -81,7 +81,7 @@ async function canonicalPolicyAdvice(offer: AffiliateOfferRecord): Promise<Place
       return {allowed:false,reasons:["canonical_policy_endpoint_invalid"]};
     }
     url.search = new URLSearchParams({
-      programId:offer.programId!.trim(), siteId:offer.a8PlacementSiteId!.trim(),
+      programId:offer.programId!.trim(), siteId:String(offer.a8PlacementSiteId).trim(),
       channel:"sns", lpUrl:offer.affiliateUrl!.trim(),
     }).toString();
     const response = await fetch(url.toString(), {
@@ -115,7 +115,7 @@ async function canonicalPolicyAdvice(offer: AffiliateOfferRecord): Promise<Place
  */
 export async function checkCanonicalPlacement(offer: AffiliateOfferRecord): Promise<PlacementDecision> {
   if (!isA8Offer(offer)) return {allowed:true,reasons:[]};
-  const siteId=offer.a8PlacementSiteId?.trim()??"";
+  const siteId=typeof offer.a8PlacementSiteId === "string" ? offer.a8PlacementSiteId.trim() : "";
   const programId=offer.programId?.trim()??"";
   if (!/^s[0-9]{8,20}$/.test(programId) || !/^[0-9]{3}$/.test(siteId)) {
     return {allowed:false,reasons:["canonical_placement_identity_missing"]};
