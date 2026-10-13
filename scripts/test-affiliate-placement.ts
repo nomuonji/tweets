@@ -10,10 +10,12 @@ const offer = {
 } as AffiliateOfferRecord;
 const previousUrl=process.env.AFFILIATE_POLICY_API_URL;
 const previousToken=process.env.AFFILIATE_POLICY_READ_TOKEN;
+const previousAdminToken=process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
 const previousFetch=globalThis.fetch;
 async function run(){
   delete process.env.AFFILIATE_POLICY_API_URL;
   delete process.env.AFFILIATE_POLICY_READ_TOKEN;
+  delete process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
   assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["canonical_policy_connection_missing"]);
   process.env.AFFILIATE_POLICY_API_URL="https://consult.antonbase.com/api/placement-eligibility";
   process.env.AFFILIATE_POLICY_READ_TOKEN="sample-test-token";
@@ -29,6 +31,27 @@ async function run(){
     }),{status:200});
   };
   assert.equal((await checkCanonicalPlacement(offer)).allowed,true);
+
+  // Users may save the existing Free Consult admin token under its original
+  // name in Vercel. Accept it without changing the admin-owned DB policies.
+  delete process.env.AFFILIATE_POLICY_READ_TOKEN;
+  process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN="existing-free-consult-token";
+  globalThis.fetch=async(_input,options)=>{
+    assert.equal(new Headers(options?.headers).get("authorization"),"Bearer existing-free-consult-token");
+    return new Response(JSON.stringify({allowed:false,reasons:["site_conditions_needs_review"],
+      programId:offer.programId,siteId:offer.a8PlacementSiteId,channel:"sns"}),{status:200});
+  };
+  assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["site_conditions_needs_review"]);
+
+  // A dedicated reader token takes precedence when present.
+  process.env.AFFILIATE_POLICY_READ_TOKEN="dedicated-reader-token";
+  globalThis.fetch=async(_input,options)=>{
+    assert.equal(new Headers(options?.headers).get("authorization"),"Bearer dedicated-reader-token");
+    return new Response(JSON.stringify({allowed:true,reasons:[],programId:offer.programId,
+      siteId:offer.a8PlacementSiteId,channel:"sns"}),{status:200});
+  };
+  assert.equal((await checkCanonicalPlacement(offer)).allowed,true);
+
   globalThis.fetch=async()=>new Response(JSON.stringify({allowed:true,reasons:[],
     programId:offer.programId,siteId:"020",channel:"sns"}),{status:200});
   assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["canonical_policy_identity_mismatch"]);
@@ -42,4 +65,6 @@ run().finally(()=>{
   else process.env.AFFILIATE_POLICY_API_URL=previousUrl;
   if(previousToken===undefined)delete process.env.AFFILIATE_POLICY_READ_TOKEN;
   else process.env.AFFILIATE_POLICY_READ_TOKEN=previousToken;
+  if(previousAdminToken===undefined)delete process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
+  else process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN=previousAdminToken;
 }).catch(e=>{console.error(e);process.exitCode=1;});
