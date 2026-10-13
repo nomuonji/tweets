@@ -1,0 +1,20 @@
+name: Live A8 landing page verification
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/check-a8-landing-pages.mjs'
+      - '.github/workflows/verify-a8-landing-pages.yml'
+permissions:
+  contents: read
+jobs:
+  check-public-lps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: HTTP and disclosure/affiliate CTA smoke
+        run: node scripts/check-a8-landing-pages.mjs
