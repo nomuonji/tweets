@@ -13,9 +13,9 @@ const previousFetch=globalThis.fetch;
 const previousUrl=process.env.AFFILIATE_POLICY_API_URL;
 const previousToken=process.env.AFFILIATE_POLICY_READ_TOKEN;
 const previousAdmin=process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
-function publicPage(html=goodHtml,status=200) {
+function publicPage(html=goodHtml,status=200,url=base.affiliateUrl) {
   const response=new Response(html,{status,headers:{"content-type":"text/html"}});
-  Object.defineProperty(response,"url",{value:base.affiliateUrl});
+  Object.defineProperty(response,"url",{value:url});
   return response;
 }
 async function run(){
@@ -74,10 +74,40 @@ async function run(){
   assert.equal(duringQuota.allowed,true);
   assert.ok(duringQuota.warnings?.includes("canonical_policy_http_503"));
 
-  assert.deepEqual((await checkCanonicalPlacement({...base,id:"BA0Wz65EVGpOXBOk7AHZ"})).reasons,
-    ["lp_cta_mismatch_known"]);
-  assert.deepEqual((await checkCanonicalPlacement({...base,id:"BFTZwJaQ07PGzGycS1bg"})).reasons,
-    ["lp_cta_mismatch_known"]);
+  // Bloom media 015 URLs must match the currently issued A8 creative exactly.
+  for (const entry of [
+    {
+      id:"BA0Wz65EVGpOXBOk7AHZ",
+      programId:"s00000011537001",
+      lpUrl:"https://bloom.antonbase.com/uranai-soudan/",
+      cta:"https://px.a8.net/svt/ejp?a8mat=45IGP4+7GITEQ+2H0Q+661TT",
+    },
+    {
+      id:"BFTZwJaQ07PGzGycS1bg",
+      programId:"s00000012624002",
+      lpUrl:"https://bloom.antonbase.com/uranai-denwa-soudan/",
+      cta:"https://px.a8.net/svt/ejp?a8mat=3B9EG8+6LK9YA+2PEO+C5GGH",
+    },
+  ]) {
+    const offer={...base,id:entry.id,programId:entry.programId,affiliateUrl:entry.lpUrl};
+    const policyResponse=()=>new Response(JSON.stringify({
+      programId:entry.programId,siteId:"015",channel:"sns",
+      allowed:false,reasons:["site_conditions_needs_review"],
+    }),{status:200,headers:{"content-type":"application/json"}});
+    globalThis.fetch=async input=>String(input).includes("/api/placement-eligibility")
+      ? policyResponse()
+      : publicPage('<html>PR（広告）<a href="'+entry.cta+'">Go</a></html>',200,entry.lpUrl);
+    assert.equal((await checkCanonicalPlacement(offer)).allowed,true,
+      "valid LP with its A8 canonical creative may enter the LP-first pilot");
+
+    globalThis.fetch=async input=>String(input).includes("/api/placement-eligibility")
+      ? policyResponse()
+      : publicPage('<html>PR（広告）<a href="https://px.a8.net/svt/ejp?a8mat=WRONG">Go</a></html>',200,entry.lpUrl);
+    assert.deepEqual((await checkCanonicalPlacement(offer)).reasons,["lp_cta_mismatch_known"],
+      "unexpected A8 creative must still block placement");
+    assert.deepEqual((await checkCanonicalPlacement({...offer,a8PlacementSiteId:"016"})).reasons,
+      ["lp_cta_mismatch_known"],"wrong registered site identity must block");
+  }
   console.log("LP-first A8 placement pilot tests passed.");
 }
 run().finally(()=>{
