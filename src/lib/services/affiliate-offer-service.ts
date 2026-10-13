@@ -16,6 +16,7 @@ import {
   composeAffiliateReplyText,
   getAffiliateReplyPublishAction,
   isReplyOccupyingParent,
+  isOwnedLandingPageUrl,
   matchAffiliateOffer,
   rankAffiliateOffers,
   getAffiliateParentGateReasons,
@@ -965,6 +966,17 @@ async function revalidatePublishGates(
   }
   if (!offer.affiliateUrl?.trim() || !reply.full_text.includes(offer.affiliateUrl.trim())) {
     blocks.push("affiliate_url_missing_from_reply");
+  }
+  // Drafts created before an offer URL was corrected must never publish stale
+  // ASP tracking URLs (or any extra external URL) beside the current LP.
+  if (offer.kind !== "owned_product") {
+    const replyUrls = reply.full_text.match(/https?:\/\/[^\s<>"']+/g) ?? [];
+    if (
+      replyUrls.length !== 1 ||
+      !isOwnedLandingPageUrl(replyUrls[0].replace(/[),。！？]+$/g, ""))
+    ) {
+      blocks.push("direct_affiliate_link_in_reply");
+    }
   }
   if (blocks.length > 0) {
     throw new Error(

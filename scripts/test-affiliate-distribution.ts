@@ -77,7 +77,7 @@ function offer(overrides: Partial<AffiliateOfferRecord> = {}): AffiliateOfferRec
     network: "a8",
     advertiser: "example",
     title: "20代向け転職相談",
-    affiliateUrl: "https://example.com/affiliate",
+    affiliateUrl: "https://yohaku.antonbase.com/career/",
     category: "career",
     themes: ["career", "20s"],
     conversionAction: "free_registration",
@@ -92,6 +92,16 @@ function offer(overrides: Partial<AffiliateOfferRecord> = {}): AffiliateOfferRec
 }
 
 async function main() {
+  // An active offer must not enter SNS reply rotation with an ASP tracking
+  // URL, while its first-party landing page remains eligible.
+  assert.ok(
+    matchAffiliateOffer(account(), post(), offer({ affiliateUrl: "https://px.a8.net/svt/ejp?a8mat=example" }), now)
+      .blockReasons.includes("first_party_lp_required"),
+  );
+  assert.ok(
+    !matchAffiliateOffer(account(), post(), offer({ affiliateUrl: "https://yohaku.antonbase.com/career/" }), now)
+      .blockReasons.includes("first_party_lp_required"),
+  );
 
   assert.equal(resolvePromoReplyMode({}), "amazon");
   assert.equal(allowsAmazonPromoReply({}), true);

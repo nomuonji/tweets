@@ -191,6 +191,21 @@ export function getOfferThemes(offer: AffiliateOfferRecord): string[] {
   return unique((offer.themes ?? []).map(normalizedTheme));
 }
 
+/** SNS ad replies must send readers to a first-party LP, not an ASP tracker. */
+export function isOwnedLandingPageUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      (host === "antonbase.com" || host.endsWith(".antonbase.com")) &&
+      url.pathname !== "/"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function getOfferTemporalBlockReasons(
   offer: AffiliateOfferRecord,
   now: DateTime,
@@ -208,6 +223,13 @@ export function getOfferTemporalBlockReasons(
     if (end.isValid && now.toMillis() >= end.toMillis()) reasons.push("offer_expired");
   }
   if (!offer.affiliateUrl?.trim()) reasons.push("affiliate_url_missing");
+  if (
+    isThirdPartyOffer(offer) &&
+    offer.affiliateUrl?.trim() &&
+    !isOwnedLandingPageUrl(offer.affiliateUrl)
+  ) {
+    reasons.push("first_party_lp_required");
+  }
   return reasons;
 }
 
