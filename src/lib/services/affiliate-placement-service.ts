@@ -21,7 +21,9 @@ export async function checkCanonicalPlacement(
     return { allowed: false, reasons: ["canonical_placement_identity_missing"] };
   }
   const endpoint = process.env.AFFILIATE_POLICY_API_URL;
-  const token = process.env.AFFILIATE_POLICY_READ_TOKEN;
+  // Support the existing Free Consult owner token without introducing another secret.
+  // A dedicated read-only token takes precedence when configured.
+  const token = process.env.AFFILIATE_POLICY_READ_TOKEN || process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
   if (!endpoint || !token) {
     return { allowed: false, reasons: ["canonical_policy_connection_missing"] };
   }
