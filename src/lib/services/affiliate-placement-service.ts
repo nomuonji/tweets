@@ -3,71 +3,129 @@ import type { AffiliateOfferRecord } from "@/lib/affiliate-distribution-policy";
 export type PlacementDecision = {
   allowed: boolean;
   reasons: string[];
+  warnings?: string[];
 };
 
+// The owner has opted for an LP-first, limited live experiment. These two
+// campaign/LP pairs have *observed* CTA mismatches with the canonical catalog.
+// Keep them blocked until the tracking-media discrepancy is reconciled.
+const UNRESOLVED_CTA_MISMATCHES = new Set([
+  "BA0Wz65EVGpOXBOk7AHZ", // Veruni normal / Bloom
+  "BFTZwJaQ07PGzGycS1bg", // Coconala phone / Bloom
+]);
+const PROHIBITION_REASONS = new Set([
+  "partnership_not_approved", "website_not_permitted", "sns_not_permitted",
+  "lp_not_permitted", "site_link_not_issued", "cta_program_mismatch",
+  "cta_site_mismatch", "lp_url_mismatch", "lp_url_required", "invalid_channel",
+  "site_id_required", "program_not_found",
+]);
+
 export const isA8Offer = (offer: Pick<AffiliateOfferRecord, "network">): boolean =>
-  /^a8(?:\.net)?$/i.test(offer.network.trim());
+  /^a8(?:\\.net)?$/i.test(offer.network.trim());
 
-/** Fail closed for A8 campaigns. Never infer placement permission from affiliateUrl. */
-export async function checkCanonicalPlacement(
-  offer: AffiliateOfferRecord,
-): Promise<PlacementDecision> {
-  if (!isA8Offer(offer)) return { allowed: true, reasons: [] };
-
-  const siteId = typeof offer.a8PlacementSiteId === "string"
-    ? offer.a8PlacementSiteId.trim() : "";
-  const programId = offer.programId?.trim() ?? "";
-  if (!/^s[0-9]{8,20}$/.test(programId) || !/^[0-9]{3}$/.test(siteId)) {
-    return { allowed: false, reasons: ["canonical_placement_identity_missing"] };
+function ownedLandingUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" ||
+      !["bloom.antonbase.com", "yohaku.antonbase.com"].includes(url.hostname) ||
+      url.username || url.password || url.port || url.search || url.hash ||
+      !url.pathname.endsWith("/") || url.pathname === "/") return null;
+    return url;
+  } catch {
+    return null;
   }
+}
+
+export async function checkPublicLpReady(lpUrl: string): Promise<PlacementDecision> {
+  const url = ownedLandingUrl(lpUrl);
+  if (!url) return {allowed:false,reasons:["lp_url_invalid"]};
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {accept:"text/html", "user-agent":"AntonbaseAffiliateLPCheck/1.0"},
+      redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(9000),
+    });
+    if (!response.ok || response.status !== 200 || response.url !== url.toString() ||
+      !response.headers.get("content-type")?.toLowerCase().includes("text/html")) {
+      return {allowed:false,reasons:["lp_not_public_200"]};
+    }
+    const html = await response.text();
+    if (html.length > 800000) return {allowed:false,reasons:["lp_response_too_large"]};
+    const withoutScripts = html
+      .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, "")
+      .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, "")
+      .replace(/<!--[\\s\\S]*?-->/g,"");
+    const visible = withoutScripts.replace(/<[^>]*>/g," ").replace(/\\s+/g," ");
+    if (!/(?:^|[^a-z])PR(?:[^a-z]|$)|アフィリエイト広告|広告を含|プロモーションを含/i.test(visible)) {
+      return {allowed:false,reasons:["lp_disclosure_missing"]};
+    }
+    if (!/<a\\b[^>]*\\bhref\\s*=\\s*["']https:\\/\\/px\\.a8\\.net\\/[^"']+["'][^>]*>/i.test(withoutScripts)) {
+      return {allowed:false,reasons:["lp_affiliate_cta_missing"]};
+    }
+    return {allowed:true,reasons:[]};
+  } catch {
+    return {allowed:false,reasons:["lp_fetch_unavailable"]};
+  }
+}
+
+// A fresh live check on every preflight is intentional: a paused or deleted
+// LP must never remain approved by a stale success cache.
+async function canonicalPolicyAdvice(offer: AffiliateOfferRecord): Promise<PlacementDecision> {
   const endpoint = process.env.AFFILIATE_POLICY_API_URL;
-  // Support the existing Free Consult owner token without introducing another secret.
-  // A dedicated read-only token takes precedence when configured.
-  const token = process.env.AFFILIATE_POLICY_READ_TOKEN || process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
-  if (!endpoint || !token) {
-    return { allowed: false, reasons: ["canonical_policy_connection_missing"] };
-  }
+  const token = process.env.AFFILIATE_POLICY_READ_TOKEN ||
+    process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
+  if (!endpoint || !token) return {allowed:true,reasons:[],warnings:["canonical_policy_unavailable"]};
   try {
     const url = new URL(endpoint);
-    if (url.protocol !== "https:" || url.hostname !== "consult.antonbase.com"
-      || url.pathname !== "/api/placement-eligibility") {
-      return { allowed: false, reasons: ["canonical_policy_endpoint_invalid"] };
+    if (url.protocol !== "https:" || url.hostname !== "consult.antonbase.com" ||
+      url.pathname !== "/api/placement-eligibility" || url.search || url.hash) {
+      return {allowed:false,reasons:["canonical_policy_endpoint_invalid"]};
     }
     url.search = new URLSearchParams({
-      programId, siteId, channel: "sns", lpUrl: offer.affiliateUrl?.trim() ?? "",
+      programId:offer.programId!.trim(), siteId:offer.a8PlacementSiteId!.trim(),
+      channel:"sns", lpUrl:offer.affiliateUrl!.trim(),
     }).toString();
     const response = await fetch(url.toString(), {
-      headers: { authorization: "Bearer " + token, accept: "application/json" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
+      headers:{authorization:"Bearer "+token,accept:"application/json"},
+      cache:"no-store",signal:AbortSignal.timeout(3000),
     });
     if (!response.ok) {
-      const reasons=["canonical_policy_http_" + response.status];
-      if (response.status===503) {
-        const diagnostics=await response.json().catch(()=>null);
-        if (diagnostics && typeof diagnostics==="object") {
-          const code=(diagnostics as Record<string,unknown>).backendCode;
-          // Only propagate predefined status classifications, never raw backend messages.
-          if (typeof code==="string" &&
-            /^(?:firestore_http_(?:401|403|404|408|429|500|502|503|504)|config_missing|backend_unavailable)$/.test(code))
-            reasons.push("canonical_policy_backend_"+code);
-        }
-      }
-      return {allowed:false,reasons};
+      return {allowed:true,reasons:[],warnings:["canonical_policy_http_"+response.status]};
     }
-    const result: unknown = await response.json();
-    if (!result || typeof result !== "object") {
-      return { allowed: false, reasons: ["canonical_policy_invalid"] };
+    const data: unknown = await response.json();
+    if (!data || typeof data !== "object") return {allowed:true,reasons:[],warnings:["canonical_policy_unavailable"]};
+    const p=data as Record<string,unknown>;
+    if (p.programId !== offer.programId || p.siteId !== offer.a8PlacementSiteId ||
+      p.channel !== "sns" || !Array.isArray(p.reasons) ||
+      p.reasons.some(x=>typeof x!=="string")) {
+      return {allowed:false,reasons:["canonical_policy_identity_mismatch"]};
     }
-    const r = result as Record<string, unknown>;
-    if (r.programId !== programId || r.siteId !== siteId || r.channel !== "sns"
-      || !Array.isArray(r.reasons) || r.reasons.some(x=>typeof x !== "string")) {
-      return { allowed: false, reasons: ["canonical_policy_identity_mismatch"] };
-    }
-    return r.allowed === true && r.reasons.length === 0
-      ? { allowed: true, reasons: [] }
-      : { allowed: false, reasons: r.reasons.length ? r.reasons as string[] : ["canonical_policy_not_verified"] };
+    const blockers = (p.reasons as string[]).filter(reason=>PROHIBITION_REASONS.has(reason));
+    return {allowed:blockers.length===0,reasons:blockers,
+      warnings:(p.reasons as string[]).filter(reason=>!PROHIBITION_REASONS.has(reason))};
   } catch {
-    return { allowed: false, reasons: ["canonical_policy_unavailable"] };
+    return {allowed:true,reasons:[],warnings:["canonical_policy_unavailable"]};
   }
+}
+
+/**
+ * LP-first pilot. Do not claim advertiser approval from missing records.
+ * Stop on a known ban, invalid A8 identity, mismatched CTA, unavailable LP,
+ * missing ad disclosure, or missing ad CTA. Unknown review status and
+ * temporary canonical DB failures are recorded as warnings, not blockers.
+ */
+export async function checkCanonicalPlacement(offer: AffiliateOfferRecord): Promise<PlacementDecision> {
+  if (!isA8Offer(offer)) return {allowed:true,reasons:[]};
+  const siteId=offer.a8PlacementSiteId?.trim()??"";
+  const programId=offer.programId?.trim()??"";
+  if (!/^s[0-9]{8,20}$/.test(programId) || !/^[0-9]{3}$/.test(siteId)) {
+    return {allowed:false,reasons:["canonical_placement_identity_missing"]};
+  }
+  if (UNRESOLVED_CTA_MISMATCHES.has(offer.id)) {
+    return {allowed:false,reasons:["lp_cta_mismatch_known"]};
+  }
+  const lp=await checkPublicLpReady(offer.affiliateUrl?.trim()??"");
+  if (!lp.allowed) return lp;
+  const advice=await canonicalPolicyAdvice(offer);
+  return {allowed:advice.reasons.length===0,reasons:advice.reasons,
+    warnings:advice.warnings};
 }
