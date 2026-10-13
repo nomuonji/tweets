@@ -14,7 +14,9 @@ const previousUrl=process.env.AFFILIATE_POLICY_API_URL;
 const previousToken=process.env.AFFILIATE_POLICY_READ_TOKEN;
 const previousAdmin=process.env.AFFILIATE_INTELLIGENCE_ADMIN_TOKEN;
 function publicPage(html=goodHtml,status=200) {
-  return new Response(html,{status,headers:{"content-type":"text/html"}});
+  const response=new Response(html,{status,headers:{"content-type":"text/html"}});
+  Object.defineProperty(response,"url",{value:base.affiliateUrl});
+  return response;
 }
 async function run(){
   delete process.env.AFFILIATE_POLICY_API_URL;
