@@ -66,8 +66,12 @@ export async function checkPublicLpReady(lpUrl: string, expectedCtaUrl?: string)
     if (!/(?:^|[^a-z])PR(?:[^a-z]|$)|アフィリエイト広告|広告を含|プロモーションを含/i.test(visible)) {
       return {allowed:false,reasons:["lp_disclosure_missing"]};
     }
-    const a8Ctas = [...withoutScripts.matchAll(/<a\b[^>]*\bhref\s*=\s*["'](https:\/\/px\.a8\.net\/[^"']+)["'][^>]*>/gi)]
-      .map(match=>match[1].replace(/&amp;/gi,"&"));
+    const a8Ctas: string[] = [];
+    const ctaPattern = /<a\b[^>]*\bhref\s*=\s*["'](https:\/\/px\.a8\.net\/[^"']+)["'][^>]*>/gi;
+    let ctaMatch: RegExpExecArray | null;
+    while ((ctaMatch = ctaPattern.exec(withoutScripts)) !== null) {
+      a8Ctas.push(ctaMatch[1].replace(/&amp;/gi,"&"));
+    }
     if (a8Ctas.length===0) return {allowed:false,reasons:["lp_affiliate_cta_missing"]};
     if (expectedCtaUrl && !a8Ctas.includes(expectedCtaUrl)) {
       return {allowed:false,reasons:["lp_cta_mismatch_known"]};
