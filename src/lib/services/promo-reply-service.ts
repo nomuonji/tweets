@@ -249,7 +249,7 @@ export async function maybePromoReply(
       return { outcome: "skipped", attempted: false, haltAccount: false, reason: "cooldown" };
     }
 
-    product = await pickPromoProduct(account.id);
+    product = await pickPromoProduct(account.id, post.text);
     if (!product) {
       return { outcome: "skipped", attempted: false, haltAccount: false, reason: "no_product" };
     }
