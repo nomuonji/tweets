@@ -34,9 +34,31 @@ export async function getProductsForAccount(accountId: string): Promise<ProductD
   return Promise.all(snapshot.docs.map((doc) => hydrateProduct(accountId, doc)));
 }
 
+type TargetedProduct = ProductDoc & {
+  status?: string;
+  amazon_verified?: boolean;
+  account_ids?: string[];
+  reply_targets?: Record<string, string[]>;
+};
+
+function isApprovedForAccount(product: TargetedProduct, accountId: string): boolean {
+  if (product.status !== "approved" || product.amazon_verified !== true) return false;
+  if (!product.account_ids?.includes(accountId)) return false;
+  if (!product.reply_targets?.[accountId]?.length) return false;
+  try {
+    const url = new URL(product.url ?? "");
+    return url.protocol === "https:" &&
+      url.hostname === "www.amazon.co.jp" &&
+      url.pathname.split("/").filter(Boolean).slice(0, 2).join("/") === `dp/${product.asin}` &&
+      Boolean(url.searchParams.get("tag"));
+  } catch { return false; }
+}
+
 export async function getEligibleProducts(accountId: string): Promise<ProductDoc[]> {
-  const products = await getProductsForAccount(accountId);
-  return products.filter((product) => product.enabled === true);
+  const snapshot = await catalogCollection().where("account_ids", "array-contains", accountId).get();
+  return snapshot.docs.map((doc) => ({
+    ...doc.data(), id: doc.id, enabled: true, times_used: Number(doc.data().times_used ?? 0),
+  } as TargetedProduct)).filter((product) => isApprovedForAccount(product, accountId));
 }
 
 export async function getProduct(accountId: string, productId: string): Promise<ProductDoc | null> {
@@ -45,23 +67,28 @@ export async function getProduct(accountId: string, productId: string): Promise<
   return hydrateProduct(accountId, doc as FirebaseFirestore.QueryDocumentSnapshot);
 }
 
-/** Pick a least-used enabled product with a small random element. */
-export async function pickPromoProduct(accountId: string): Promise<ProductDoc | null> {
-  const products = await getEligibleProducts(accountId);
-  if (products.length === 0) return null;
-  const sorted = [...products].sort((a, b) => {
-    if (a.times_used !== b.times_used) return a.times_used - b.times_used;
-    const aLast = a.last_used_at ? DateTime.fromISO(a.last_used_at).toMillis() : 0;
-    const bLast = b.last_used_at ? DateTime.fromISO(b.last_used_at).toMillis() : 0;
-    return aLast - bLast;
-  });
-  const poolSize = Math.min(5, Math.max(1, Math.ceil(sorted.length / 2)));
-  const pool = sorted.slice(0, poolSize);
-  return pool[Math.floor(Math.random() * pool.length)];
+/** Choose an approved product with an explicit account-specific topic match. */
+export async function pickPromoProduct(accountId: string, postText: string): Promise<ProductDoc | null> {
+  const products = (await getEligibleProducts(accountId)) as TargetedProduct[];
+  const text = postText.normalize("NFKC").toLowerCase();
+  const ranked = products.map((product) => {
+    const hits = (product.reply_targets?.[accountId] ?? [])
+      .map((term) => term.normalize("NFKC").toLowerCase().trim())
+      .filter((term) => term.length >= 2 && text.includes(term));
+    return { product, topicScore: hits.length ? Math.max(...hits.map((term) => term.length)) * 10 + hits.length : 0 };
+  }).filter(({ topicScore }) => topicScore > 0);
+  ranked.sort((a, b) => b.topicScore - a.topicScore ||
+    (a.product.times_used ?? 0) - (b.product.times_used ?? 0));
+  return ranked[0]?.product ?? null;
 }
 
 export async function markProductUsed(accountId: string, productId: string) {
-  await productCollection(accountId).doc(productId).update({
+  const ref = catalogCollection().doc(productId);
+  const current = await ref.get();
+  if (!current.exists || !isApprovedForAccount(current.data() as TargetedProduct, accountId)) {
+    throw new Error("Product assignment changed before recording use");
+  }
+  await ref.update({
     times_used: FieldValue.increment(1), last_used_at: DateTime.utc().toISO(), updated_at: DateTime.utc().toISO(),
   });
 }
