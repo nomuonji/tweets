@@ -15,7 +15,12 @@ export function selectPostsForPersistence(
     ? DateTime.fromISO(account.sync_cursor).toUTC()
     : null;
   const validCursor = cursor?.isValid ? cursor : null;
-  const refreshCutoff = now.minus({ hours: Math.max(0, refreshHours) });
+  // Reply eligibility can extend beyond the generic 48h metrics refresh window.
+  // Keep refreshing reply-enabled accounts until their configured lookback ends.
+  const replyRefreshHours = account.promoReplyEnabled === true
+    ? Math.max(1, account.promoReplyLookbackDays ?? 3) * 24
+    : 0;
+  const refreshCutoff = now.minus({ hours: Math.max(0, refreshHours, replyRefreshHours) });
   const selected = new Map<string, SyncPostPayload>();
 
   for (const payload of payloads) {
