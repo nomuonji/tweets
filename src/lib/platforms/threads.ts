@@ -876,23 +876,57 @@ export async function publishThreadsReply(
 
   await waitForContainer(accessToken, creationId);
 
-  // Step 2: Publish the media container
-  let publishResponse;
-  try {
-    publishResponse = await axios.post<{ id: string }>(
-      `${THREADS_API_BASE}/${userId}/threads_publish`,
-      {
-        creation_id: creationId,
-        access_token: accessToken,
-      },
-    );
-  } catch (error) {
-    // Publishing is intentionally not retried: if the response was lost after
-    // Meta accepted it, retrying could create a duplicate visible reply.
-    throw describeThreadsApiError("Threads reply publish failed", error);
+  // Step 2: Publish the SAME container. A specific Media Not Found (24/4279009)
+  // response can be a container propagation delay, even after FINISHED.
+  // Never recreate a reply container or retry an ambiguous publish response.
+  const mediaNotFoundRetryDelaysMs = [5000, 15000, 30000];
+  let publishResponse: { data?: { id?: string } } | undefined;
+  for (let attempt = 0; attempt <= mediaNotFoundRetryDelaysMs.length; attempt += 1) {
+    try {
+      publishResponse = await axios.post<{ id: string }>(
+        `${THREADS_API_BASE}/${userId}/threads_publish`,
+        {
+          creation_id: creationId,
+          access_token: accessToken,
+        },
+      );
+      break;
+    } catch (error) {
+      const kind = classifyThreadsApiError("publish", error).kind;
+      if (kind !== "media_not_found" || attempt >= mediaNotFoundRetryDelaysMs.length) {
+        throw describeThreadsApiError("Threads reply publish failed", error);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, mediaNotFoundRetryDelaysMs[attempt]));
+      let status: string | undefined;
+      try {
+        const checked = await axios.get<{ status?: string }>(
+          `${THREADS_API_BASE}/${creationId}`,
+          { params: { fields: "status", access_token: accessToken } },
+        );
+        status = checked.data?.status;
+      } catch (checkError) {
+        // If container state is unknowable, reconciliation is safer than a retry.
+        throw describeThreadsApiError("Threads reply container status unavailable", checkError);
+      }
+      if (status === "PUBLISHED") {
+        throw new ThreadsPublishError(
+          "Threads reply container is already published; reconcile before posting again",
+          { stage: "reconcile", kind: "ambiguous_publish" },
+        );
+      }
+      if (status === "IN_PROGRESS") {
+        await waitForContainer(accessToken, creationId);
+      } else if (status !== "FINISHED") {
+        throw new ThreadsPublishError(
+          `Threads reply container cannot be safely retried (status: ${status ?? "unknown"})`,
+          { stage: "container_status", kind: "unknown" },
+        );
+      }
+    }
   }
 
-  const publishedPostId = publishResponse.data?.id;
+  const publishedPostId = publishResponse?.data?.id;
   if (typeof publishedPostId !== "string") {
     throw new Error("Failed to publish Threads reply: final post ID not found");
   }
