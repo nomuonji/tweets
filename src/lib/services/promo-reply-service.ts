@@ -20,6 +20,7 @@ const DEFAULT_COOLDOWN_MINUTES = 60;
 const DEFAULT_FAILURE_RETRY_MINUTES = 180;
 const MAX_FAILURES_PER_POST = 3;
 const MAX_GENERATION_ATTEMPTS = 3;
+const SKIP_UNRELATED = "SKIP_UNRELATED";
 
 export type PromoReplyAttemptResult = {
   outcome: "posted" | "skipped" | "failed";
@@ -108,7 +109,7 @@ function buildReplyPrompt(post: PostDoc, product: ProductDoc): string {
     post.text.slice(0, 500),
     ``,
     `# GOAL`,
-    `Write a natural reply to the above post that also introduces the product below as a helpful follow-up. It should feel like continuing the conversation, not an ad. Keep it short and in the account's voice.`,
+    `First decide whether this product is genuinely and directly relevant to the ORIGINAL POST. If it is not, output the exact token SKIP_UNRELATED as the tweet and do not try to invent a connection. If it is relevant, write a brief, genuinely helpful reply in the account's voice while being transparent that this is a product promotion.`,
     ``,
     `# PRODUCT`,
     `- 商品名: ${product.title}`,
@@ -119,7 +120,9 @@ function buildReplyPrompt(post: PostDoc, product: ProductDoc): string {
     `- 掲載するURL: ${productUrl}`,
     ``,
     `# RULES`,
-    `- The URL MUST be included in the reply text.`,
+    `- For a relevant recommendation, the exact product URL MUST be included unchanged: ${productUrl}`,
+    `- For a relevant recommendation, the text MUST include an explicit 【PR】 disclosure. Never disguise a promotion as organic advice.`,
+    `- If the connection is weak or forced, tweet MUST equal SKIP_UNRELATED (no URL, no PR).`,
     `- Reply directly relates to the original post's topic.`,
     `- Natural, conversational, not salesy.`,
     `- Do not fabricate facts about the product.`,
@@ -141,6 +144,15 @@ async function generateReplyText(
   product: ProductDoc,
 ): Promise<string> {
   const prompt = buildReplyPrompt(post, product);
+  const productUrl = product.url ?? `https://www.amazon.co.jp/dp/${product.asin}/`;
+  const validate = (reply: string): string => {
+    const content = reply.trim();
+    if (content === SKIP_UNRELATED) return content;
+    if (!content.includes(productUrl) || !content.includes("【PR】")) {
+      throw new Error("Amazon promo reply must include its exact product URL and 【PR】 disclosure.");
+    }
+    return content;
+  };
 
   if (account.r18Mode) {
     const xaiApiKey = process.env.XAI_API_KEY;
@@ -148,22 +160,14 @@ async function generateReplyText(
       throw new Error("XAI_API_KEY environment variable is not configured.");
     }
     const suggestion = await requestGrok(prompt, xaiApiKey);
-    const text = suggestion.tweet.trim();
-    if (!text.includes("http")) {
-      throw new Error("Generated reply does not contain a URL; skipping to avoid a product post without a link.");
-    }
-    return text;
+    return validate(suggestion.tweet);
   }
 
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
     try {
       const suggestion = (await generateSuggestion(prompt)).value;
-      const text = suggestion.tweet.trim();
-      if (!text.includes("http")) {
-        throw new Error("Generated reply does not contain a URL.");
-      }
-      return text;
+      return validate(suggestion.tweet);
     } catch (error) {
       // Treat an outage across both providers as a run-level event and preserve
       // this post for the next sync.
@@ -251,6 +255,9 @@ export async function maybePromoReply(
     }
 
     generatedText = await generateReplyText(account, post, product);
+    if (generatedText === SKIP_UNRELATED) {
+      return { outcome: "skipped", attempted: false, haltAccount: false, reason: "unrelated_product" };
+    }
     const result = await publishReply(account, generatedText, post);
 
     const replyId = `promo_reply_${Date.now().toString(36)}_${Math.random()
