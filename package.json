@@ -28,7 +28,8 @@
     "test:affiliate-tracking": "tsx scripts/test-affiliate-tracking.ts",
     "test:affiliate-distribution": "tsx scripts/test-affiliate-distribution.ts",
     "test:affiliate-placement": "tsx scripts/test-affiliate-placement.ts",
-    "prebuild": "npm run test:mcp-auth && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement",
+    "test:amazon-associates": "tsx scripts/test-amazon-associates.ts",
+    "prebuild": "npm run test:mcp-auth && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates",
     "test:mcp-auth": "tsx scripts/test-mcp-auth.ts"
   },
   "dependencies": {

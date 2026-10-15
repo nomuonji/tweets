@@ -2,6 +2,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { ProductDoc } from "@/lib/types";
 import { DateTime } from "luxon";
+import { hasVerifiedAmazonAssociatesTag } from "./amazon-associates-policy";
 
 function productCollection(accountId: string) {
   return adminDb.collection("accounts").doc(accountId).collection("products");
@@ -45,6 +46,7 @@ function isApprovedForAccount(product: TargetedProduct, accountId: string): bool
   if (product.status !== "approved" || product.amazon_verified !== true) return false;
   if (!product.account_ids?.includes(accountId)) return false;
   if (!product.reply_targets?.[accountId]?.length) return false;
+  if (!hasVerifiedAmazonAssociatesTag(accountId, product.url)) return false;
   try {
     const url = new URL(product.url ?? "");
     return url.protocol === "https:" &&
