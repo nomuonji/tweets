@@ -100,7 +100,9 @@ async function fetchPostsForAccount(
   const platformDefault =
     account.platform === "threads" && !account.sync_cursor
       ? 100
-      : DEFAULT_STEADY_STATE_FETCH_LIMIT;
+      : account.promoReplyEnabled === true
+        ? Math.max(DEFAULT_STEADY_STATE_FETCH_LIMIT, 50)
+        : DEFAULT_STEADY_STATE_FETCH_LIMIT;
   const requestedMax = options.maxPosts;
   let maxPosts =
     typeof requestedMax === "number" && requestedMax > 0
