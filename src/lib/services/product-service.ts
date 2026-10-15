@@ -68,15 +68,15 @@ export async function getProduct(accountId: string, productId: string): Promise<
 }
 
 /** Choose an approved product with an explicit account-specific topic match. */
-export async function pickPromoProduct(accountId: string, postText: string): Promise<ProductDoc | null> {
+export async function pickPromoProduct(accountId: string, postText?: string): Promise<ProductDoc | null> {
   const products = (await getEligibleProducts(accountId)) as TargetedProduct[];
-  const text = postText.normalize("NFKC").toLowerCase();
+  const text = postText?.normalize("NFKC").toLowerCase() ?? "";
   const ranked = products.map((product) => {
     const hits = (product.reply_targets?.[accountId] ?? [])
       .map((term) => term.normalize("NFKC").toLowerCase().trim())
       .filter((term) => term.length >= 2 && text.includes(term));
     return { product, topicScore: hits.length ? Math.max(...hits.map((term) => term.length)) * 10 + hits.length : 0 };
-  }).filter(({ topicScore }) => topicScore > 0);
+  }).filter(({ topicScore }) => !postText || topicScore > 0);
   ranked.sort((a, b) => b.topicScore - a.topicScore ||
     (a.product.times_used ?? 0) - (b.product.times_used ?? 0));
   return ranked[0]?.product ?? null;
