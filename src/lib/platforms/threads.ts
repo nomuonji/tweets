@@ -808,7 +808,7 @@ export async function publishThreadsQuotePost(
 
   return {
     platform_post_id: publishedPostId,
-    raw: publishResponse?.data ?? { id: publishedPostId },
+    raw: publishResponse.data,
     url: permalink,
   };
 }
@@ -936,7 +936,7 @@ export async function publishThreadsReply(
 
   return {
     platform_post_id: publishedPostId,
-    raw: publishResponse.data,
+    raw: publishResponse?.data ?? { id: publishedPostId },
     url: permalink,
   };
 }
