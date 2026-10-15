@@ -238,14 +238,20 @@ export async function syncPostsForAllAccounts(
       const lastSuccessfulReplyAt = promoCandidates.length > 0
         ? await getLastSuccessfulPromoReplyTime(account)
         : null;
+      // Respect per-account Amazon limits; do not bypass its cooldown for a
+      // second reply in the same sync (the legacy behavior could burst ads).
+      const maxAmazonRepliesThisSync = Math.min(
+        MAX_PROMO_REPLIES_PER_SYNC,
+        account.promoReplyDailyLimit ?? MAX_PROMO_REPLIES_PER_SYNC,
+      );
       for (const post of promoCandidates) {
         if (
-          promoReplies >= MAX_PROMO_REPLIES_PER_SYNC ||
-          promoAttempts >= MAX_PROMO_REPLIES_PER_SYNC ||
+          promoReplies >= maxAmazonRepliesThisSync ||
+          promoAttempts >= maxAmazonRepliesThisSync ||
           promoHaltedReason
         ) break;
         const attempt = await maybePromoReply(account, post, promoNow, {
-          ignoreCooldown: promoReplies > 0,
+          ignoreCooldown: false,
           lastSuccessfulReplyAt,
         });
         if (attempt.attempted) promoAttempts += 1;
