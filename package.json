@@ -16,6 +16,7 @@
     "cleanup:failed": "tsx -r dotenv/config scripts/cleanup-failed-drafts.ts",
     "recover:failed-publishes": "tsx -r dotenv/config scripts/recover-failed-publishes.ts",
     "analyze:patterns": "tsx -r dotenv/config scripts/analyze-patterns.ts",
+    "test:threads-publish-reliability": "tsx scripts/test-threads-publish-reliability.ts",
     "test:slots": "tsx scripts/test-schedule-slots.ts",
     "test:character-version": "tsx scripts/test-character-version.ts",
     "test:promo-reliability": "tsx scripts/test-promo-reliability.ts",
@@ -29,7 +30,7 @@
     "test:affiliate-distribution": "tsx scripts/test-affiliate-distribution.ts",
     "test:affiliate-placement": "tsx scripts/test-affiliate-placement.ts",
     "test:amazon-associates": "tsx scripts/test-amazon-associates.ts",
-    "prebuild": "npm run test:mcp-auth && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates",
+    "prebuild": "npm run test:mcp-auth && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates && npm run test:threads-publish-reliability",
     "test:mcp-auth": "tsx scripts/test-mcp-auth.ts"
   },
   "dependencies": {
