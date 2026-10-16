@@ -8,7 +8,7 @@ import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
 import { getAccounts, upsertPost } from "./firestore.server";
 import { reconcileAffiliateLinkForPost } from "./affiliate-tracking-service";
-import { maybeAffiliateOfferReply } from "./affiliate-offer-service";
+import { maybeAffiliateOfferReply, reconcilePendingAffiliateReplies } from "./affiliate-offer-service";
 import {
   getLastSuccessfulPromoReplyTime,
   isPromoReplyEligible,
@@ -198,6 +198,19 @@ export async function syncPostsForAllAccounts(
   }
 
   const results: SyncResult[] = [];
+
+  // Recover ambiguous affiliate replies once per sync across all accounts.
+  // This is read-only on Threads and only links an exact existing reply in DB.
+  // It never repeats an uncertain external publish.
+  try {
+    const recovery = await reconcilePendingAffiliateReplies(targetAccounts);
+    if (recovery.recovered || recovery.unresolved || recovery.errors) {
+      console.info("[Sync] Affiliate reply recovery", recovery);
+    }
+  } catch (error) {
+    console.warn("[Sync] Affiliate reply recovery deferred",
+      error instanceof Error ? error.message : String(error));
+  }
 
   for (const account of targetAccounts) {
     try {

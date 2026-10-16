@@ -4,7 +4,7 @@ import { generateSuggestion, GenerationUnavailableError } from "@/lib/ai/generat
 import { requestGrok } from "@/lib/grok/client";
 import { adminDb } from "@/lib/firebase/admin";
 import { publishXReply } from "@/lib/platforms/x";
-import { publishThreadsReply } from "@/lib/platforms/threads";
+import { findThreadsReplyByContent, publishThreadsReply } from "@/lib/platforms/threads";
 import {
   fetchRecentPosts,
   getAccount,
@@ -937,6 +937,57 @@ async function finalizeReplyLink(
   return mapReply(saved);
 }
 
+/**
+ * Called during the existing post-sync cycle; never creates an external post.
+ * An unresolved publication remains locked against duplicates and is retried
+ * on the next sync, without asking an operator to inspect each reply manually.
+ */
+export async function reconcilePendingAffiliateReplies(
+  accounts: AccountDoc[],
+): Promise<{ recovered: number; unresolved: number; errors: number }> {
+  const result = { recovered: 0, unresolved: 0, errors: 0 };
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const snapshot = await affiliateReplyCollection()
+    .where("status", "in", ["publishing", "pending_reconciliation"])
+    .get();
+  for (const doc of snapshot.docs) {
+    const reply = mapReply(doc);
+    const account = accountById.get(reply.account_id);
+    if (!account) continue;
+    try {
+      if (!reply.platform_reply_id) {
+        if (reply.platform !== "threads") {
+          result.unresolved += 1;
+          continue;
+        }
+        const found = await findThreadsReplyByContent(account, {
+          text: reply.full_text,
+          replyToId: reply.parent_platform_post_id,
+          startedAt: reply.publish_started_at ?? reply.created_at,
+        });
+        if (!found) {
+          result.unresolved += 1;
+          continue;
+        }
+        await doc.ref.set({
+          status: "pending_reconciliation",
+          platform_reply_id: found.platform_post_id,
+          platform_url: found.url ?? null,
+          published_at: reply.published_at ?? nowIso(),
+          updated_at: nowIso(),
+        }, { merge: true });
+      }
+      await finalizeReplyLink(reply.id, true);
+      result.recovered += 1;
+    } catch (error) {
+      result.errors += 1;
+      console.warn("[Affiliate Reply] Automatic reconciliation unavailable", reply.id,
+        error instanceof Error ? error.message : String(error));
+    }
+  }
+  return result;
+}
+
 async function revalidatePublishGates(
   reply: AffiliateReplyRecord,
 ): Promise<{
@@ -1053,7 +1104,7 @@ export async function publishAffiliateReply(
       externalPostCreated: false,
       noRetryPublish: true,
       nextAction:
-        "Do not call publish_affiliate_reply again. Resolve the external reply ID, then call reconcile_affiliate_reply.",
+        "Do not repost. Scheduled sync automatically checks existing platform replies.",
     };
   }
   if (existingAction === "blocked") {
@@ -1087,6 +1138,36 @@ export async function publishAffiliateReply(
           });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // The reply may have been accepted even when Meta's response timed out.
+    // Recover by exact parent + text + timestamp before returning unresolved.
+    if (post.platform === "threads") {
+      try {
+        const found = await findThreadsReplyByContent(account, {
+          text: claimed.full_text,
+          replyToId: post.platform_post_id,
+          startedAt: claimed.publish_started_at ?? claimed.created_at,
+        });
+        if (found) {
+          const recoveredAt = nowIso();
+          await affiliateReplyCollection().doc(replyId).set({
+            status: "pending_reconciliation",
+            platform_reply_id: found.platform_post_id,
+            platform_url: found.url ?? null,
+            published_at: recoveredAt,
+            updated_at: recoveredAt,
+          }, { merge: true });
+          return {
+            reply: await finalizeReplyLink(replyId, true),
+            status: "reconciled",
+            externalPostCreated: true,
+            platformReplyId: found.platform_post_id,
+          };
+        }
+      } catch (recoveryError) {
+        console.warn("[Affiliate Reply] Immediate recovery unavailable", replyId,
+          recoveryError instanceof Error ? recoveryError.message : String(recoveryError));
+      }
+    }
     await affiliateReplyCollection()
       .doc(replyId)
       .set(
@@ -1105,7 +1186,7 @@ export async function publishAffiliateReply(
       noRetryPublish: true,
       error: message,
       nextAction:
-        "The platform result is ambiguous. Do not retry publishing. Reconcile the external reply first; if confirmed absent, call reconcile_affiliate_reply with confirmNotPublished=true.",
+        "No automatic match yet. The scheduled sync will check again without reposting.",
     };
   }
 

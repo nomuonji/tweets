@@ -41,6 +41,7 @@ async function main() {
     ThreadsPublishError,
     classifyThreadsApiError,
     publishThreadsPost,
+    findThreadsReplyByContent,
   } = await import("@/lib/platforms/threads");
 
   const mediaNotFound = axiosError(400, {
@@ -171,12 +172,58 @@ async function main() {
     assert.equal(createForUnknown, 1);
     assert.equal(publishCount, 1);
     assert.equal(timelineCount, 3);
+
+    // A lost affiliate publish response must never trigger a second publish.
+    // Recover only a reply owned by this account with the exact parent,
+    // normalized body and original publication window.
+    let recoveryPageReads = 0;
+    axios.get = (async (_url: string, config?: { params?: { after?: string } }) => {
+      assert.ok(_url.endsWith("/me/replies"));
+      recoveryPageReads += 1;
+      if (!config?.params?.after) {
+        return { data: {
+          data: [{
+            id: "wrong-parent", text: "PR same body",
+            timestamp: "2026-09-02T00:02:00.000Z",
+            replied_to: { id: "another-parent" },
+          }],
+          paging: { cursors: { after: "page-2" } },
+        } };
+      }
+      return { data: { data: [
+        {
+          id: "old-reply", text: "PR same body",
+          timestamp: "2026-09-01T22:00:00.000Z",
+          replied_to: { id: "original-parent" },
+        },
+        {
+          id: "actual-reply", text: "PR  same body",
+          timestamp: "2026-09-02T00:01:00.000Z",
+          permalink: "https://www.threads.net/@test_account/post/actual-reply",
+          replied_to: { id: "original-parent" },
+          is_reply_owned_by_me: true,
+        },
+      ] } };
+    }) as typeof axios.get;
+    const affiliateRecovered = await findThreadsReplyByContent(account, {
+      text: "PR same body",
+      replyToId: "original-parent",
+      startedAt: "2026-09-02T00:00:00.000Z",
+    });
+    assert.equal(affiliateRecovered?.platform_post_id, "actual-reply");
+    assert.equal(recoveryPageReads, 2);
+    const noFalseMatch = await findThreadsReplyByContent(account, {
+      text: "PR same body",
+      replyToId: "different-parent",
+      startedAt: "2026-09-02T00:00:00.000Z",
+    });
+    assert.equal(noFalseMatch, null);
   } finally {
     axios.post = originalPost;
     axios.get = originalGet;
   }
 
-  console.log("Threads publish reliability tests passed (16 assertions).\n");
+  console.log("Threads publish reliability tests passed (affiliate recovery included).\n");
 }
 
 main().catch((error) => {
