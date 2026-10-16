@@ -100,6 +100,7 @@ type InsightMetric = {
 type ThreadsItem = {
   id: string;
   text?: string;
+  username?: string;
   timestamp: string;
   media_type?: "VIDEO" | "IMAGE" | "TEXT" | "REPOST_FACADE" | "TEXT_POST";
   permalink?: string;
@@ -774,8 +775,9 @@ export async function findThreadsReplyByContent(
   const parentId = expected.replyToId.replace(/^threads_/, "");
   const text = normalizePostText(expected.text);
   let cursor: string | undefined;
+  try {
   for (let page = 0; page < 8; page += 1) {
-    const response = await axios.get<ThreadsResponse>(
+    const response: { data?: ThreadsResponse } = await axios.get<ThreadsResponse>(
       `${THREADS_API_BASE}/me/replies`,
       {
         params: {
@@ -814,7 +816,63 @@ export async function findThreadsReplyByContent(
       try { urlCursor = new URL(nextUrl).searchParams.get("after"); }
       catch { /* Ignore malformed pagination URLs. */ }
     }
-    const nextCursor = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
+    const nextCursor: string | undefined = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
+    if (!nextCursor || nextCursor === cursor) break;
+    cursor = nextCursor;
+  }
+  } catch (error) {
+    console.warn("[Threads] Owned-reply lookup unavailable; trying parent replies",
+      error instanceof Error ? error.message : String(error));
+  }
+
+  // Secondary official path: the replies under the original, owned parent.
+  // This can recover a reply omitted from /me/replies. Never use a text-only
+  // match from another account or a different parent.
+  cursor = undefined;
+  const expectedHandle = account.handle.replace(/^@/, "").toLowerCase();
+  for (let page = 0; page < 8; page += 1) {
+    const response: { data?: ThreadsResponse } = await axios.get<ThreadsResponse>(
+      `${THREADS_API_BASE}/${parentId}/replies`,
+      {
+        params: {
+          access_token: accessToken,
+          fields: "id,text,timestamp,permalink,username,replied_to,is_reply_owned_by_me",
+          limit: 25,
+          reverse: false,
+          ...(cursor ? { after: cursor } : {}),
+        },
+      },
+    );
+    const entries = response.data?.data ?? [];
+    for (const item of entries) {
+      const replyingTo = item.replied_to?.id ?? item.reply_to_id ?? item.parent_id ?? parentId;
+      const authoredByAccount =
+        item.is_reply_owned_by_me === true ||
+        item.username?.replace(/^@/, "").toLowerCase() === expectedHandle;
+      const created = DateTime.fromISO(item.timestamp);
+      if (
+        item.id &&
+        authoredByAccount &&
+        replyingTo === parentId &&
+        created.isValid &&
+        created >= threshold &&
+        normalizePostText(item.text ?? "") === text
+      ) {
+        return {
+          platform_post_id: item.id,
+          url: item.permalink ?? undefined,
+          raw: { ...item, recovered_affiliate_reply: true },
+        };
+      }
+    }
+    if (entries.length === 0) break;
+    const nextUrl = response.data?.paging?.next;
+    let urlCursor: string | null = null;
+    if (nextUrl) {
+      try { urlCursor = new URL(nextUrl).searchParams.get("after"); }
+      catch { /* Ignore malformed pagination URLs. */ }
+    }
+    const nextCursor: string | undefined = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
     if (!nextCursor || nextCursor === cursor) break;
     cursor = nextCursor;
   }
