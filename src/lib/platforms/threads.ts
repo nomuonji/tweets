@@ -777,7 +777,7 @@ export async function findThreadsReplyByContent(
   let cursor: string | undefined;
   try {
   for (let page = 0; page < 8; page += 1) {
-    const response = await axios.get<ThreadsResponse>(
+    const response: { data?: ThreadsResponse } = await axios.get<ThreadsResponse>(
       `${THREADS_API_BASE}/me/replies`,
       {
         params: {
@@ -816,7 +816,7 @@ export async function findThreadsReplyByContent(
       try { urlCursor = new URL(nextUrl).searchParams.get("after"); }
       catch { /* Ignore malformed pagination URLs. */ }
     }
-    const nextCursor = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
+    const nextCursor: string | undefined = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
     if (!nextCursor || nextCursor === cursor) break;
     cursor = nextCursor;
   }
@@ -831,7 +831,7 @@ export async function findThreadsReplyByContent(
   cursor = undefined;
   const expectedHandle = account.handle.replace(/^@/, "").toLowerCase();
   for (let page = 0; page < 8; page += 1) {
-    const response = await axios.get<ThreadsResponse>(
+    const response: { data?: ThreadsResponse } = await axios.get<ThreadsResponse>(
       `${THREADS_API_BASE}/${parentId}/replies`,
       {
         params: {
@@ -872,7 +872,7 @@ export async function findThreadsReplyByContent(
       try { urlCursor = new URL(nextUrl).searchParams.get("after"); }
       catch { /* Ignore malformed pagination URLs. */ }
     }
-    const nextCursor = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
+    const nextCursor: string | undefined = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
     if (!nextCursor || nextCursor === cursor) break;
     cursor = nextCursor;
   }
