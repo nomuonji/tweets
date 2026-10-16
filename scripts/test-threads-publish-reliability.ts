@@ -178,6 +178,9 @@ async function main() {
     // normalized body and original publication window.
     let recoveryPageReads = 0;
     axios.get = (async (_url: string, config?: { params?: { after?: string } }) => {
+      if (_url.endsWith("/different-parent/replies")) {
+        return { data: { data: [] } };
+      }
       assert.ok(_url.endsWith("/me/replies"));
       recoveryPageReads += 1;
       if (!config?.params?.after) {
@@ -218,6 +221,31 @@ async function main() {
       startedAt: "2026-09-02T00:00:00.000Z",
     });
     assert.equal(noFalseMatch, null);
+
+    axios.get = (async (_url: string) => {
+      if (_url.endsWith("/me/replies")) {
+        return { data: { data: [] } };
+      }
+      assert.ok(_url.endsWith("/fallback-parent/replies"));
+      return { data: { data: [
+        {
+          id: "someone-elses-reply", text: "PR fallback",
+          username: "different_person",
+          timestamp: "2026-09-02T00:02:00.000Z",
+        },
+        {
+          id: "own-reply", text: "PR fallback",
+          username: "test_account",
+          replied_to: { id: "fallback-parent" },
+          timestamp: "2026-09-02T00:01:00.000Z",
+        },
+      ] } };
+    }) as typeof axios.get;
+    const recoveredFromParent = await findThreadsReplyByContent(account, {
+      text: "PR fallback", replyToId: "fallback-parent",
+      startedAt: "2026-09-02T00:00:00.000Z",
+    });
+    assert.equal(recoveredFromParent?.platform_post_id, "own-reply");
   } finally {
     axios.post = originalPost;
     axios.get = originalGet;
