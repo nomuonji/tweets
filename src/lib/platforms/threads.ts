@@ -110,9 +110,11 @@ type ThreadsItem = {
     data?: InsightMetric[];
   };
   is_reply?: boolean | number | string;
+  is_reply_owned_by_me?: boolean;
   reply_to_id?: string;
   parent_id?: string;
   replying_to?: string;
+  replied_to?: { id: string };
 };
 
 type ThreadsPaging = {
@@ -751,6 +753,70 @@ export async function reconcileThreadsPost(
         setTimeout(resolve, RECONCILIATION_INTERVAL_MS),
       );
     }
+  }
+  return null;
+}
+
+/**
+ * Read-only recovery of an affiliate reply after an ambiguous publish response.
+ * /me/replies returns replies authored by this account; the parent ID, exact
+ * normalized text and publication window must all match before we link one.
+ * No result is NOT proof of non-publication, so callers must never repost.
+ */
+export async function findThreadsReplyByContent(
+  account: AccountDoc,
+  expected: { text: string; replyToId: string; startedAt: string },
+): Promise<PublishResult | null> {
+  const accessToken = getThreadsAccessToken(account);
+  if (!accessToken) throw new Error("Threads access token is not configured");
+  const threshold = DateTime.fromISO(expected.startedAt).minus({ minutes: 2 });
+  if (!threshold.isValid) throw new Error("Invalid affiliate reply publish start time");
+  const parentId = expected.replyToId.replace(/^threads_/, "");
+  const text = normalizePostText(expected.text);
+  let cursor: string | undefined;
+  for (let page = 0; page < 8; page += 1) {
+    const response = await axios.get<ThreadsResponse>(
+      `${THREADS_API_BASE}/me/replies`,
+      {
+        params: {
+          access_token: accessToken,
+          fields: "id,text,timestamp,permalink,is_reply_owned_by_me,replied_to",
+          limit: 50,
+          ...(cursor ? { after: cursor } : {}),
+        },
+      },
+    );
+    const entries = response.data?.data ?? [];
+    for (const item of entries) {
+      const replyingTo = typeof item.replied_to === "object"
+        ? item.replied_to?.id
+        : item.reply_to_id ?? item.parent_id;
+      const created = DateTime.fromISO(item.timestamp);
+      if (
+        item.id &&
+        replyingTo === parentId &&
+        item.is_reply_owned_by_me !== false &&
+        created.isValid &&
+        created >= threshold &&
+        normalizePostText(item.text ?? "") === text
+      ) {
+        return {
+          platform_post_id: item.id,
+          url: item.permalink ?? undefined,
+          raw: { ...item, recovered_affiliate_reply: true },
+        };
+      }
+    }
+    if (entries.length === 0) break;
+    const nextUrl = response.data?.paging?.next;
+    let urlCursor: string | null = null;
+    if (nextUrl) {
+      try { urlCursor = new URL(nextUrl).searchParams.get("after"); }
+      catch { /* Ignore malformed pagination URLs. */ }
+    }
+    const nextCursor = response.data?.paging?.cursors?.after ?? urlCursor ?? undefined;
+    if (!nextCursor || nextCursor === cursor) break;
+    cursor = nextCursor;
   }
   return null;
 }
