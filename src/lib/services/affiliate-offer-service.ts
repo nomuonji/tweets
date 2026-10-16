@@ -20,6 +20,7 @@ import {
   isOwnedLandingPageUrl,
   matchAffiliateOffer,
   rankAffiliateOffers,
+  shouldCloseUnverifiedAffiliateReply,
   getAffiliateParentGateReasons,
   resolvePromoReplyMode,
   validateDisclosure,
@@ -944,8 +945,8 @@ async function finalizeReplyLink(
  */
 export async function reconcilePendingAffiliateReplies(
   accounts: AccountDoc[],
-): Promise<{ recovered: number; unresolved: number; errors: number }> {
-  const result = { recovered: 0, unresolved: 0, errors: 0 };
+): Promise<{ recovered: number; closed: number; unresolved: number; errors: number }> {
+  const result = { recovered: 0, closed: 0, unresolved: 0, errors: 0 };
   const accountById = new Map(accounts.map((account) => [account.id, account]));
   const snapshot = await affiliateReplyCollection()
     .where("status", "in", ["publishing", "pending_reconciliation"])
@@ -966,7 +967,21 @@ export async function reconcilePendingAffiliateReplies(
           startedAt: reply.publish_started_at ?? reply.created_at,
         });
         if (!found) {
-          result.unresolved += 1;
+          const startedAt = reply.publish_started_at ?? reply.created_at;
+          if (shouldCloseUnverifiedAffiliateReply(reply.status, startedAt)) {
+            // This is NOT proof of non-publication. Close the operational
+            // queue after 48h, but preserve the reply's parent occupancy so
+            // no automation can publish the same promotion a second time.
+            await doc.ref.update({
+              status: "unverified_no_retry",
+              auto_closed_reason: "no_confirmed_platform_match_after_48h",
+              auto_closed_at: nowIso(),
+              updated_at: nowIso(),
+            });
+            result.closed += 1;
+          } else {
+            result.unresolved += 1;
+          }
           continue;
         }
         await doc.ref.set({

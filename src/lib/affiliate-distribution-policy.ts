@@ -84,6 +84,7 @@ export type AffiliateReplyStatus =
   | "draft"
   | "publishing"
   | "pending_reconciliation"
+  | "unverified_no_retry"
   | "published"
   | "failed"
   | "reconciled";
@@ -503,6 +504,21 @@ export function getAffiliateReplyPublishAction(
     return "already_published";
   }
   return "blocked";
+}
+
+/**
+ * End an ambiguous external publish without inventing success or absence.
+ * The parent remains occupied to prevent duplicate ad replies.
+ */
+export function shouldCloseUnverifiedAffiliateReply(
+  status: AffiliateReplyStatus,
+  startedAt: string,
+  now: DateTime = DateTime.utc(),
+): boolean {
+  if (status !== "publishing" && status !== "pending_reconciliation") return false;
+  const started = DateTime.fromISO(startedAt);
+  return started.isValid &&
+    now.diff(started, "hours").hours >= 48;
 }
 
 export function isReplyOccupyingParent(status: AffiliateReplyStatus): boolean {

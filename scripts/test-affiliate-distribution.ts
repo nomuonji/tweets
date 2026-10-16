@@ -8,6 +8,7 @@ import {
   isReplyOccupyingParent,
   matchAffiliateOffer,
   rankAffiliateOffers,
+  shouldCloseUnverifiedAffiliateReply,
   getAffiliateParentGateReasons,
   resolvePromoReplyMode,
   validateDisclosure,
@@ -359,6 +360,19 @@ async function main() {
   assert.equal(isReplyOccupyingParent("pending_reconciliation"), true);
   assert.equal(isReplyOccupyingParent("published"), true);
   assert.equal(isReplyOccupyingParent("failed"), false);
+  // Old unknown external outcomes leave the active queue, but can never be
+  // silently retried or counted as a confirmed publication.
+  assert.equal(getAffiliateReplyPublishAction("unverified_no_retry"), "blocked");
+  assert.equal(isReplyOccupyingParent("unverified_no_retry"), true);
+  assert.equal(shouldCloseUnverifiedAffiliateReply(
+    "pending_reconciliation", now.minus({ hours: 49 }).toISO()!, now,
+  ), true);
+  assert.equal(shouldCloseUnverifiedAffiliateReply(
+    "pending_reconciliation", now.minus({ hours: 47 }).toISO()!, now,
+  ), false);
+  assert.equal(shouldCloseUnverifiedAffiliateReply(
+    "published", now.minus({ hours: 49 }).toISO()!, now,
+  ), false);
 
   // This is the key anti-duplication invariant: once a platform side effect may
   // have happened, the next action is reconciliation, never another publish.
