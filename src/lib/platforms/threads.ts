@@ -958,7 +958,7 @@ export async function publishThreadsReply(
   // Meta can infer a preview from the first URL in text, but explicitly
   // attaching it avoids relying on that inference for promotional replies.
   // Leave ordinary text-only replies unchanged.
-  const linkAttachment = payload.text.match(/https?:\/\/[^\\s<>"']+/i)?.[0]
+  const linkAttachment = payload.text.match(/https?:\/\/[^\s<>"']+/i)?.[0]
     ?.replace(/[.,!?。、，！？)）]+$/, "");
 
   // Step 1: Create a media container with reply_to_id. This operation is not
