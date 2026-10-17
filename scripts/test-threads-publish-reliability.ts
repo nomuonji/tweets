@@ -41,6 +41,7 @@ async function main() {
     ThreadsPublishError,
     classifyThreadsApiError,
     publishThreadsPost,
+    publishThreadsReply,
     findThreadsReplyByContent,
   } = await import("@/lib/platforms/threads");
 
@@ -246,6 +247,32 @@ async function main() {
       startedAt: "2026-09-02T00:00:00.000Z",
     });
     assert.equal(recoveredFromParent?.platform_post_id, "own-reply");
+
+    // An explicit Threads link attachment is required for predictable
+    // promotional reply cards; text-only replies must not gain an attachment.
+    const createdReplyBodies: Record<string, unknown>[] = [];
+    let nextReplyId = 0;
+    axios.get = (async () => ({ data: { status: "FINISHED" } })) as typeof axios.get;
+    axios.post = (async (url: string, body: Record<string, unknown>) => {
+      if (url.endsWith("/threads_publish")) {
+        return { data: { id: `reply-${++nextReplyId}` } };
+      }
+      createdReplyBodies.push(body);
+      return { data: { id: `reply-container-${createdReplyBodies.length}` } };
+    }) as typeof axios.post;
+
+    await publishThreadsReply(account, {
+      text: "PR（広告） 詳細はこちら https://bloom.antonbase.com/uranai-soudan/ 気になる人へ",
+      replyToId: "threads_parent123",
+    });
+    assert.equal(createdReplyBodies[0].reply_to_id, "parent123");
+    assert.equal(createdReplyBodies[0].link_attachment, "https://bloom.antonbase.com/uranai-soudan/");
+
+    await publishThreadsReply(account, {
+      text: "URLのない通常の返信です。",
+      replyToId: "threads_parent124",
+    });
+    assert.equal("link_attachment" in createdReplyBodies[1], false);
   } finally {
     axios.post = originalPost;
     axios.get = originalGet;
