@@ -955,6 +955,12 @@ export async function publishThreadsReply(
     throw new Error("Threads user ID is not configured");
   }
 
+  // Meta can infer a preview from the first URL in text, but explicitly
+  // attaching it avoids relying on that inference for promotional replies.
+  // Leave ordinary text-only replies unchanged.
+  const linkAttachment = payload.text.match(/https?:\/\/[^\\s<>"']+/i)?.[0]
+    ?.replace(/[.,!?。、，！？)）]+$/, "");
+
   // Step 1: Create a media container with reply_to_id. This operation is not
   // public, so retrying it once cannot create a duplicate visible reply.
   let containerResponse: { data?: { id?: string } } | null = null;
@@ -967,6 +973,7 @@ export async function publishThreadsReply(
           media_type: "TEXT",
           text: payload.text,
           reply_to_id: payload.replyToId.replace(/^threads_/, ""),
+          ...(linkAttachment ? { link_attachment: linkAttachment } : {}),
           access_token: accessToken,
         },
       );
