@@ -36,7 +36,12 @@ export type GenerationBrief = {
   concept: string;
   length: { min: number | null; max: number | null };
   schedule: string[];
-  inventory: { usableDrafts: number; neededCount: number; requested: number };
+  inventory: {
+    usableDrafts: number;
+    neededCount: number;
+    requested: number;
+    draftsMissingStructure: number;
+  };
   /** 型 catalogue: selected tips plus tips linked to this account. */
   tips: Array<{ id: string; title: string; text: string }>;
   /** Style samples. The strongest reproduction lever per docs/reference-style-policy.md. */
@@ -211,6 +216,7 @@ export async function buildGenerationBrief(
     "Prefer external posts with a high likeRatio: those are cases where the text, not the follower count, did the work.",
     `Length: ${account.minPostLength ?? "no minimum"}–${account.maxPostLength ?? "platform limit"} characters.`,
     "Attach provenance to each draft: tipIds you followed, externalPostIds you drew on, and a one-line rationale.",
+    "Set provenance.structure to the 型 you chose. pattern.structure is a regex guess and collapses distinct 型 into the same bucket, so analysis relies on your label.",
     "Do not repeat the content or phrasing of recentPosts / openDrafts.",
   ];
 
@@ -225,7 +231,14 @@ export async function buildGenerationBrief(
       max: account.maxPostLength ?? null,
     },
     schedule: account.postSchedule ?? [],
-    inventory: { usableDrafts: usable.length, neededCount, requested: count },
+    inventory: {
+      usableDrafts: usable.length,
+      neededCount,
+      requested: count,
+      /** Usable drafts whose 型 was never recorded, so they cannot be analysed. */
+      draftsMissingStructure: usable.filter((draft) => !draft.provenance?.structure)
+        .length,
+    },
     tips: tips.map((tip) => ({ id: tip.id, title: tip.title, text: tip.text })),
     exemplary: exemplary.map((post) => ({
       id: post.id,
