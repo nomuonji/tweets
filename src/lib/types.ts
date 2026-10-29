@@ -56,6 +56,12 @@ export interface DraftProvenance {
   externalPostIds?: string[];
   /** Free-form keys for propositions the agent extracted from outside material. */
   netaKeys?: string[];
+  /**
+   * The 型 the agent intended. Kept separate from `pattern.structure` because
+   * that one is a regex guess: five deliberately different structures can all
+   * classify into the same bucket, which would erase the experiment's signal.
+   */
+  structure?: string;
   /** One-line note on the angle, for later qualitative review. */
   rationale?: string;
 }
