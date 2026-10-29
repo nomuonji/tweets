@@ -7,8 +7,9 @@ const payloadSchema = z.object({
   autoPostEnabled: z.boolean().optional(),
   postSchedule: z.array(z.string()).optional(),
   selectedTipIds: z.array(z.string()).optional(),
-  minPostLength: z.number().optional(),
-  maxPostLength: z.number().optional(),
+  /** null clears the limit; the platform limit still applies. */
+  minPostLength: z.number().int().min(0).max(500).nullable().optional(),
+  maxPostLength: z.number().int().min(0).max(500).nullable().optional(),
   r18Mode: z.boolean().optional(),
   discoveryKeywords: z.array(z.string().trim().min(1)).max(20).optional(),
   referenceAccountIds: z.array(z.string()).max(50).optional(),

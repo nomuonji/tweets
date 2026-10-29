@@ -104,8 +104,10 @@ export interface AccountDoc {
   character_updated_at?: string;
   autoPostEnabled?: boolean;
   postSchedule?: string[];
-  minPostLength?: number;
-  maxPostLength?: number;
+  /** Minimum post length in characters. null = no minimum. */
+  minPostLength?: number | null;
+  /** Maximum post length in characters. null = platform limit only. */
+  maxPostLength?: number | null;
   r18Mode?: boolean;
   discoveryKeywords?: string[];
   referenceAccountIds?: string[];

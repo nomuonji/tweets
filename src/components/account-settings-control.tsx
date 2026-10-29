@@ -25,11 +25,21 @@ type AccountSettingsControlProps = {
 const MIN_LENGTH = 1;
 const MAX_LENGTH = 240;
 
-/** Coerce a number input to a usable value, falling back when left empty. */
-function toBoundedInt(value: string, fallback: number) {
+/** Parse a length input. An empty field means "no limit" (null). */
+function parseLength(value: string): number | null {
+  if (!value.trim()) return null;
   const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) return fallback;
+  if (Number.isNaN(parsed)) return null;
   return Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, parsed));
+}
+
+/** Keep min <= max while preserving the "no limit" (null) state. */
+function normaliseLengths(
+  min: number | null,
+  max: number | null,
+): [number | null, number | null] {
+  if (min != null && max != null && min > max) return [max, min];
+  return [min, max];
 }
 
 export function AccountSettingsControl({
@@ -46,9 +56,11 @@ export function AccountSettingsControl({
   const [postSchedule, setPostSchedule] = useState<string[]>(
     account.postSchedule ?? [],
   );
-  const [minPostLength, setMinPostLength] = useState(account.minPostLength ?? 1);
-  const [maxPostLength, setMaxPostLength] = useState(
-    account.maxPostLength ?? 240,
+  const [minPostLength, setMinPostLength] = useState<number | null>(
+    account.minPostLength ?? null,
+  );
+  const [maxPostLength, setMaxPostLength] = useState<number | null>(
+    account.maxPostLength ?? null,
   );
   const [r18Mode, setR18Mode] = useState(account.r18Mode ?? false);
   const [isConceptExpanded, setIsConceptExpanded] = useState(false);
@@ -59,8 +71,8 @@ export function AccountSettingsControl({
     setConcept(account.concept ?? "");
     setAutoPostEnabled(account.autoPostEnabled ?? false);
     setPostSchedule(account.postSchedule ?? []);
-    setMinPostLength(account.minPostLength ?? 1);
-    setMaxPostLength(account.maxPostLength ?? 240);
+    setMinPostLength(account.minPostLength ?? null);
+    setMaxPostLength(account.maxPostLength ?? null);
     setR18Mode(account.r18Mode ?? false);
     setIsConceptExpanded(false);
     setIsSaving(false);
@@ -78,8 +90,8 @@ export function AccountSettingsControl({
     setIsSaving(true);
 
     // Normalise before persisting: drop empty slots, keep min <= max.
-    const low = Math.min(minPostLength, maxPostLength);
-    const high = Math.max(minPostLength, maxPostLength);
+    // An empty length field is sent as null, which means "no limit".
+    const [low, high] = normaliseLengths(minPostLength, maxPostLength);
     const updated = {
       concept,
       autoPostEnabled,
@@ -176,9 +188,10 @@ export function AccountSettingsControl({
                 type="number"
                 min={MIN_LENGTH}
                 max={MAX_LENGTH}
-                value={minPostLength}
+                placeholder="制限なし"
+                value={minPostLength ?? ""}
                 onChange={(event) =>
-                  setMinPostLength(toBoundedInt(event.target.value, MIN_LENGTH))
+                  setMinPostLength(parseLength(event.target.value))
                 }
               />
             )}
@@ -190,9 +203,10 @@ export function AccountSettingsControl({
                 type="number"
                 min={MIN_LENGTH}
                 max={MAX_LENGTH}
-                value={maxPostLength}
+                placeholder="制限なし"
+                value={maxPostLength ?? ""}
                 onChange={(event) =>
-                  setMaxPostLength(toBoundedInt(event.target.value, MAX_LENGTH))
+                  setMaxPostLength(parseLength(event.target.value))
                 }
               />
             )}
