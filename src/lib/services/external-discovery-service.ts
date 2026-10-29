@@ -108,6 +108,9 @@ function toExternalPost(
   now: string,
   source: { keyword?: string; accountId?: string },
 ): ExternalPostDoc {
+  // Firestore rejects `undefined`, and only one of keyword/accountId is ever
+  // set. Writing both unconditionally made every keyword-sourced upsert throw,
+  // so discovery spent API calls and stored nothing.
   const external = {
     id: `x_external_${post.platform_post_id}`,
     platform: "x" as const,
@@ -116,10 +119,10 @@ function toExternalPost(
     author_followers: authorFollowers(post),
     text: post.text,
     created_at: post.created_at,
-    url: post.url,
     metrics: post.metrics,
-    search_keyword: source.keyword,
-    source_account_id: source.accountId,
+    ...(post.url ? { url: post.url } : {}),
+    ...(source.keyword ? { search_keyword: source.keyword } : {}),
+    ...(source.accountId ? { source_account_id: source.accountId } : {}),
     fetched_at: now,
   } satisfies ExternalPostDoc;
   return {
