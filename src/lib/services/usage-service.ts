@@ -62,19 +62,60 @@ export async function getMonthlyUsage(apiName: string) {
   return { month: data.month ?? month, count: data.count ?? 0 };
 }
 
+const BUDGET_COLLECTION = "settings";
+const BUDGET_DOC = "api_budget";
+const BUDGET_FIELD = "rapidapi_monthly_budget";
+
+function normalizeBudget(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return Math.floor(value);
+}
+
 /**
- * Monthly request budget for RapidAPI Twitter. Unset or 0 disables the guard,
- * which keeps behaviour unchanged until a plan limit is recorded.
+ * Budget lives in Firestore so the cron runtime and the MCP server agree on it.
+ * The env var stays as a fallback for runtimes that cannot read the doc.
  */
-export function rapidApiMonthlyBudget(): number | null {
-  const parsed = Number(process.env.RAPIDAPI_MONTHLY_BUDGET ?? "");
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+async function resolveRapidApiBudget(): Promise<{
+  budget: number | null;
+  source: "firestore" | "env" | "none";
+}> {
+  try {
+    const snapshot = await adminDb.collection(BUDGET_COLLECTION).doc(BUDGET_DOC).get();
+    const data = snapshot.data() ?? {};
+    if (snapshot.exists && BUDGET_FIELD in data) {
+      return { budget: normalizeBudget(data[BUDGET_FIELD]), source: "firestore" };
+    }
+  } catch (error) {
+    console.warn("[Usage] Could not read the stored API budget; falling back to env.", error);
+  }
+  const fromEnv = normalizeBudget(Number(process.env.RAPIDAPI_MONTHLY_BUDGET ?? ""));
+  return { budget: fromEnv, source: fromEnv === null ? "none" : "env" };
+}
+
+/** Persist the monthly RapidAPI request budget. null means "no guard". */
+export async function setRapidApiMonthlyBudget(
+  value: number | null,
+): Promise<{ budget: number | null }> {
+  await adminDb
+    .collection(BUDGET_COLLECTION)
+    .doc(BUDGET_DOC)
+    .set(
+      {
+        [BUDGET_FIELD]: normalizeBudget(value),
+        updated_at: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+  return { budget: normalizeBudget(value) };
 }
 
 export type RapidApiBudgetState = {
   month: string;
   count: number;
   budget: number | null;
+  budgetSource: "firestore" | "env" | "none";
   remaining: number | null;
   exhausted: boolean;
 };
@@ -85,14 +126,19 @@ export type RapidApiBudgetState = {
  * spending was invisible.
  */
 export async function getRapidApiBudgetState(): Promise<RapidApiBudgetState> {
-  const usage = await getMonthlyUsage("rapidapi_twitter");
-  const budget = rapidApiMonthlyBudget();
+  const [usage, resolved] = await Promise.all([
+    getMonthlyUsage("rapidapi_twitter"),
+    resolveRapidApiBudget(),
+  ]);
+  const { budget, source } = resolved;
   const remaining = budget === null ? null : Math.max(0, budget - usage.count);
   return {
     ...usage,
     budget,
+    budgetSource: source,
     remaining,
     exhausted: remaining !== null && remaining <= 0,
   };
 }
+
 
