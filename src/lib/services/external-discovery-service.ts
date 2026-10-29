@@ -43,27 +43,41 @@ function pickRotating<T>(items: T[], count: number, now: DateTime): T[] {
   return Array.from({ length: count }, (_, i) => items[(start + i) % items.length]);
 }
 
-function authorHandle(post: { raw?: Record<string, unknown> }): string {
+/**
+ * Author block for an external post. `search.php` returns `user_info`, while
+ * `timeline.php` returns `author`. Reading only `author` silently produced
+ * "unknown" handles and null follower counts for every keyword-sourced post.
+ */
+function authorRecord(
+  post: { raw?: Record<string, unknown> },
+): Record<string, unknown> | null {
   const raw = post.raw ?? {};
-  const author = raw.author;
-  if (author && typeof author === "object") {
-    const handle = (author as Record<string, unknown>).screen_name;
-    if (typeof handle === "string" && handle.trim()) return handle;
+  for (const key of ["user_info", "author"]) {
+    const value = raw[key];
+    if (value && typeof value === "object") {
+      return value as Record<string, unknown>;
+    }
   }
+  return null;
+}
+
+function authorHandle(post: { raw?: Record<string, unknown> }): string {
+  const handle =
+    authorRecord(post)?.screen_name ?? (post.raw ?? {}).screen_name;
+  if (typeof handle === "string" && handle.trim()) return handle;
   return "unknown";
 }
 
 /**
- * Follower count when the source exposes it. Keyword search usually does not,
- * reference-account timelines do. Kept so follower-relative reach is measurable
- * instead of relying on raw like counts, which favour big accounts.
+ * Follower count when the source exposes it. Kept so follower-relative reach is
+ * measurable instead of relying on raw like counts, which favour big accounts.
  */
 function authorFollowers(post: { raw?: Record<string, unknown> }): number | null {
-  const raw = post.raw ?? {};
-  const author = raw.author;
-  if (author && typeof author === "object") {
-    const value = (author as Record<string, unknown>).followers_count;
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+  const value = authorRecord(post)?.followers_count;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    if (Number.isFinite(parsed)) return parsed;
   }
   return null;
 }
