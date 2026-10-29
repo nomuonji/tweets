@@ -48,6 +48,18 @@ export interface PostPattern {
   reaction_reason: string;
 }
 
+/** Attribution for agent-written drafts, so performance can be traced back to a
+ * 型 (tip), a ネタ source (external post), or a batch of drafts. */
+export interface DraftProvenance {
+  batchId?: string;
+  tipIds?: string[];
+  externalPostIds?: string[];
+  /** Free-form keys for propositions the agent extracted from outside material. */
+  netaKeys?: string[];
+  /** One-line note on the angle, for later qualitative review. */
+  rationale?: string;
+}
+
 export interface PatternStat {
   structure: string;
   count: number;
@@ -509,6 +521,9 @@ export interface DraftDoc {
   owned_content_source_type?: "website" | "note" | "newsletter" | "other";
   /** The post structure type used for this draft, used by the self-improvement loop. */
   pattern?: PostPattern;
+  /** What an external agent used to write this draft, kept for attribution:
+   * which 型 (tip) and which ネタ (external post / proposition) it came from. */
+  provenance?: DraftProvenance;
   /** When the scheduler took the `publishing` lock; used to reclaim stale locks. */
   publishing_started_at?: string;
   /** Durable checkpoint for crash recovery of multi-step platform publishing. */

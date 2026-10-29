@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { getCharacterVersion } from "@/lib/character-version";
 import { extractPattern } from "@/lib/pattern";
-import type { DraftDoc } from "@/lib/types";
+import type { DraftDoc, DraftProvenance } from "@/lib/types";
 
 export const MAX_AGENT_DRAFTS = 5;
 const PLATFORM_LIMITS = { x: 280, threads: 500 } as const;
@@ -35,6 +35,8 @@ export type NewDraftInput = {
   overwriteSimilar?: boolean;
   affiliate?: { productId: string; creativeAssetId?: string };
   ownedContent?: { itemId: string };
+  /** 型/ネタ attribution for later analysis. Optional for manual drafts. */
+  provenance?: DraftProvenance;
 };
 
 export async function createAgentDrafts(
@@ -135,7 +137,7 @@ export async function createAgentDrafts(
       const similar = existing.find((candidate) => trigramSimilarity(fullText, draftTextWithHashtags(candidate.text, candidate.hashtags)) >= 0.82);
       if (similar && !input.overwriteSimilar) throw new Error("A too-similar draft already exists; set overwriteSimilar only after reviewing it.");
       const ref = adminDb.collection("drafts").doc();
-      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text) };
+      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
       transaction.set(ref, draft); existing.push(draft); return draft;
     });
     return drafts;
