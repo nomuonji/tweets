@@ -10,6 +10,15 @@ import { isPublishingEnabled } from "@/lib/account-gates";
 const DRAFT_THRESHOLD = 5;
 
 async function main() {
+  // Drafts are normally written by an external agent over MCP, which can plan a
+  // batch (distinct 型, distinct openings) instead of one isolated post at a time.
+  // This server-side path stays as a fallback and must be opted into explicitly.
+  if (process.env.ALLOW_AUTO_GENERATION !== "true") {
+    console.log(
+      "[Auto-Generate] Disabled. Use get_generation_brief + create_drafts from an agent, or set ALLOW_AUTO_GENERATION=true.",
+    );
+    return;
+  }
   console.log("[Auto-Generate] Starting periodic draft generation check.");
   const accounts = await getAccounts();
   const failedAccounts: string[] = [];
