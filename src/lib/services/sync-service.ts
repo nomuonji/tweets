@@ -1,8 +1,9 @@
-﻿import { DateTime } from "luxon";
+import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { calculateScore } from "@/lib/scoring";
 import { extractPattern } from "@/lib/pattern";
 import { AccountDoc, PostDoc, Platform, PostMetrics } from "@/lib/types";
+import { isPublishingEnabled } from "@/lib/account-gates";
 import { fetchRecentXPosts } from "@/lib/platforms/x";
 import { fetchRecentThreadsPosts } from "@/lib/platforms/threads";
 import { SyncPostPayload } from "@/lib/platforms/types";
@@ -24,6 +25,9 @@ type SyncOptions = {
   maxPosts?: number;
   projectId?: string;
   accountIds?: string[];
+  /** Only sync accounts that are still publishing. Saves paid API calls on
+   * accounts whose own timeline cannot have new posts. */
+  onlyPublishing?: boolean;
 };
 
 type FetchPostsResult = {
@@ -191,7 +195,9 @@ export async function syncPostsForAllAccounts(
 
   const targetAccounts = filterSet
     ? accounts.filter((account) => filterSet.has(account.id))
-    : accounts;
+    : options.onlyPublishing
+      ? accounts.filter((account) => isPublishingEnabled(account))
+      : accounts;
 
   if (targetAccounts.length === 0) {
     return [];

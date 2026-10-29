@@ -22,3 +22,8 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
+          # Quota policy. The plan is small, so discovery reuses results and
+          # rotates through keywords instead of paying for all of them daily.
+          DISCOVERY_CACHE_HOURS: "168"            # reuse a source for a week
+          DISCOVERY_MAX_SOURCES_PER_ACCOUNT: "2"  # rotate the stored keywords
+          RAPIDAPI_MONTHLY_BUDGET: "300"          # hard stop at this many requests

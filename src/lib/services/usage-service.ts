@@ -61,3 +61,38 @@ export async function getMonthlyUsage(apiName: string) {
 
   return { month: data.month ?? month, count: data.count ?? 0 };
 }
+
+/**
+ * Monthly request budget for RapidAPI Twitter. Unset or 0 disables the guard,
+ * which keeps behaviour unchanged until a plan limit is recorded.
+ */
+export function rapidApiMonthlyBudget(): number | null {
+  const parsed = Number(process.env.RAPIDAPI_MONTHLY_BUDGET ?? "");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+}
+
+export type RapidApiBudgetState = {
+  month: string;
+  count: number;
+  budget: number | null;
+  remaining: number | null;
+  exhausted: boolean;
+};
+
+/**
+ * Read-only view of this month's RapidAPI spend against the configured budget.
+ * Counters are written by every request but were never surfaced before, so
+ * spending was invisible.
+ */
+export async function getRapidApiBudgetState(): Promise<RapidApiBudgetState> {
+  const usage = await getMonthlyUsage("rapidapi_twitter");
+  const budget = rapidApiMonthlyBudget();
+  const remaining = budget === null ? null : Math.max(0, budget - usage.count);
+  return {
+    ...usage,
+    budget,
+    remaining,
+    exhausted: remaining !== null && remaining <= 0,
+  };
+}
+

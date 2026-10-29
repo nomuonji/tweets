@@ -16,7 +16,12 @@ async function main() {
     }
     try {
       const result = await syncExternalDiscovery(account);
-      console.log(`[External Sync] ${account.handle}: ${result.synced.join(", ") || "cache is fresh"}`);
+      const detail = result.synced.join(", ") || "cache is fresh";
+      const budgetNote = result.stoppedByBudget
+        ? ` (stopped by budget: ${result.budget.count}/${result.budget.budget ?? "-"})`
+        : "";
+      console.log(`[External Sync] ${account.handle}: ${detail}${budgetNote}`);
+      if (result.stoppedByBudget) break;
     } catch (error) {
       console.error(`[External Sync] Failed for ${account.handle}:`, error);
     }

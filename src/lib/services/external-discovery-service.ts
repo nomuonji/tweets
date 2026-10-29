@@ -7,11 +7,41 @@ import {
   getReferenceAccounts,
   upsertExternalPost,
 } from "./firestore.server";
+import { getRapidApiBudgetState, type RapidApiBudgetState } from "./usage-service";
 
-const CACHE_HOURS = 24;
 const POSTS_PER_SOURCE = 20;
 /** Discovery is about reusable text structure, so media-only posts are useless. */
 const TEXT_ONLY = true;
+
+/**
+ * How long a keyword/reference result is reused before another paid request.
+ * Default 24h. Raise it (e.g. 168) when the API plan is small.
+ */
+function cacheHours(): number {
+  const parsed = Number(process.env.DISCOVERY_CACHE_HOURS ?? "");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 24;
+}
+
+/**
+ * How many of an account's saved sources may be paid for in one run. 0 or unset
+ * means "all of them". Stored keywords are kept, so a small budget still covers
+ * every keyword over time instead of deleting them.
+ */
+function maxSourcesPerRun(): number {
+  const parsed = Number(process.env.DISCOVERY_MAX_SOURCES_PER_ACCOUNT ?? "");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+/**
+ * Rotate deterministically by ISO week so a capped run still walks through the
+ * whole keyword list across weeks, without storing rotation state.
+ */
+function pickRotating<T>(items: T[], count: number, now: DateTime): T[] {
+  if (count <= 0 || items.length <= count) return items;
+  const week = Math.floor(now.toMillis() / (7 * 24 * 60 * 60 * 1000));
+  const start = week % items.length;
+  return Array.from({ length: count }, (_, i) => items[(start + i) % items.length]);
+}
 
 function authorHandle(post: { raw?: Record<string, unknown> }): string {
   const raw = post.raw ?? {};
@@ -44,7 +74,7 @@ function shouldRefresh(posts: ExternalPostDoc[], key: string, now: DateTime) {
     .map((post) => DateTime.fromISO(post.fetched_at))
     .filter((date) => date.isValid)
     .sort((a, b) => b.toMillis() - a.toMillis())[0];
-  return !latest || now.diff(latest, "hours").hours >= CACHE_HOURS;
+  return !latest || now.diff(latest, "hours").hours >= cacheHours();
 }
 
 function toExternalPost(
@@ -80,8 +110,14 @@ function toExternalPost(
   };
 }
 
-export async function syncExternalDiscovery(account: AccountDoc) {
+export async function syncExternalDiscovery(account: AccountDoc): Promise<{
+  synced: string[];
+  cached: number;
+  budget: RapidApiBudgetState;
+  stoppedByBudget: boolean;
+}> {
   const now = DateTime.utc();
+  const budget = await getRapidApiBudgetState();
   const existing = await getExternalPostsForAccount({
     ...account,
     discoveryKeywords: account.discoveryKeywords ?? [],
@@ -89,12 +125,26 @@ export async function syncExternalDiscovery(account: AccountDoc) {
   }, 300);
   const synced: string[] = [];
 
-  for (const keyword of account.discoveryKeywords ?? []) {
+  if (budget.exhausted) {
+    return { synced, cached: existing.length, budget, stoppedByBudget: true };
+  }
+
+  // One paid request per source; stop as soon as this run reaches the remaining
+  // monthly allowance instead of discovering the ceiling the hard way.
+  let spent = 0;
+  const canSpend = () => budget.remaining === null || spent < budget.remaining;
+  const sourceCap = maxSourcesPerRun();
+
+  for (const keyword of pickRotating(account.discoveryKeywords ?? [], sourceCap, now)) {
     if (!shouldRefresh(existing, keyword, now)) continue;
+    if (!canSpend()) {
+      return { synced, cached: existing.length, budget, stoppedByBudget: true };
+    }
     const posts = await fetchXSearchPosts(keyword, {
       limit: POSTS_PER_SOURCE,
       searchType: "Top",
     });
+    spent += 1;
     for (const post of posts) {
       if (TEXT_ONLY && post.media_type !== "text") continue;
       await upsertExternalPost(toExternalPost(post, now.toISO()!, { keyword }));
@@ -105,12 +155,16 @@ export async function syncExternalDiscovery(account: AccountDoc) {
   const referenceAccounts = await getReferenceAccounts(
     account.referenceAccountIds ?? [],
   );
-  for (const reference of referenceAccounts as ReferenceAccountDoc[]) {
+  for (const reference of pickRotating(referenceAccounts as ReferenceAccountDoc[], sourceCap, now)) {
     if (!shouldRefresh(existing, reference.id, now)) continue;
+    if (!canSpend()) {
+      return { synced, cached: existing.length, budget, stoppedByBudget: true };
+    }
     const posts = await fetchRecentXPosts(
       { id: reference.id, platform: "x", handle: reference.handle, display_name: reference.display_name ?? reference.handle, connected: true, scopes: [], created_at: now.toISO()!, updated_at: now.toISO()! },
       { limit: POSTS_PER_SOURCE },
     );
+    spent += 1;
     for (const post of posts.posts) {
       if (TEXT_ONLY && post.media_type !== "text") continue;
       await upsertExternalPost(
@@ -120,5 +174,5 @@ export async function syncExternalDiscovery(account: AccountDoc) {
     synced.push(`account:${reference.handle}`);
   }
 
-  return { synced, cached: existing.length };
+  return { synced, cached: existing.length, budget, stoppedByBudget: false };
 }
