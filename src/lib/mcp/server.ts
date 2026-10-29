@@ -2,10 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAccounts, getAccount, getUsableDraftsByAccountId, fetchRecentPosts } from "@/lib/services/firestore.server";
+import { getAccounts, getAccount, getUsableDraftsByAccountId, getOpenDraftInventory, fetchRecentPosts } from "@/lib/services/firestore.server";
 import { createAgentDrafts } from "@/lib/services/draft-service";
 import { runIdempotentOperation } from "@/lib/services/agent-operation-service";
-import { getCharacterVersion } from "@/lib/character-version";
+import { getCharacterVersion, belongsToCharacterVersion } from "@/lib/character-version";
 import { updateAccount } from "@/lib/services/account-service";
 import { syncPostsForAllAccounts } from "@/lib/services/sync-service";
 import { syncAccountProfiles } from "@/lib/services/account-profile-sync-service";
@@ -136,7 +136,10 @@ const MCP_TOOLS = [
 export function createTweetsMcpServer() {
   const server = new McpServer({ name: "tweets-operator", version: SERVER_VERSION });
   server.registerTool("get_system_health", { description: "Summarize connection and current-version draft inventory. Read only.", inputSchema: {} , annotations: { readOnlyHint: true }}, async () => {
-    const accounts = await getAccounts(); const [inventory, affiliateDistributionRuntime, rapidApiUsage] = await Promise.all([Promise.all(accounts.map(async (a) => ({ accountId: a.id, usableDrafts: (await getUsableDraftsByAccountId(a.id, getCharacterVersion(a))).length }))), getAffiliateDistributionRuntimeState(), getRapidApiBudgetState().catch(() => null)]);
+    const accounts = await getAccounts();
+    // One status-filtered scan instead of one draft-queue read per account.
+    const [openDraftsByAccount, affiliateDistributionRuntime, rapidApiUsage] = await Promise.all([getOpenDraftInventory(), getAffiliateDistributionRuntimeState(), getRapidApiBudgetState().catch(() => null)]);
+    const inventory = accounts.map((a) => ({ accountId: a.id, usableDrafts: (openDraftsByAccount.get(a.id) ?? []).filter((draft) => belongsToCharacterVersion(draft, getCharacterVersion(a))).length }));
     return text({ status: "ok", serverVersion: SERVER_VERSION, accounts: accounts.length, inventory, toolCount: MCP_TOOLS.length, tools: MCP_TOOLS, authentication: { oauthPkce: true, agentBearerConfigured: Boolean(process.env.AGENT_MCP_TOKEN?.trim()), grokStaticTokenConfigured: Boolean(process.env.TWEETS_GROK_MCP_TOKEN?.trim()), grokHeaders: ["Authorization: Bearer <token>", "x-api-key: <token>"] }, capabilities: { projectContext: true, productDiscoveryWork: true, productPerformanceWork: true, affiliateProductSchema: "v2", affiliateTracking: true, affiliateOfferCatalog: true, affiliateReplyWork: true, affiliateReplyTracking: true, affiliateDistributionContext: true, promoReplySourceMode: true, affiliateOfferGlobalSwitch: true, ownedContentDistribution: true, ownedContentSourceTypes: ["website","note","newsletter","other"], inspirationAccountPool: true, inspirationPlatforms: ["x","threads","instagram","tiktok","youtube","other"] }, affiliateDistributionRuntime, rapidApiUsage, nextAction: "Use get_generation_work for drafts, get_owned_content_distribution_work for owned media, get_product_discovery_work for Amazon products, or get_affiliate_reply_work for contextual affiliate distribution." });
   });
   server.registerTool("list_accounts", { description: "List sanitized accounts with no credentials. Read only.", inputSchema: { page, limit }, annotations: { readOnlyHint: true } }, async ({ page, limit }) => text({ items: (await getAccounts()).slice((page - 1) * limit, page * limit).map((account) => { const safe = { ...account } as Record<string, unknown>; delete safe.token_meta; delete safe.credentials; return safe; }), page, limit }));

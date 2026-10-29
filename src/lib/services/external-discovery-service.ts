@@ -3,8 +3,9 @@ import type { AccountDoc, ExternalPostDoc, ReferenceAccountDoc } from "@/lib/typ
 import { engagementRate, extractPattern } from "@/lib/pattern";
 import { fetchRecentXPosts, fetchXSearchPosts } from "@/lib/platforms/x";
 import {
-  getExternalPostsForAccount,
+  getDiscoveryState,
   getReferenceAccounts,
+  saveDiscoveryState,
   upsertExternalPost,
 } from "./firestore.server";
 import { getRapidApiBudgetState, type RapidApiBudgetState } from "./usage-service";
@@ -87,15 +88,6 @@ function authorFollowers(post: { raw?: Record<string, unknown> }): number | null
   return null;
 }
 
-function shouldRefresh(posts: ExternalPostDoc[], key: string, now: DateTime) {
-  const latest = posts
-    .filter((post) => post.search_keyword === key || post.source_account_id === key)
-    .map((post) => DateTime.fromISO(post.fetched_at))
-    .filter((date) => date.isValid)
-    .sort((a, b) => b.toMillis() - a.toMillis())[0];
-  return !latest || now.diff(latest, "hours").hours >= cacheHours();
-}
-
 function toExternalPost(
   post: {
     platform_post_id: string;
@@ -140,47 +132,72 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
 }> {
   const now = DateTime.utc();
   const budget = await getRapidApiBudgetState();
-  const existing = await getExternalPostsForAccount({
-    ...account,
-    discoveryKeywords: account.discoveryKeywords ?? [],
-    referenceAccountIds: account.referenceAccountIds ?? [],
-  }, 300);
   const synced: string[] = [];
+  const keywords = account.discoveryKeywords ?? [];
+  const referenceIds = account.referenceAccountIds ?? [];
 
   if (budget.exhausted) {
-    return { synced, cached: existing.length, budget, stoppedByBudget: true };
+    return { synced, cached: 0, budget, stoppedByBudget: true };
   }
+
+  // Freshness comes from one small state doc per source. It used to be derived
+  // by scanning up to 900 stored posts per account on every run.
+  const state = await getDiscoveryState(account.id, [...keywords, ...referenceIds]);
+  const isFresh = (key: string) => {
+    const last = state[key];
+    if (!last) return false;
+    const at = DateTime.fromISO(last);
+    return at.isValid && now.diff(at, "hours").hours < cacheHours();
+  };
 
   // One paid request per source; stop as soon as this run reaches the remaining
   // monthly allowance instead of discovering the ceiling the hard way.
   let spent = 0;
   const canSpend = () => budget.remaining === null || spent < budget.remaining;
   const sourceCap = maxSourcesPerRun();
+  let fresh = 0;
 
-  for (const keyword of pickRotating(account.discoveryKeywords ?? [], sourceCap, now)) {
-    if (!shouldRefresh(existing, keyword, now)) continue;
-    if (!canSpend()) {
-      return { synced, cached: existing.length, budget, stoppedByBudget: true };
-    }
-    const posts = await fetchXSearchPosts(keyword, {
-      limit: POSTS_PER_SOURCE,
-      searchType: "Top",
-    });
-    spent += 1;
-    for (const post of posts) {
-      if (TEXT_ONLY && post.media_type !== "text") continue;
-      await upsertExternalPost(toExternalPost(post, now.toISO()!, { keyword }));
-    }
-    synced.push(`keyword:${keyword}`);
-  }
+  const referenceAccounts = referenceIds.length
+    ? ((await getReferenceAccounts(referenceIds)) as ReferenceAccountDoc[])
+    : [];
+  const referenceById = new Map(referenceAccounts.map((item) => [item.id, item]));
 
-  const referenceAccounts = await getReferenceAccounts(
-    account.referenceAccountIds ?? [],
-  );
-  for (const reference of pickRotating(referenceAccounts as ReferenceAccountDoc[], sourceCap, now)) {
-    if (!shouldRefresh(existing, reference.id, now)) continue;
+  // Cap the combined source list, not each kind separately, so the per-run
+  // budget is a real per-account cap.
+  const sources: Array<{ kind: "keyword" | "account"; key: string }> = [
+    ...keywords.map((key) => ({ kind: "keyword" as const, key })),
+    ...referenceAccounts.map((item) => ({ kind: "account" as const, key: item.id })),
+  ];
+
+  for (const source of pickRotating(sources, sourceCap, now)) {
+    if (isFresh(source.key)) {
+      fresh += 1;
+      continue;
+    }
     if (!canSpend()) {
-      return { synced, cached: existing.length, budget, stoppedByBudget: true };
+      return { synced, cached: fresh, budget, stoppedByBudget: true };
+    }
+
+    if (source.kind === "keyword") {
+      const posts = await fetchXSearchPosts(source.key, {
+        limit: POSTS_PER_SOURCE,
+        searchType: "Top",
+      });
+      spent += 1;
+      for (const post of posts) {
+        if (TEXT_ONLY && post.media_type !== "text") continue;
+        await upsertExternalPost(toExternalPost(post, now.toISO()!, { keyword: source.key }));
+      }
+      await saveDiscoveryState(account.id, source.key, now.toISO()!);
+      synced.push(`keyword:${source.key}`);
+      continue;
+    }
+
+    const reference = referenceById.get(source.key);
+    if (!reference) {
+      // The reference was removed between listing and syncing.
+      fresh += 1;
+      continue;
     }
     const posts = await fetchRecentXPosts(
       { id: reference.id, platform: "x", handle: reference.handle, display_name: reference.display_name ?? reference.handle, connected: true, scopes: [], created_at: now.toISO()!, updated_at: now.toISO()! },
@@ -193,8 +210,9 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
         toExternalPost(post, now.toISO()!, { accountId: reference.id }),
       );
     }
+    await saveDiscoveryState(account.id, source.key, now.toISO()!);
     synced.push(`account:${reference.handle}`);
   }
 
-  return { synced, cached: existing.length, budget, stoppedByBudget: false };
+  return { synced, cached: fresh, budget, stoppedByBudget: false };
 }
