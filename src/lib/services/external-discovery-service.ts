@@ -10,6 +10,8 @@ import {
 
 const CACHE_HOURS = 24;
 const POSTS_PER_SOURCE = 20;
+/** Discovery is about reusable text structure, so media-only posts are useless. */
+const TEXT_ONLY = true;
 
 function authorHandle(post: { raw?: Record<string, unknown> }): string {
   const raw = post.raw ?? {};
@@ -19,6 +21,21 @@ function authorHandle(post: { raw?: Record<string, unknown> }): string {
     if (typeof handle === "string" && handle.trim()) return handle;
   }
   return "unknown";
+}
+
+/**
+ * Follower count when the source exposes it. Keyword search usually does not,
+ * reference-account timelines do. Kept so follower-relative reach is measurable
+ * instead of relying on raw like counts, which favour big accounts.
+ */
+function authorFollowers(post: { raw?: Record<string, unknown> }): number | null {
+  const raw = post.raw ?? {};
+  const author = raw.author;
+  if (author && typeof author === "object") {
+    const value = (author as Record<string, unknown>).followers_count;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function shouldRefresh(posts: ExternalPostDoc[], key: string, now: DateTime) {
@@ -47,6 +64,7 @@ function toExternalPost(
     platform: "x" as const,
     platform_post_id: post.platform_post_id,
     author_handle: authorHandle(post),
+    author_followers: authorFollowers(post),
     text: post.text,
     created_at: post.created_at,
     url: post.url,
@@ -78,6 +96,7 @@ export async function syncExternalDiscovery(account: AccountDoc) {
       searchType: "Top",
     });
     for (const post of posts) {
+      if (TEXT_ONLY && post.media_type !== "text") continue;
       await upsertExternalPost(toExternalPost(post, now.toISO()!, { keyword }));
     }
     synced.push(`keyword:${keyword}`);
@@ -93,6 +112,7 @@ export async function syncExternalDiscovery(account: AccountDoc) {
       { limit: POSTS_PER_SOURCE },
     );
     for (const post of posts.posts) {
+      if (TEXT_ONLY && post.media_type !== "text") continue;
       await upsertExternalPost(
         toExternalPost(post, now.toISO()!, { accountId: reference.id }),
       );

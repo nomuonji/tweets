@@ -111,10 +111,24 @@ export async function createAgentDrafts(
       if (ownedContent && !fullText.includes(ownedContent.canonicalUrl)) {
         throw new Error("Owned-content draft must contain the item's canonical_url.");
       }
-      const min = typeof account.minPostLength === "number" ? account.minPostLength : 1;
-      const configuredMax = typeof account.maxPostLength === "number" ? account.maxPostLength : PLATFORM_LIMITS[(account.platform ?? "x") as "x" | "threads"];
-      const max = Math.min(configuredMax, PLATFORM_LIMITS[(account.platform ?? "x") as "x" | "threads"]);
-      if (fullText.length < min || fullText.length > max) throw new Error(`Draft length must be ${min}–${max} characters including hashtags.`);
+      // Unset (null/0) means "no limit"; the platform ceiling is always enforced.
+      const platformLimit = PLATFORM_LIMITS[(account.platform ?? "x") as "x" | "threads"];
+      const min =
+        typeof account.minPostLength === "number" && account.minPostLength > 0
+          ? account.minPostLength
+          : 0;
+      const configuredMax =
+        typeof account.maxPostLength === "number" && account.maxPostLength > 0
+          ? account.maxPostLength
+          : platformLimit;
+      const max = Math.min(configuredMax, platformLimit);
+      if (fullText.length < min || fullText.length > max) {
+        throw new Error(
+          min > 0
+            ? `Draft length must be ${min}–${max} characters including hashtags.`
+            : `Draft length must be at most ${max} characters including hashtags.`,
+        );
+      }
       const normalized = normalizedDraftText(fullText);
       const duplicate = existing.find((candidate) => normalizedDraftText(draftTextWithHashtags(candidate.text, candidate.hashtags)) === normalized);
       if (duplicate) throw new Error("An identical draft already exists.");

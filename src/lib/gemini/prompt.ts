@@ -17,18 +17,22 @@ export function buildPrompt(
   tips: Tip[],
   exemplaryPosts: ExemplaryPost[],
   concept?: string,
-  minPostLength = 1,
-  maxPostLength = 240,
+  minPostLength: number | null | undefined = null,
+  maxPostLength: number | null | undefined = null,
   externalPosts: ExternalPostDoc[] = [],
   patternAnalysis?: PatternAnalysis | null,
   explorationRate = 0.15,
   promoProduct: ProductDoc | null = null,
 ) {
-  const effectiveMin = promoProduct
-    ? Math.max(minPostLength, 90)
-    : minPostLength;
+  // null/0 = no account-level limit. Promo drafts still need room for the link.
+  const floor =
+    typeof minPostLength === "number" && minPostLength > 0 ? minPostLength : 0;
+  const effectiveMin = promoProduct ? Math.max(floor, 90) : floor;
+  const ceiling =
+    typeof maxPostLength === "number" && maxPostLength > 0 ? maxPostLength : 240;
+  const maxPostLengthResolved = Math.max(ceiling, effectiveMin);
   const targetLength =
-    Math.floor(Math.random() * (maxPostLength - effectiveMin + 1)) +
+    Math.floor(Math.random() * (maxPostLengthResolved - effectiveMin + 1)) +
     effectiveMin;
 
   const compact = (value: string, max = 180) =>
@@ -264,7 +268,7 @@ ${characterSheetSection}${performanceSection}${styleSection}${tipSection}${refer
 You are a creative social media content generator.
 
 # 1. TARGET CHARACTER COUNT
-Target: ${targetLength} characters (Absolute Max: ${maxPostLength})
+Target: ${targetLength} characters (Absolute Max: ${maxPostLengthResolved})
 
 ${inputValuesBlock}
 ${avoidanceBlock}
