@@ -31,6 +31,7 @@ type SettingsDraft = {
   referenceHandles: string;
   explorationRate: string;
   autoPostEnabled: boolean;
+  discoveryEnabled: boolean;
   postSchedule: string[];
   promoEnabled: boolean;
   promoRate: string;
@@ -55,6 +56,9 @@ function toSettingsDraft(
       .join(", "),
     explorationRate: String(account.explorationRate ?? 0.2),
     autoPostEnabled: account.autoPostEnabled ?? false,
+    // Unset falls back to autoPostEnabled, so the checkbox shows the effective state.
+    discoveryEnabled:
+      account.discoveryEnabled ?? account.autoPostEnabled ?? false,
     postSchedule: account.postSchedule ?? [],
     promoEnabled: account.promoEnabled ?? false,
     promoRate: String(account.promoRate ?? 0.1),
@@ -233,6 +237,7 @@ export default function AccountsIndexPage() {
         .filter((item) => referenceHandles.some((handle) => handle.toLowerCase() === item.handle.toLowerCase()))
         .map((item) => item.id),
 autoPostEnabled: settingsDraft.autoPostEnabled,
+      discoveryEnabled: settingsDraft.discoveryEnabled,
       postSchedule: settingsDraft.postSchedule.filter(Boolean).sort(),
       promoEnabled: settingsDraft.promoEnabled,
       promoRate: Math.min(
@@ -744,6 +749,22 @@ autoPostEnabled: settingsDraft.autoPostEnabled,
                           )}
                         </Field>
                       </div>
+
+                      <Checkbox
+                        label="外部投稿の収集・分析を有効にする"
+                        description="参照アカウントとキーワードから外部の勝ち投稿を集め、型を分析します。投稿は行いません。"
+                        checked={settingsDraft.discoveryEnabled}
+                        onChange={(event) =>
+                          setSettingsDraft((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  discoveryEnabled: event.target.checked,
+                                }
+                              : prev,
+                          )
+                        }
+                      />
 
                       <Checkbox
                         label="自動投稿を有効にする"

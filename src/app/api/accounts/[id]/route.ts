@@ -5,6 +5,7 @@ import { updateAccount } from "@/lib/services/account-service";
 const payloadSchema = z.object({
   concept: z.string().optional(),
   autoPostEnabled: z.boolean().optional(),
+  discoveryEnabled: z.boolean().optional(),
   postSchedule: z.array(z.string()).optional(),
   selectedTipIds: z.array(z.string()).optional(),
   /** null clears the limit; the platform limit still applies. */
