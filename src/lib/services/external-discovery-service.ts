@@ -33,13 +33,18 @@ function maxSourcesPerRun(): number {
 }
 
 /**
- * Rotate deterministically by ISO week so a capped run still walks through the
- * whole keyword list across weeks, without storing rotation state.
+ * Rotate deterministically so a capped run still walks through the whole keyword
+ * list over time, without storing rotation state.
+ *
+ * The bucket is the cache window, not a fixed week: if rotation were slower than
+ * the cache, the same few keywords would be re-fetched every window while the
+ * rest never ran.
  */
 function pickRotating<T>(items: T[], count: number, now: DateTime): T[] {
   if (count <= 0 || items.length <= count) return items;
-  const week = Math.floor(now.toMillis() / (7 * 24 * 60 * 60 * 1000));
-  const start = week % items.length;
+  const windowMs = cacheHours() * 60 * 60 * 1000;
+  const bucket = Math.floor(now.toMillis() / windowMs);
+  const start = bucket % items.length;
   return Array.from({ length: count }, (_, i) => items[(start + i) % items.length]);
 }
 
