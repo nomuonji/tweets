@@ -1,10 +1,11 @@
 import { getAccounts } from "@/lib/services/firestore.server";
 import { syncExternalDiscovery } from "@/lib/services/external-discovery-service";
+import { isDiscoveryEnabled } from "@/lib/account-gates";
 
 async function main() {
   const accounts = await getAccounts();
   for (const account of accounts) {
-    if (account.autoPostEnabled !== true) {
+    if (!isDiscoveryEnabled(account)) {
       continue;
     }
     if (

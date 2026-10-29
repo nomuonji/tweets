@@ -13,6 +13,7 @@
 import { adminDb } from "@/lib/firebase/admin";
 import type { PostDoc } from "@/lib/types";
 import { computePatternAnalysis } from "@/lib/pattern";
+import { isDiscoveryEnabled } from "@/lib/account-gates";
 import {
   generateContentInsights,
   generateDiscoveryKeywords,
@@ -91,8 +92,8 @@ function keywordsNeedRefresh(account: {
 }
 
 async function main() {
-  const accounts = (await getAccounts()).filter(
-    (account) => account.autoPostEnabled === true,
+  const accounts = (await getAccounts()).filter((account) =>
+    isDiscoveryEnabled(account),
   );
   const skipInsights = process.argv.includes("--no-insights");
   let updated = 0;

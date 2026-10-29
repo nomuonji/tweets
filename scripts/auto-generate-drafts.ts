@@ -5,6 +5,7 @@ import {
 import { generatePost } from "@/lib/services/prompt-service";
 import { getCharacterVersion } from "@/lib/character-version";
 import { GenerationUnavailableError } from "@/lib/ai/generation-client";
+import { isPublishingEnabled } from "@/lib/account-gates";
 
 const DRAFT_THRESHOLD = 5;
 
@@ -19,7 +20,7 @@ async function main() {
       console.warn(`[Auto-Generate] Text-generation providers are degraded; skipping remaining account ${account.id}.`);
       continue;
     }
-    if (account.autoPostEnabled !== true) {
+    if (!isPublishingEnabled(account)) {
       console.log(`[Auto-Generate] Account ${account.handle}: auto-post is off; skipping.`);
       continue;
     }

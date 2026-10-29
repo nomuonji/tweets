@@ -102,6 +102,11 @@ export interface AccountDoc {
   /** Incremented whenever the character sheet changes. Legacy accounts are v1. */
   character_version?: number;
   character_updated_at?: string;
+  /** Learning pipeline: external-post collection and pattern analysis.
+   * Independent from publishing, so structure can be collected while posting
+   * stays off. Unset falls back to autoPostEnabled for backward compatibility. */
+  discoveryEnabled?: boolean;
+  /** Output pipeline: draft generation and scheduled publishing. */
   autoPostEnabled?: boolean;
   postSchedule?: string[];
   /** Minimum post length in characters. null = no minimum. */
