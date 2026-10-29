@@ -2,7 +2,10 @@ import { appendFileSync } from "node:fs";
 import { syncPostsForAllAccounts } from "@/lib/services/sync-service";
 
 async function main() {
-  const results = await syncPostsForAllAccounts();
+  // This is the 6-hourly cron. Stopped accounts cannot gain new posts, so
+  // fetching them only spends paid API calls on unchanged history. Pass
+  // explicit accountIds for a manual backfill of a stopped account.
+  const results = await syncPostsForAllAccounts({ onlyPublishing: true });
   console.log("Sync completed", JSON.stringify(results, null, 2));
 
   const accountFailures = results.filter((result) => Boolean(result.error));
