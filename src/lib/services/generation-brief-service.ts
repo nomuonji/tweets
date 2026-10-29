@@ -1,5 +1,5 @@
 import { adminDb } from "@/lib/firebase/admin";
-import { getCharacterVersion } from "@/lib/character-version";
+import { getCharacterVersion, belongsToCharacterVersion } from "@/lib/character-version";
 import { extractPattern } from "@/lib/pattern";
 import type {
   AccountDoc,
@@ -14,7 +14,6 @@ import {
   getAccount,
   getExternalPostsForAccount,
   getPatternStats,
-  getUsableDraftsByAccountId,
 } from "./firestore.server";
 
 const RECENT_POST_LIMIT = 20;
@@ -117,15 +116,17 @@ async function fetchRecentPosts(accountId: string): Promise<PostDoc[]> {
 }
 
 async function fetchOpenDrafts(accountId: string): Promise<DraftDoc[]> {
+  // Bounded scan: the queue stays small because publishing deletes drafts, and
+  // one read here serves both the inventory count and the avoid list.
   const snapshot = await adminDb
     .collection("drafts")
     .where("target_account_id", "==", accountId)
+    .limit(OPEN_DRAFT_LIMIT * 5)
     .get();
   return snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }) as DraftDoc)
     .filter((draft) => draft.status === "draft" || draft.status === "scheduled")
-    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
-    .slice(0, OPEN_DRAFT_LIMIT);
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
 }
 
 /**
@@ -161,9 +162,8 @@ export async function buildGenerationBrief(
   if (!account) throw new Error("Account not found.");
   const characterVersion = getCharacterVersion(account);
 
-  const [usable, externalPosts, patternStats, tips, exemplary, recentPosts, openDrafts] =
+  const [externalPosts, patternStats, tips, exemplary, recentPosts, openDrafts] =
     await Promise.all([
-      getUsableDraftsByAccountId(accountId, characterVersion),
       getExternalPostsForAccount(account, EXTERNAL_LIMIT),
       getPatternStats(accountId).catch(() => null) as Promise<PatternAnalysis | null>,
       fetchTips(account),
@@ -172,6 +172,10 @@ export async function buildGenerationBrief(
       fetchOpenDrafts(accountId),
     ]);
 
+  // One drafts read serves both the inventory count and the avoid list.
+  const usable = openDrafts.filter((draft) =>
+    belongsToCharacterVersion(draft, characterVersion),
+  );
   const neededCount = Math.max(0, 5 - usable.length);
   const count = Math.min(Math.max(requested ?? neededCount, 1), 10);
 

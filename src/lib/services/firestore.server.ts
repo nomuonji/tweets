@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { adminDb } from "@/lib/firebase/admin";
 import {
   AccountDoc,
@@ -248,6 +249,83 @@ export async function getUsableDraftsByAccountId(
     .filter((draft) => draft.status === "scheduled" || draft.status === "draft")
     .filter((draft) => belongsToCharacterVersion(draft, characterVersion))
     .slice(0, boundedLimit);
+}
+
+/**
+ * Open-draft inventory for every account in one query.
+ *
+ * `getUsableDraftsByAccountId` scans an account's whole draft queue, so calling
+ * it once per account turned a dashboard read into N queries. A single
+ * status-filtered scan is enough because the queue is small by design
+ * (publishing deletes drafts) and needs no composite index.
+ */
+export async function getOpenDraftInventory(): Promise<
+  Map<string, DraftDoc[]>
+> {
+  const snapshot = await adminDb
+    .collection("drafts")
+    .where("status", "in", ["draft", "scheduled"])
+    .get();
+  const byAccount = new Map<string, DraftDoc[]>();
+  for (const doc of snapshot.docs) {
+    const draft = { id: doc.id, ...doc.data() } as DraftDoc;
+    const accountId = draft.target_account_id;
+    if (!accountId) continue;
+    const list = byAccount.get(accountId) ?? [];
+    list.push(draft);
+    byAccount.set(accountId, list);
+  }
+  return byAccount;
+}
+
+function discoveryStateId(accountId: string, key: string): string {
+  return `${accountId}__${createHash("sha1").update(key).digest("hex")}`;
+}
+
+/**
+ * Last fetch time per discovery source.
+ *
+ * Freshness used to be derived by scanning up to 900 stored posts per account
+ * on every run, just to find the newest `fetched_at`. One small doc per source
+ * answers the same question with one read.
+ */
+export async function getDiscoveryState(
+  accountId: string,
+  keys: string[],
+): Promise<Record<string, string>> {
+  if (keys.length === 0) return {};
+  const refs = keys.map((key) =>
+    adminDb.collection("external_discovery_state").doc(discoveryStateId(accountId, key)),
+  );
+  const snapshots = await adminDb.getAll(...refs);
+  const result: Record<string, string> = {};
+  snapshots.forEach((snapshot, index) => {
+    if (!snapshot.exists) return;
+    const fetchedAt = snapshot.get("last_fetched_at");
+    if (typeof fetchedAt === "string" && fetchedAt) {
+      result[keys[index]] = fetchedAt;
+    }
+  });
+  return result;
+}
+
+export async function saveDiscoveryState(
+  accountId: string,
+  key: string,
+  fetchedAt: string,
+): Promise<void> {
+  await adminDb
+    .collection("external_discovery_state")
+    .doc(discoveryStateId(accountId, key))
+    .set(
+      {
+        account_id: accountId,
+        source_key: key,
+        last_fetched_at: fetchedAt,
+        updated_at: fetchedAt,
+      },
+      { merge: true },
+    );
 }
 
 export async function listDrafts(accountId?: string): Promise<DraftDoc[]> {
