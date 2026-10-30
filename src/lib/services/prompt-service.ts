@@ -190,6 +190,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   const extraAvoid: string[] = [];
   let suggestion: GeminiSuggestion | null = null;
   let provider: GenerationProvider = "gemini";
+  let model = "";
   let duplicate = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -197,6 +198,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     const generated = await generateSuggestion(prompt);
     suggestion = generated.value;
     provider = generated.provider;
+    model = generated.model;
     const normalizedSuggestion = normalizeText(suggestion.tweet);
     duplicate = normalizedAvoids.has(normalizedSuggestion);
     if (!duplicate) break;
@@ -219,7 +221,9 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     schedule_time: null,
     published_at: null,
     created_by: `${provider}-auto`,
-    generatedBy: provider,
+    // Provider alone cannot answer "which model writes better posts" later, so
+    // the exact model travels with the draft.
+    generatedBy: model ? `${provider}:${model}` : provider,
     created_at: now,
     updated_at: now,
     similarity_warning: duplicate,

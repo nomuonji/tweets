@@ -44,7 +44,8 @@ jobs:
           # Primary provider. Gemini and the OpenRouter free models stay as the
           # fallback chain inside the generation client.
           OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
-          OPENCODE_GO_MODELS: glm-5.3-flash,qwen3.8-flash,mimo-v2.6-flash
+          # Quality-first order (measured, see src/lib/ai/generation-client.ts).
+          OPENCODE_GO_MODELS: claude-haiku-5-5,glm-5.3-flash,gpt-6-luna,deepseek-v4.1-flash
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}

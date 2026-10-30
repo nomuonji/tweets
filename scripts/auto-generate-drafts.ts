@@ -47,8 +47,9 @@ async function main() {
       }
 
       console.log(`[Auto-Generate] Account ${account.handle} has ${usableDrafts.length} usable drafts. Generating a new one...`);
-      await generatePost(account.id, account.platform);
-      console.log(`[Auto-Generate] Successfully generated a new draft for ${account.handle}.`);
+      const draft = await generatePost(account.id, account.platform);
+      // Which provider/model actually answered is otherwise invisible in CI logs.
+      console.log(`[Auto-Generate] Generated draft ${draft.id} via ${draft.generatedBy} for ${account.handle}.`);
 
     } catch (error) {
       console.error(`[Auto-Generate] Failed to process account ${account.handle}:`, error);

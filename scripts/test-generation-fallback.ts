@@ -106,13 +106,14 @@ async function opencodePrimaryScenario() {
 /** An exhausted OpenCode allowance must fall through to the existing chain. */
 async function opencodeQuotaFallsBackScenario() {
   process.env.OPENCODE_GO_API_KEY = "opencode-test";
-  process.env.OPENCODE_GO_MODELS = "glm-5.3-flash,qwen3.8-flash";
+  process.env.OPENCODE_GO_MODELS = "glm-5.3-flash,deepseek-v4.1-flash";
 
-  let opencodeCalls = 0;
-  globalThis.fetch = async (input) => {
+  const attempts: Array<{ model?: string; maxTokens?: number }> = [];
+  globalThis.fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     if (url.includes("opencode.ai/inference/go/openai/v1/chat/completions")) {
-      opencodeCalls += 1;
+      const body = requestBody(init) as { model?: string; max_tokens?: number };
+      attempts.push({ model: body.model, maxTokens: body.max_tokens });
       return jsonResponse({ error: { message: "monthly allowance exceeded", code: 429 } }, 429);
     }
     if (url.includes("generativelanguage.googleapis.com")) {
@@ -124,7 +125,12 @@ async function opencodeQuotaFallsBackScenario() {
   const result = await generateSuggestion("test prompt");
   assert.equal(result.provider, "gemini");
   assert.equal(result.value.tweet, "gemini after opencode");
-  assert.equal(opencodeCalls, 2, "every configured OpenCode model should be tried once");
+  assert.equal(attempts.length, 2, "every configured OpenCode model should be tried once");
+  assert.equal(attempts[0].model, "glm-5.3-flash");
+  assert.equal(attempts[0].maxTokens, 2048);
+  // Reasoning models get a larger budget so the answer is not truncated.
+  assert.equal(attempts[1].model, "deepseek-v4.1-flash");
+  assert.equal(attempts[1].maxTokens, 8192);
 }
 
 /** With no OpenCode key the provider order is unchanged. */

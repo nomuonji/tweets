@@ -32,22 +32,41 @@ type ChatProviderConfig = {
   label: string;
   apiKey: string;
   baseURL: string;
-  maxTokens: number;
+  maxTokens: (model: string) => number;
   headers?: Record<string, string>;
 };
 
 /**
  * OpenCode Go is a paid monthly-allowance gateway with an OpenAI-compatible
  * endpoint, so it leads the fallback chain whenever its key is configured.
- * `glm-5.3-flash` answers in ~2s with clean JSON; the rest are availability
- * fallbacks. Reasoning-heavy models are avoided here because their hidden
- * reasoning can eat the whole token budget and return empty content.
+ *
+ * Order is measured quality first, not price first. Three samples per model on
+ * the real prompt (2026-10-30, 140-char Japanese post):
+ *
+ *   claude-haiku-5-5      7s   $0.0007/post   best nuance, clean JSON
+ *   glm-5.3-flash         3.5s $0.0001/post   clean JSON, shorter and more formulaic
+ *   gpt-6-luna            7s   $0.0003/post   distinct angles, slightly verbose
+ *   deepseek-v4.1-flash  25s   $0.0015/post   reasoning model: 2-3k hidden tokens
+ *
+ * `deepseek-v4.1-flash` looks cheap per token but spends 2-3k reasoning tokens
+ * on a 100-character post, which makes it both slower and ~10x the cost of
+ * glm-5.3-flash here. It stays last, with a token budget large enough to finish.
  */
 const DEFAULT_OPENCODE_MODELS = [
+  "claude-haiku-5-5",
   "glm-5.3-flash",
-  "qwen3.8-flash",
-  "mimo-v2.6-flash",
+  "gpt-6-luna",
+  "deepseek-v4.1-flash",
 ];
+const OPENCODE_DEFAULT_MAX_TOKENS = 2048;
+/** Reasoning-capable models emit hidden tokens before the JSON answer. */
+const OPENCODE_MAX_TOKENS_BY_MODEL: Record<string, number> = {
+  "claude-haiku-5-5": 4096,
+  "gpt-6-luna": 4096,
+  "gpt-5.6-luna": 4096,
+  "deepseek-v4.1-flash": 8192,
+  "deepseek-v4-pro": 8192,
+};
 const OPENCODE_BASE_URL = "https://opencode.ai/inference/go/openai/v1";
 /** OpenCode asks clients to identify themselves instead of using a generic SDK UA. */
 const OPENCODE_USER_AGENT = "tweets-autogen/1.0";
@@ -123,6 +142,15 @@ export function getOpencodeModels(
   return configured?.length ? configured : DEFAULT_OPENCODE_MODELS;
 }
 
+/**
+ * Output-token budget for one OpenCode Go model. Reasoning models need room for
+ * the hidden reasoning plus the JSON answer; a shared cap silently truncates
+ * them to an empty `content`, which reads as a failed generation.
+ */
+export function getOpencodeMaxTokens(model: string): number {
+  return OPENCODE_MAX_TOKENS_BY_MODEL[model] ?? OPENCODE_DEFAULT_MAX_TOKENS;
+}
+
 export function getOpencodeApiKey(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string | null {
@@ -167,7 +195,7 @@ async function requestChatCompletion(
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.7,
-        max_tokens: config.maxTokens,
+        max_tokens: config.maxTokens(model),
       });
       const text = response.choices[0]?.message?.content?.trim();
       if (!text) throw new Error("response did not contain text");
@@ -199,7 +227,7 @@ async function requestOpenRouter(
     label: "OpenRouter",
     apiKey,
     baseURL: OPENROUTER_BASE_URL,
-    maxTokens: 1024,
+    maxTokens: () => 1024,
   });
 }
 
@@ -215,9 +243,9 @@ async function requestOpencode(
     label: "OpenCode Go",
     apiKey,
     baseURL: process.env.OPENCODE_GO_BASE_URL?.trim() || OPENCODE_BASE_URL,
-    // Reasoning-capable models can spend several hundred tokens before the
-    // answer, so the OpenCode budget is larger than OpenRouter's.
-    maxTokens: 2048,
+    // Reasoning-capable models can spend a few thousand tokens before the
+    // answer, so each model gets its own budget instead of one shared cap.
+    maxTokens: getOpencodeMaxTokens,
     headers: {
       "User-Agent": OPENCODE_USER_AGENT,
       "x-opencode-session": OPENCODE_SESSION_ID,

@@ -86,6 +86,20 @@ Order inside `src/lib/ai/generation-client.ts`:
 
 If OpenCode Go is unset or out of allowance, generation falls through to Gemini and then OpenRouter without any change in behaviour.
 
+OpenCode Go model order is measured, not assumed. Three samples per model on the real 140-character Japanese prompt (2026-10-30):
+
+| Model | Latency | Cost / post | Notes |
+| --- | --- | --- | --- |
+| `claude-haiku-5-5` | 7s | $0.0007 | Best nuance and scene-setting; consistent JSON |
+| `glm-5.3-flash` | 3.5s | $0.0001 | Cheapest and fastest; shorter, more formulaic |
+| `gpt-6-luna` | 7s | $0.0003 | Distinct angles; slightly verbose |
+| `deepseek-v4.1-flash` | 25s | $0.0015 | Reasoning model: 2-3k hidden tokens per post |
+
+`deepseek-v4.1-flash` is cheap per token but spends thousands of reasoning tokens on a 100-character post, so it is slower and about 10x the cost of `glm-5.3-flash` in this workload. It sits last and gets an 8192-token budget so the answer is not truncated. Reasoning models need that headroom: a 2048-token cap returns empty `content` with `finish_reason: length`, which surfaces as a failed generation.
+
+Each draft records the model that wrote it in `generatedBy` (`opencode:claude-haiku-5-5`), so the weekly pattern analysis can tell which model performs.
+
+
 
 ### Firestore Collections
 - `/accounts`  Eplatform metadata, OAuth tokens (including OAuth1 fields), sync cursors, error states.
