@@ -71,10 +71,21 @@ scripts/               # Node entry points for GitHub Actions / local runs
 - Threads sync uses the official Graph API with pagination (100 items per page) until the configured limit is reached.
 
 ### GitHub Actions
-- `sync.yml`  Eevery 6 hours (and manual) to import posts incrementally.
-- `scheduler.yml`  Eevery 15 minutes, with bounded Firestore reads and slot idempotency.
-- `refresh-tokens.yml`  Edaily token refresh.  
-  Configure repository secrets (`FIREBASE_SERVICE_ACCOUNT`, `OPENAI_API_KEY`, `X_CLIENT_ID`, `X_CLIENT_SECRET`, `THREADS_APP_ID`, `THREADS_APP_SECRET`, etc.).
+- `auto-generate-drafts.yml` — every 2 hours (and manual) to top the draft queue back up to 5 usable drafts per publishing account. This is the "投稿自動補充" mode: it runs server-side, so it keeps working while the Vercel deployment is down. Scheduled runs always generate; manual runs follow the `allow_generation` input.
+- `sync.yml` — every 6 hours (and manual) to import posts incrementally.
+- `scheduler.yml` — every 15 minutes, with bounded Firestore reads and slot idempotency.
+- `refresh-tokens.yml` — daily token refresh.  
+  Configure repository secrets (`FIREBASE_SERVICE_ACCOUNT`, `OPENCODE_GO_API_KEY`, `OPENAI_API_KEY`, `X_CLIENT_ID`, `X_CLIENT_SECRET`, `THREADS_APP_ID`, `THREADS_APP_SECRET`, etc.).
+
+### Text generation providers
+Order inside `src/lib/ai/generation-client.ts`:
+
+1. **OpenCode Go** (`OPENCODE_GO_API_KEY`, models from `OPENCODE_GO_MODELS`) — OpenAI-compatible gateway at `https://opencode.ai/inference/go/openai/v1`. Used only when the key is set. Requests carry a stable `x-opencode-session` and a `tweets-autogen/1.0` user agent, which OpenCode asks clients to send.
+2. **Gemini** (strong models, then Flash-Lite) — existing behaviour.
+3. **OpenRouter free models** — existing behaviour, quality bridge first, the rest last.
+
+If OpenCode Go is unset or out of allowance, generation falls through to Gemini and then OpenRouter without any change in behaviour.
+
 
 ### Firestore Collections
 - `/accounts`  Eplatform metadata, OAuth tokens (including OAuth1 fields), sync cursors, error states.

@@ -4,14 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       allow_generation:
-        description: "Run server-side generation (normally off: drafts come from an external agent over MCP)"
+        description: "Run server-side generation (drafts top up to 5 per publishing account)"
         type: boolean
-        default: false
-
-# The schedule was removed on 2026-10-30. Generation is agent-driven: the agent
-# calls get_generation_brief and submits a batch through create_drafts, which
-# gives it enough context to plan distinct 型 and ネタ across posts. This entry
-# point stays available for a manual fallback.
+        default: true
+  schedule:
+    # Re-enabled on 2026-10-30: the Vercel deployment is disabled, so the
+    # agent-driven path (get_generation_brief + create_drafts over MCP) is
+    # unreachable. This job is the only remaining way to refill the draft queue.
+    # Generation is idempotent by design: it only runs for accounts whose usable
+    # drafts are below the threshold, and the scheduler still owns publishing.
+    - cron: "0 */2 * * *"
 
 jobs:
   run:
@@ -30,7 +32,8 @@ jobs:
       - name: Execute auto draft generation
         run: npm run auto:generate
         env:
-          ALLOW_AUTO_GENERATION: ${{ inputs.allow_generation }}
+          # Scheduled runs always generate; manual runs follow the dispatch input.
+          ALLOW_AUTO_GENERATION: ${{ github.event_name == 'schedule' && 'true' || inputs.allow_generation }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
@@ -38,6 +41,10 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          # Primary provider. Gemini and the OpenRouter free models stay as the
+          # fallback chain inside the generation client.
+          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          OPENCODE_GO_MODELS: glm-5.3-flash,qwen3.8-flash,mimo-v2.6-flash
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}

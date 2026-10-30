@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import {
   GeminiUnavailableError,
@@ -11,7 +12,7 @@ import {
   type GeminiSuggestion,
 } from "@/lib/gemini/parser";
 
-export type GenerationProvider = "gemini" | "openrouter";
+export type GenerationProvider = "opencode" | "gemini" | "openrouter";
 
 export type GenerationResult<T> = {
   value: T;
@@ -24,7 +25,34 @@ type ProviderFailure = {
   error: Error;
 };
 
-type OpenRouterFailureKind = "configuration" | "quota" | "capacity" | "model" | "other";
+type ChatFailureKind = "configuration" | "quota" | "capacity" | "model" | "other";
+
+type ChatProviderConfig = {
+  /** Human-readable provider name used in logs and thrown messages. */
+  label: string;
+  apiKey: string;
+  baseURL: string;
+  maxTokens: number;
+  headers?: Record<string, string>;
+};
+
+/**
+ * OpenCode Go is a paid monthly-allowance gateway with an OpenAI-compatible
+ * endpoint, so it leads the fallback chain whenever its key is configured.
+ * `glm-5.3-flash` answers in ~2s with clean JSON; the rest are availability
+ * fallbacks. Reasoning-heavy models are avoided here because their hidden
+ * reasoning can eat the whole token budget and return empty content.
+ */
+const DEFAULT_OPENCODE_MODELS = [
+  "glm-5.3-flash",
+  "qwen3.8-flash",
+  "mimo-v2.6-flash",
+];
+const OPENCODE_BASE_URL = "https://opencode.ai/inference/go/openai/v1";
+/** OpenCode asks clients to identify themselves instead of using a generic SDK UA. */
+const OPENCODE_USER_AGENT = "tweets-autogen/1.0";
+/** One stable id per process so OpenCode can route and cache this batch. */
+const OPENCODE_SESSION_ID = randomUUID();
 
 const DEFAULT_OPENROUTER_MODELS = [
   "qwen/qwen3.8-27b:free",
@@ -84,15 +112,79 @@ function getOpenRouterModels(): string[] {
   return configured?.length ? configured : DEFAULT_OPENROUTER_MODELS;
 }
 
-function classifyOpenRouterFailure(error: Error): OpenRouterFailureKind {
+/** OpenCode Go models, ordered from the best default to availability fallbacks. */
+export function getOpencodeModels(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string[] {
+  const configured = env.OPENCODE_GO_MODELS
+    ?.split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+  return configured?.length ? configured : DEFAULT_OPENCODE_MODELS;
+}
+
+export function getOpencodeApiKey(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string | null {
+  const key = env.OPENCODE_GO_API_KEY?.trim();
+  return key ? key : null;
+}
+
+function classifyChatFailure(error: Error): ChatFailureKind {
   const message = error.message.toLowerCase();
   if (/api key|not configured|configuration failed|unauthorized|forbidden|\b401\b|\b403\b/.test(message)) {
     return "configuration";
   }
-  if (/rate limit|quota|\b429\b/.test(message)) return "quota";
-  if (/model.*(?:not found|unavailable)|\b404\b/.test(message)) return "model";
-  if (/overloaded|unavailable|\b5\d\d\b/.test(message)) return "capacity";
+  if (/rate limit|quota|allowance|\b429\b/.test(message)) return "quota";
+  if (/model.*(?:not found|unavailable|does not exist)|\b404\b/.test(message)) return "model";
+  if (/overloaded|unavailable|capacity|\b5\d\d\b/.test(message)) return "capacity";
   return "other";
+}
+
+/**
+ * Calls an OpenAI-compatible chat endpoint, walking the model list on any
+ * recoverable failure. A configuration failure aborts immediately because every
+ * remaining model would fail the same way (and each failed attempt still counts
+ * against the provider's quota).
+ */
+async function requestChatCompletion(
+  prompt: string,
+  models: string[],
+  config: ChatProviderConfig,
+): Promise<{ text: string; model: string }> {
+  // Disable SDK retries: we explicitly move to the next model instead, and a
+  // failed request still spends provider quota.
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseURL,
+    maxRetries: 0,
+    defaultHeaders: config.headers,
+  });
+  const failures: string[] = [];
+  for (const model of models) {
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        max_tokens: config.maxTokens,
+      });
+      const text = response.choices[0]?.message?.content?.trim();
+      if (!text) throw new Error("response did not contain text");
+      return { text, model: response.model || model };
+    } catch (error) {
+      const failure = asError(error);
+      const kind = classifyChatFailure(failure);
+      failures.push(`${model}: ${failure.message}`);
+      if (kind === "configuration") {
+        throw new Error(`${config.label} configuration failed for ${model}: ${failure.message}`);
+      }
+      console.warn(
+        `[Generation] ${config.label} model ${model} failed (${kind}); trying the next model.`,
+      );
+    }
+  }
+  throw new Error(`All configured ${config.label} models failed: ${failures.join("; ")}`);
 }
 
 async function requestOpenRouter(
@@ -103,39 +195,34 @@ async function requestOpenRouter(
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is not configured.");
   }
-
-  // A failed free-model request still counts against OpenRouter's daily quota.
-  // Disable SDK retries because we explicitly move to the next model instead.
-  const client = new OpenAI({
+  return requestChatCompletion(prompt, models, {
+    label: "OpenRouter",
     apiKey,
     baseURL: OPENROUTER_BASE_URL,
-    maxRetries: 0,
+    maxTokens: 1024,
   });
-  const failures: string[] = [];
-  for (const model of models) {
-    try {
-      const response = await client.chat.completions.create({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        max_tokens: 1024,
-      });
-      const text = response.choices[0]?.message?.content?.trim();
-      if (!text) throw new Error("response did not contain text");
-      return { text, model: response.model || model };
-    } catch (error) {
-      const failure = asError(error);
-      const kind = classifyOpenRouterFailure(failure);
-      failures.push(`${model}: ${failure.message}`);
-      if (kind === "configuration") {
-        throw new Error(`OpenRouter configuration failed for ${model}: ${failure.message}`);
-      }
-      console.warn(
-        `[Generation] OpenRouter model ${model} failed (${kind}); trying the next free model.`,
-      );
-    }
+}
+
+async function requestOpencode(
+  prompt: string,
+  models: string[],
+): Promise<{ text: string; model: string }> {
+  const apiKey = getOpencodeApiKey();
+  if (!apiKey) {
+    throw new Error("OPENCODE_GO_API_KEY is not configured.");
   }
-  throw new Error(`All configured OpenRouter free models failed: ${failures.join("; ")}`);
+  return requestChatCompletion(prompt, models, {
+    label: "OpenCode Go",
+    apiKey,
+    baseURL: process.env.OPENCODE_GO_BASE_URL?.trim() || OPENCODE_BASE_URL,
+    // Reasoning-capable models can spend several hundred tokens before the
+    // answer, so the OpenCode budget is larger than OpenRouter's.
+    maxTokens: 2048,
+    headers: {
+      "User-Agent": OPENCODE_USER_AGENT,
+      "x-opencode-session": OPENCODE_SESSION_ID,
+    },
+  });
 }
 
 async function generateWithFallback<T>(
@@ -144,6 +231,22 @@ async function generateWithFallback<T>(
   parseText: (text: string) => T,
 ): Promise<GenerationResult<T>> {
   const failures: ProviderFailure[] = [];
+
+  // OpenCode Go leads: it is the paid primary when configured. Gemini and the
+  // OpenRouter free models keep their existing order behind it.
+  if (getOpencodeApiKey()) {
+    try {
+      const { text, model } = await requestOpencode(prompt, getOpencodeModels());
+      return {
+        value: parseText(text),
+        provider: "opencode",
+        model,
+      };
+    } catch (error) {
+      const failure = asError(error);
+      failures.push({ provider: "opencode", error: failure });
+    }
+  }
 
   const geminiFailures: Error[] = [];
   const geminiModels = getConfiguredGeminiModels();
@@ -193,7 +296,7 @@ async function generateWithFallback<T>(
     } catch (error) {
       const failure = asError(error);
       failures.push({ provider: "openrouter", error: failure });
-      openRouterConfigurationFailed = classifyOpenRouterFailure(failure) === "configuration";
+      openRouterConfigurationFailed = classifyChatFailure(failure) === "configuration";
     }
   }
 
@@ -236,7 +339,7 @@ async function generateWithFallback<T>(
 
   const providerUnavailable = failures.every(({ error }) =>
     error instanceof GeminiUnavailableError ||
-    /(?:api key|not configured|permission|free tier|\b403\b|rate limit|\b429\b|\b503\b|unavailable|capacity)/i.test(error.message),
+    /(?:api key|not configured|permission|free tier|\b403\b|rate limit|\b429\b|\b503\b|unavailable|capacity|allowance)/i.test(error.message),
   );
   if (providerUnavailable) throw new GenerationUnavailableError(failures);
 
