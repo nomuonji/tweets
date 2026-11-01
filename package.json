@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "sync:posts": "tsx -r dotenv/config scripts/sync.ts",
     "sync:schedules": "tsx -r dotenv/config scripts/execute-scheduled.ts",
     "sync:refresh-tokens": "tsx -r dotenv/config scripts/refresh-tokens.ts",
