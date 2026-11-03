@@ -33,6 +33,10 @@ async function main() {
       console.log(`[Auto-Generate] Account ${account.handle}: auto-post is off; skipping.`);
       continue;
     }
+    if (account.serverGenerationEnabled === false) {
+      console.log(`[Auto-Generate] Account ${account.handle}: drafts come from an external agent only; skipping.`);
+      continue;
+    }
     try {
       const characterVersion = getCharacterVersion(account);
       const usableDrafts = await getUsableDraftsByAccountId(
