@@ -126,6 +126,11 @@ export interface AccountDoc {
   discoveryEnabled?: boolean;
   /** Output pipeline: draft generation and scheduled publishing. */
   autoPostEnabled?: boolean;
+  /** Server-side draft refill (scripts/auto-generate-drafts.ts). false keeps the
+   * scheduler publishing while only an external agent writes the drafts, e.g. an
+   * experiment account whose queue must not mix in generated posts.
+   * Unset means true, so existing accounts keep refilling. */
+  serverGenerationEnabled?: boolean;
   postSchedule?: string[];
   /** Minimum post length in characters. null = no minimum. */
   minPostLength?: number | null;
