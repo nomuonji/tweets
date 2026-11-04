@@ -104,6 +104,24 @@ async function main() {
       .blockReasons.includes("first_party_lp_required"),
   );
 
+  // Amazon Associate links are already published directly by the Amazon reply
+  // path, so the offer path must not treat them as ASP trackers.
+  for (const affiliateUrl of [
+    "https://link.amazon/B03OTva15",
+    "https://www.amazon.co.jp/dp/B0CDCMGDPZ?tag=tweets-sns-22",
+  ]) {
+    const amazonMatch = matchAffiliateOffer(
+      account(),
+      post(),
+      offer({ kind: "amazon_product", network: "Amazonアソシエイト", affiliateUrl }),
+      now,
+    );
+    assert.ok(
+      !amazonMatch.blockReasons.includes("first_party_lp_required"),
+      `amazon link must not require a first-party LP: ${affiliateUrl}`,
+    );
+  }
+
   assert.equal(resolvePromoReplyMode({}), "amazon");
   assert.equal(allowsAmazonPromoReply({}), true);
   assert.equal(allowsAffiliateOfferReply({}), false);

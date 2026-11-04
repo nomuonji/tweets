@@ -207,6 +207,32 @@ export function isOwnedLandingPageUrl(value: string): boolean {
   }
 }
 
+/**
+ * Amazon Associate pages and share links are the same affiliate surface the
+ * legacy Amazon reply path already publishes, so the offer path must not send
+ * them through the ASP-tracker rule that requires our own landing page.
+ */
+const AMAZON_ASSOCIATE_HOSTS = new Set([
+  "amazon.co.jp",
+  "www.amazon.co.jp",
+  "link.amazon",
+  "amzn.to",
+  "amzn.asia",
+]);
+
+export function isAmazonAssociateUrl(value?: string): boolean {
+  if (!value?.trim()) return false;
+  try {
+    const url = new URL(value.trim());
+    return (
+      url.protocol === "https:" &&
+      AMAZON_ASSOCIATE_HOSTS.has(url.hostname.toLowerCase())
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function getOfferTemporalBlockReasons(
   offer: AffiliateOfferRecord,
   now: DateTime,
@@ -227,7 +253,8 @@ export function getOfferTemporalBlockReasons(
   if (
     isThirdPartyOffer(offer) &&
     offer.affiliateUrl?.trim() &&
-    !isOwnedLandingPageUrl(offer.affiliateUrl)
+    !isOwnedLandingPageUrl(offer.affiliateUrl) &&
+    !isAmazonAssociateUrl(offer.affiliateUrl)
   ) {
     reasons.push("first_party_lp_required");
   }
