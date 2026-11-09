@@ -133,6 +133,9 @@ return NextResponse.json({
                 measurementWindow: patternAnalysis.measurementWindow,
                 exposureMetric: patternAnalysis.exposureMetric,
                 medianExposure: patternAnalysis.accountMedianImpressions,
+                // Backward-compatible alias; this remains a weighted,
+                // exposure-normalized interaction rate, not a raw view count.
+                median: patternAnalysis.accountMedianEngagementRate,
                 weightedInteractionRate: patternAnalysis.accountMedianEngagementRate,
                 patterns: patternAnalysis.patterns.slice(0, 8),
               }
