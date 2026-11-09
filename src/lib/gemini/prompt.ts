@@ -121,42 +121,42 @@ character sheet and use the source only for an abstract writing technique.
         const medianRate = measuredPatternAnalysis.accountMedianEngagementRate;
         const fmt = (value: number) => `${(value * 100).toFixed(2)}%`;
         const reliable = measuredPatternAnalysis.patterns
-          .filter((stat) => stat.count >= 3 && Number.isFinite(stat.medianImpressions))
-          .sort((a, b) => b.medianImpressions - a.medianImpressions);
+          .filter((stat) => stat.count >= 3 && typeof stat.medianImpressions === "number" && Number.isFinite(stat.medianImpressions))
+          .sort((a, b) => (b.medianImpressions ?? -1) - (a.medianImpressions ?? -1));
         const top = reliable.slice(0, 3);
         const worst = [...reliable].sort(
-          (a, b) => a.medianImpressions - b.medianImpressions,
+          (a, b) => (a.medianImpressions ?? -1) - (b.medianImpressions ?? -1),
         ).slice(0, 2);
         const lines = [
-          `\\n[This Account's Age-Normalized Pattern Performance]`,
+          `\n[This Account's Age-Normalized Pattern Performance]`,
           `Measurement window: ${windowLabel}`,
           `Account median ${metricLabel}: ${Math.round(medianExposure)}`,
           `Median post-exposure engagement rate: ${medianRate === null ? "unknown" : fmt(medianRate)}`,
         ];
         if (top.length > 0) {
           lines.push(
-            `Highest-reach patterns (prefer when relevant):\\n${top
+            `Highest-reach patterns (prefer when relevant):\n${top
               .map(
                 (stat) =>
-                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions)}, median engagement ${fmt(stat.medianEngagementRate)}`,
+                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions ?? 0)}, median engagement ${fmt(stat.medianEngagementRate)}`,
               )
-              .join("\\n")}`,
+              .join("\n")}`,
           );
         }
         if (worst.length > 0) {
           lines.push(
-            `Lowest-reach patterns (do not over-repeat):\\n${worst
+            `Lowest-reach patterns (do not over-repeat):\n${worst
               .map(
                 (stat) =>
-                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions)}, median engagement ${fmt(stat.medianEngagementRate)}`,
+                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions ?? 0)}, median engagement ${fmt(stat.medianEngagementRate)}`,
               )
-              .join("\\n")}`,
+              .join("\n")}`,
           );
         }
         lines.push(
-          "Treat exposure as the primary reach signal and engagement rate as a separate post-exposure signal. Do not infer causality from these correlations.\\n",
+          "Treat exposure as the primary reach signal and engagement rate as a separate post-exposure signal. Do not infer causality from these correlations.\n",
         );
-        return lines.join("\\n");
+        return lines.join("\n");
       })()
     : "";
 
@@ -303,7 +303,7 @@ Generate ONE new post that:
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
 8. Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.
 ${promoProduct ? "9. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
-${explore && patternAnalysis
+${explore && measuredPatternAnalysis
   ? "10. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
   : "10. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
 
