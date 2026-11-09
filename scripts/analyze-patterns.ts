@@ -10,6 +10,7 @@
  *   npm run analyze:patterns            # with LLM content insights
  *   npm run analyze:patterns -- --no-insights
  */
+import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import type { PostDoc } from "@/lib/types";
 import { computePatternAnalysis } from "@/lib/pattern";
@@ -140,8 +141,22 @@ async function main() {
       );
       analysis.character_version = characterVersion;
 
+      const existing = await getPatternStats(account.id);
+      if (
+        existing?.content_insights &&
+        (
+          existing.measurementWindow !== measurementWindow ||
+          getCharacterVersion(existing) !== characterVersion
+        )
+      ) {
+        // A merge-upsert would otherwise keep legacy insights and pair them
+        // with the new checkpoint-based pattern stats.
+        await adminDb.collection("pattern_stats").doc(account.id).update({
+          content_insights: FieldValue.delete(),
+        });
+      }
+
       if (!skipInsights && evaluatedPosts.length >= MIN_POSTS_FOR_INSIGHTS) {
-        const existing = await getPatternStats(account.id);
         if (
           existing &&
           existing.measurementWindow === measurementWindow &&
