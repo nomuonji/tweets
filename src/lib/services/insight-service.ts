@@ -46,8 +46,9 @@ export async function generateContentInsights(
   const byReach = (a: PostDoc, b: PostDoc) =>
     (b.metrics.impressions ?? -1) - (a.metrics.impressions ?? -1) ||
     (engagementRate(b.metrics) ?? -1) - (engagementRate(a.metrics) ?? -1);
-  const top = [...posts].sort(byReach).slice(0, 8);
-  const bottom = [...posts].sort((a, b) => byReach(b, a)).slice(0, 8);
+  const ranked = [...posts].sort(byReach);
+  const top = ranked.slice(0, 8);
+  const bottom = ranked.slice(Math.max(top.length, ranked.length - 8));
 
   const fmt = (post: PostDoc) => {
     const rate = engagementRate(post.metrics);
