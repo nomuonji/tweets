@@ -120,7 +120,11 @@ async function main() {
         ) return [];
         // Learn from the comparable-age metrics, never the latest cumulative
         // total whose exposure time differs from other posts.
-        return [{ ...post, metrics: snapshot.metrics }];
+        return [{
+          ...post,
+          metrics: snapshot.metrics,
+          performance_window: measurementWindow,
+        }];
       });
       if (evaluatedPosts.length < MIN_POSTS) {
         console.log(
@@ -166,7 +170,8 @@ async function main() {
 
       if (
         !skipInsights &&
-        posts.length >= MIN_POSTS_FOR_KEYWORDS &&
+        isDiscoveryEnabled(account) &&
+        evaluatedPosts.length >= MIN_POSTS_FOR_KEYWORDS &&
         keywordsNeedRefresh(account)
       ) {
         try {
