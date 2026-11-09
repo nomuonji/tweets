@@ -117,6 +117,8 @@ async function main() {
         if (
           !snapshot ||
           snapshot.metrics.impressions === null ||
+          snapshot.metrics.impressions === undefined ||
+          !Number.isFinite(snapshot.metrics.impressions) ||
           snapshot.metrics.impressions <= 0
         ) return [];
         // Learn from the comparable-age metrics, never the latest cumulative
