@@ -1,0 +1,64 @@
+name: Performance Learning Validation
+
+on:
+  push:
+    branches:
+      - main
+      - feat/threads-72h-performance-learning
+    paths:
+      - ".github/workflows/performance-learning-validation.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/analyze-patterns.ts"
+      - "scripts/test-performance-learning.ts"
+      - "src/app/api/gemini/generate/route.ts"
+      - "src/lib/account-gates.ts"
+      - "src/lib/gemini/prompt.ts"
+      - "src/lib/pattern.ts"
+      - "src/lib/performance-snapshots.ts"
+      - "src/lib/services/generation-brief-service.ts"
+      - "src/lib/services/insight-service.ts"
+      - "src/lib/services/prompt-service.ts"
+      - "src/lib/services/sync-service.ts"
+      - "src/lib/types.ts"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/analyze-patterns.ts"
+      - "scripts/test-performance-learning.ts"
+      - "src/app/api/gemini/generate/route.ts"
+      - "src/lib/account-gates.ts"
+      - "src/lib/gemini/prompt.ts"
+      - "src/lib/pattern.ts"
+      - "src/lib/performance-snapshots.ts"
+      - "src/lib/services/generation-brief-service.ts"
+      - "src/lib/services/insight-service.ts"
+      - "src/lib/services/prompt-service.ts"
+      - "src/lib/services/sync-service.ts"
+      - "src/lib/types.ts"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Performance learning regression tests
+        run: npm run test:performance-learning
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
