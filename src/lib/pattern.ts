@@ -11,6 +11,7 @@ export interface PatternStat {
   count: number;
   avgEngagementRate: number;
   medianEngagementRate: number;
+  medianImpressions: number;
   totalImpressions: number;
   totalLikes: number;
   totalReplies: number;
@@ -21,6 +22,9 @@ export interface PatternAnalysis {
   account_id: string;
   character_version?: number;
   accountMedianEngagementRate: number | null;
+  accountMedianImpressions: number | null;
+  measurementWindow: "24h" | "72h";
+  exposureMetric: "views" | "impressions";
   patterns: PatternStat[];
   analyzedPosts: number;
   updatedAt: string;
@@ -28,15 +32,21 @@ export interface PatternAnalysis {
   content_insights?: ContentInsight;
 }
 
-export function engagementRate(metrics: PostMetrics): number {
-  const interactions =
-    metrics.likes +
-    metrics.replies * 2 +
-    metrics.reposts_or_rethreads * 3;
-  if (metrics.impressions && metrics.impressions > 0) {
-    return interactions / metrics.impressions;
+/** Weighted interaction rate after exposure. Missing exposure stays unknown. */
+export function engagementRate(metrics: PostMetrics): number | null {
+  if (
+    metrics.impressions === null ||
+    metrics.impressions === undefined ||
+    !Number.isFinite(metrics.impressions) ||
+    metrics.impressions <= 0
+  ) {
+    return null;
   }
-  return interactions / Math.max(1, Math.log10(interactions + 10));
+  const interactions =
+    (metrics.likes ?? 0) +
+    (metrics.replies ?? 0) * 2 +
+    (metrics.reposts_or_rethreads ?? 0) * 3;
+  return interactions / metrics.impressions;
 }
 
 export function extractPattern(text: string): PostPattern {
@@ -49,9 +59,9 @@ export function extractPattern(text: string): PostPattern {
       : text.includes("しかし") || text.includes("でも") || text.includes("なのに") ||
         text.includes("一方") || text.includes("だけど") || text.includes("けど")
         ? "常識との対比"
-        : text.includes("\n")
+        : text.includes("\\n")
           ? "短文を改行で積む"
-          : /わかる|あるある|だよね|じゃない\?|じゃない？|共感|あるある/.test(text)
+          : /わかる|あるある|だよね|じゃない\\?|じゃない？|共感|あるある/.test(text)
             ? "共感を呼びかける"
             : /私が|私も|俺が|俺は|僕が|僕は|自分が|やってみた|してみた|経験|体験した|実際に/.test(text)
               ? "体験を共有する"
@@ -88,31 +98,39 @@ export function computePatternAnalysis(
     pattern?: PostPattern;
   }>,
   accountId: string,
+  measurementWindow: "24h" | "72h" = "72h",
+  exposureMetric: "views" | "impressions" = "impressions",
 ): PatternAnalysis {
+  // Do not let missing/zero exposure enter the denominator or pattern ranking.
+  const measuredPosts = posts.filter(
+    (post) =>
+      post.metrics.impressions !== null &&
+      post.metrics.impressions !== undefined &&
+      Number.isFinite(post.metrics.impressions) &&
+      post.metrics.impressions > 0,
+  );
   const groups = new Map<
     string,
     Array<{
       rate: number;
-      impressions: number | null;
+      impressions: number;
       likes: number;
       replies: number;
       reposts: number;
     }>
   >();
-  const allRates: number[] = [];
 
-  for (const post of posts) {
+  for (const post of measuredPosts) {
     const rate = engagementRate(post.metrics);
-    allRates.push(rate);
-    const pattern = extractPattern(post.text);
-    const key = pattern.structure;
+    if (rate === null) continue;
+    const key = extractPattern(post.text).structure;
     const group = groups.get(key) ?? [];
     group.push({
       rate,
-      impressions: post.metrics.impressions,
-      likes: post.metrics.likes,
-      replies: post.metrics.replies,
-      reposts: post.metrics.reposts_or_rethreads,
+      impressions: post.metrics.impressions as number,
+      likes: post.metrics.likes ?? 0,
+      replies: post.metrics.replies ?? 0,
+      reposts: post.metrics.reposts_or_rethreads ?? 0,
     });
     groups.set(key, group);
   }
@@ -124,24 +142,34 @@ export function computePatternAnalysis(
       avgEngagementRate:
         group.reduce((sum, item) => sum + item.rate, 0) / group.length,
       medianEngagementRate: median(group.map((item) => item.rate)),
-      totalImpressions: group.reduce(
-        (sum, item) => sum + (item.impressions ?? 0),
-        0,
-      ),
+      medianImpressions: median(group.map((item) => item.impressions)),
+      totalImpressions: group.reduce((sum, item) => sum + item.impressions, 0),
       totalLikes: group.reduce((sum, item) => sum + item.likes, 0),
       totalReplies: group.reduce((sum, item) => sum + item.replies, 0),
       totalReposts: group.reduce((sum, item) => sum + item.reposts, 0),
     }),
   );
 
+  const impressions = measuredPosts.map(
+    (post) => post.metrics.impressions as number,
+  );
+  const rates = measuredPosts
+    .map((post) => engagementRate(post.metrics))
+    .filter((rate): rate is number => rate !== null);
+
   return {
     account_id: accountId,
-    accountMedianEngagementRate:
-      allRates.length > 0 ? median(allRates) : null,
+    accountMedianEngagementRate: rates.length > 0 ? median(rates) : null,
+    accountMedianImpressions:
+      impressions.length > 0 ? median(impressions) : null,
+    measurementWindow,
+    exposureMetric,
     patterns: patterns.sort(
-      (a, b) => b.avgEngagementRate - a.avgEngagementRate,
+      (a, b) =>
+        b.medianImpressions - a.medianImpressions ||
+        b.medianEngagementRate - a.medianEngagementRate,
     ),
-    analyzedPosts: posts.length,
+    analyzedPosts: measuredPosts.length,
     updatedAt: new Date().toISOString(),
   };
 }
