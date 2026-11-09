@@ -111,7 +111,8 @@ async function main() {
       const characterVersion = getCharacterVersion(account);
       const posts = (await fetchRecentPostsForAccount(account.id, LOOKBACK_DAYS))
         .filter((post) => belongsToCharacterVersion(post, characterVersion));
-      const measurementWindow = account.platform === "threads" ? "72h" : "24h";
+      const measurementWindow: "72h" | "24h" =
+        account.platform === "threads" ? "72h" : "24h";
       const evaluatedPosts = posts.flatMap((post) => {
         const snapshot = post.performance_snapshots?.[measurementWindow];
         if (
