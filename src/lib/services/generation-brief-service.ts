@@ -60,8 +60,15 @@ export type GenerationBrief = {
     text: string;
     url: string | null;
   }>;
-  /** Own-account structure performance. */
-  patterns: Array<{ structure: string; count: number; medianEngagementRate: number }>;
+  /** Own-account structure performance, from a fixed-age measured cohort only. */
+  measurementWindow: "24h" | "72h" | null;
+  exposureMetric: "views" | "impressions" | null;
+  patterns: Array<{
+    structure: string;
+    count: number;
+    medianImpressions: number;
+    medianEngagementRate: number;
+  }>;
   avoid: { recentPosts: string[]; openDrafts: string[] };
   rules: string[];
 };
@@ -184,11 +191,26 @@ export async function buildGenerationBrief(
   const neededCount = Math.max(0, 5 - usable.length);
   const count = Math.min(Math.max(requested ?? neededCount, 1), 10);
 
-  const patterns = (patternStats?.patterns ?? [])
+  const measuredPatternStats =
+    patternStats?.measurementWindow === "24h" ||
+    patternStats?.measurementWindow === "72h"
+      ? patternStats
+      : null;
+  const patterns = [...(measuredPatternStats?.patterns ?? [])]
+    .filter(
+      (stat) =>
+        typeof stat.medianImpressions === "number" &&
+        Number.isFinite(stat.medianImpressions),
+    )
+    .sort(
+      (a, b) =>
+        (b.medianImpressions ?? -1) - (a.medianImpressions ?? -1),
+    )
     .slice(0, 8)
     .map((stat) => ({
       structure: stat.structure,
       count: stat.count,
+      medianImpressions: stat.medianImpressions as number,
       medianEngagementRate: stat.medianEngagementRate,
     }));
 
@@ -246,6 +268,8 @@ export async function buildGenerationBrief(
       explanation: post.explanation,
     })),
     external,
+    measurementWindow: measuredPatternStats?.measurementWindow ?? null,
+    exposureMetric: measuredPatternStats?.exposureMetric ?? null,
     patterns,
     avoid: {
       recentPosts: recentPosts.map((post) => post.text.replace(/\s+/g, " ").slice(0, 160)),
