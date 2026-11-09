@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { calculateScore } from "@/lib/scoring";
 import { extractPattern } from "@/lib/pattern";
+import { buildPerformanceSnapshotUpdate } from "@/lib/performance-snapshots";
 import { AccountDoc, PostDoc, Platform, PostMetrics } from "@/lib/types";
 import { isPublishingEnabled } from "@/lib/account-gates";
 import { fetchRecentXPosts } from "@/lib/platforms/x";
@@ -101,9 +102,12 @@ async function fetchPostsForAccount(
       ? lookbackInput
       : undefined;
 
+  // Keep enough recent Threads posts in the same API response to reach the
+  // 72h checkpoint even for high-cadence accounts (up to 10 posts/day).
+  // X retains its previous fetch depth and refresh window.
   const platformDefault =
-    account.platform === "threads" && !account.sync_cursor
-      ? 100
+    account.platform === "threads"
+      ? account.sync_cursor ? 50 : 100
       : account.promoReplyEnabled === true
         ? Math.max(DEFAULT_STEADY_STATE_FETCH_LIMIT, 50)
         : DEFAULT_STEADY_STATE_FETCH_LIMIT;
@@ -154,6 +158,13 @@ function toPostDocument(account: AccountDoc, payload: SyncPostPayload): PostDoc 
   const normalizedMetrics = normalizeMetrics(payload.metrics);
   const score = calculateScore({ metrics: normalizedMetrics });
   const createdAtIso = DateTime.fromISO(payload.created_at).toUTC().toISO();
+  const fetchedAt = DateTime.utc();
+  const performanceSnapshots = buildPerformanceSnapshotUpdate(
+    createdAtIso ?? payload.created_at,
+    normalizedMetrics,
+    account.platform === "threads" ? "views" : "impressions",
+    fetchedAt.toJSDate(),
+  );
 
   return {
     id: `${account.platform}_${payload.platform_post_id}`,
@@ -170,7 +181,10 @@ function toPostDocument(account: AccountDoc, payload: SyncPostPayload): PostDoc 
     raw: payload.raw,
     raw_gcs_url: payload.raw_gcs_url ?? null,
     url: payload.url ?? null,
-    fetched_at: DateTime.utc().toISO(),
+    fetched_at: fetchedAt.toISO()!,
+    ...(Object.keys(performanceSnapshots).length > 0
+      ? { performance_snapshots: performanceSnapshots }
+      : {}),
   } as PostDoc;
 }
 
@@ -224,7 +238,14 @@ export async function syncPostsForAllAccounts(
         account,
         options,
       );
-      const payloadsToPersist = selectPostsForPersistence(account, payloads);
+      const payloadsToPersist = selectPostsForPersistence(
+        account,
+        payloads,
+        DateTime.utc(),
+        // Threads needs a 78h refresh horizon to catch its 72h checkpoint.
+        // X keeps the existing 48h default to avoid increasing its API usage.
+        account.platform === "threads" ? 84 : undefined,
+      );
       const posts = payloadsToPersist.map((item) =>
         toPostDocument(account, item),
       );
