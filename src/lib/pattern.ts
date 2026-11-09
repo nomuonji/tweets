@@ -59,9 +59,9 @@ export function extractPattern(text: string): PostPattern {
       : text.includes("しかし") || text.includes("でも") || text.includes("なのに") ||
         text.includes("一方") || text.includes("だけど") || text.includes("けど")
         ? "常識との対比"
-        : text.includes("\\n")
+        : text.includes("\n")
           ? "短文を改行で積む"
-          : /わかる|あるある|だよね|じゃない\\?|じゃない？|共感|あるある/.test(text)
+          : /わかる|あるある|だよね|じゃない\?|じゃない？|共感|あるある/.test(text)
             ? "共感を呼びかける"
             : /私が|私も|俺が|俺は|僕が|僕は|自分が|やってみた|してみた|経験|体験した|実際に/.test(text)
               ? "体験を共有する"
