@@ -49,7 +49,8 @@ export function buildPrompt(
     const metrics = post.metrics;
     const structure = post.pattern?.structure ?? "未分類";
     const reactionReason = post.pattern?.reaction_reason ?? "不明";
-    return `- 構成:${compact(structure, 80)} / 反応理由:${compact(reactionReason, 100)} (表示:${metrics.impressions ?? "不明"}, いいね:${metrics.likes}, リポスト:${metrics.reposts_or_rethreads}, 返信:${metrics.replies})`;
+    const windowLabel = post.performance_window ?? "観測";
+    return `- 構成:${compact(structure, 80)} / 反応理由:${compact(reactionReason, 100)} (${windowLabel}表示数:${metrics.impressions ?? "不明"}, いいね:${metrics.likes}, リポスト:${metrics.reposts_or_rethreads}, 返信:${metrics.replies})`;
   };
 
   // --- Part 2: Input Values (Source Material) ---
@@ -103,52 +104,65 @@ character sheet and use the source only for an abstract writing technique.
         .join("\n")}\n`
     : "";
 
-  const patternSection = patternAnalysis && patternAnalysis.patterns.length > 0
+  // Legacy pattern stats were calculated from lifetime totals and may contain
+  // synthetic engagement-rate fallbacks. Only consume explicitly measured
+  // age-normalized cohorts in the generator.
+  const measuredPatternAnalysis =
+    patternAnalysis?.measurementWindow === "24h" ||
+    patternAnalysis?.measurementWindow === "72h"
+      ? patternAnalysis
+      : null;
+
+  const patternSection = measuredPatternAnalysis && measuredPatternAnalysis.patterns.length > 0
     ? (() => {
-        const median = patternAnalysis.accountMedianEngagementRate ?? 0;
+        const windowLabel = measuredPatternAnalysis.measurementWindow;
+        const metricLabel = measuredPatternAnalysis.exposureMetric ?? "表示数";
+        const medianExposure = measuredPatternAnalysis.accountMedianImpressions ?? 0;
+        const medianRate = measuredPatternAnalysis.accountMedianEngagementRate;
         const fmt = (value: number) => `${(value * 100).toFixed(2)}%`;
-        const reliable = patternAnalysis.patterns
-          .filter((stat) => stat.count >= 3)
-          .sort((a, b) => b.avgEngagementRate - a.avgEngagementRate);
+        const reliable = measuredPatternAnalysis.patterns
+          .filter((stat) => stat.count >= 3 && Number.isFinite(stat.medianImpressions))
+          .sort((a, b) => b.medianImpressions - a.medianImpressions);
         const top = reliable.slice(0, 3);
-        const worst = reliable
-          .filter((stat) => stat.avgEngagementRate < median)
-          .slice(-2)
-          .reverse();
+        const worst = [...reliable].sort(
+          (a, b) => a.medianImpressions - b.medianImpressions,
+        ).slice(0, 2);
         const lines = [
-          `\n[This Account's Pattern Performance]`,
-          `Account median engagement: ${fmt(median)}`,
+          `\\n[This Account's Age-Normalized Pattern Performance]`,
+          `Measurement window: ${windowLabel}`,
+          `Account median ${metricLabel}: ${Math.round(medianExposure)}`,
+          `Median post-exposure engagement rate: ${medianRate === null ? "unknown" : fmt(medianRate)}`,
         ];
         if (top.length > 0) {
           lines.push(
-            `Best patterns (prefer these):\n${top
+            `Highest-reach patterns (prefer when relevant):\\n${top
               .map(
                 (stat) =>
-                  `- ${stat.structure}: ${stat.count} posts, avg ${fmt(stat.avgEngagementRate)}`,
+                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions)}, median engagement ${fmt(stat.medianEngagementRate)}`,
               )
-              .join("\n")}`,
+              .join("\\n")}`,
           );
         }
         if (worst.length > 0) {
           lines.push(
-            `Worst patterns (avoid repeating):\n${worst
+            `Lowest-reach patterns (do not over-repeat):\\n${worst
               .map(
                 (stat) =>
-                  `- ${stat.structure}: ${stat.count} posts, avg ${fmt(stat.avgEngagementRate)}`,
+                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions)}, median engagement ${fmt(stat.medianEngagementRate)}`,
               )
-              .join("\n")}`,
+              .join("\\n")}`,
           );
         }
         lines.push(
-          "Choose a structure from the best patterns. Do not reuse a worst pattern unless no better option fits.\n",
+          "Treat exposure as the primary reach signal and engagement rate as a separate post-exposure signal. Do not infer causality from these correlations.\\n",
         );
-        return lines.join("\n");
+        return lines.join("\\n");
       })()
     : "";
 
-  const contentSection = patternAnalysis?.content_insights
+  const contentSection = measuredPatternAnalysis?.content_insights
     ? (() => {
-        const insight = patternAnalysis.content_insights!;
+        const insight = measuredPatternAnalysis.content_insights!;
         const lines = [`\n[What Content Works For This Account]`];
         if (insight.winning_topics.length > 0) {
           lines.push(
@@ -181,20 +195,20 @@ character sheet and use the source only for an abstract writing technique.
 
   const explore = Math.random() < explorationRate;
   const explorationSection =
-    explore && patternAnalysis && patternAnalysis.patterns.length > 0
+    explore && measuredPatternAnalysis && measuredPatternAnalysis.patterns.length > 0
       ? (() => {
           const topKeys = new Set(
-            patternAnalysis!.patterns
+            measuredPatternAnalysis!.patterns
               .slice(0, 3)
               .map((stat) => stat.structure),
           );
-          const underExplored = patternAnalysis!.patterns.filter(
+          const underExplored = measuredPatternAnalysis!.patterns.filter(
             (stat) => !topKeys.has(stat.structure) && stat.count < 5,
           );
           const pool =
             underExplored.length > 0
               ? underExplored
-              : patternAnalysis!.patterns.filter(
+              : measuredPatternAnalysis!.patterns.filter(
                   (stat) => !topKeys.has(stat.structure),
                 );
           const target =
