@@ -52,7 +52,8 @@ export async function generateContentInsights(
   const fmt = (post: PostDoc) => {
     const rate = engagementRate(post.metrics);
     const rateLabel = rate === null ? "反応率不明" : `反応率 ${(rate * 100).toFixed(1)}%`;
-    return `- (72h表示数 ${post.metrics.impressions ?? "不明"} / ${rateLabel}) ${post.text
+    const windowLabel = post.performance_window ?? "同一観測時点";
+    return `- (${windowLabel}表示数 ${post.metrics.impressions ?? "不明"} / ${rateLabel}) ${post.text
       .replace(/\s+/g, " ")
       .slice(0, 120)}`;
   };
@@ -130,7 +131,8 @@ export async function generateDiscoveryKeywords(
   const fmt = (post: PostDoc) => {
     const rate = engagementRate(post.metrics);
     const rateLabel = rate === null ? "反応率不明" : `反応率 ${(rate * 100).toFixed(1)}%`;
-    return `- (表示数 ${post.metrics.impressions ?? "不明"} / ${rateLabel}) ${post.text
+    const windowLabel = post.performance_window ?? "同一観測時点";
+    return `- (${windowLabel}表示数 ${post.metrics.impressions ?? "不明"} / ${rateLabel}) ${post.text
       .replace(/\s+/g, " ")
       .slice(0, 120)}`;
   };
