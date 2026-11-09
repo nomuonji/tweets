@@ -92,7 +92,7 @@ assert.deepEqual(
 
 const makePost = (
   text: string,
-  impressions: number,
+  impressions: number | null,
   likes: number,
 ) => ({
   text,
@@ -111,7 +111,7 @@ const reachFirstAnalysis = computePatternAnalysis(
     makePost("これってどう思う？", 10, 5),
     makePost("みんなはどうしてる？", 20, 5),
     makePost("これは普通なのかな？", 30, 5),
-    makePost("表示数がない投稿", null as unknown as number, 100),
+    makePost("表示数がない投稿", null, 100),
   ],
   "test-account",
   "72h",
