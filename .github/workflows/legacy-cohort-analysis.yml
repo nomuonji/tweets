@@ -1,0 +1,50 @@
+name: Legacy Age-Matched Pattern Cohorts
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/legacy-cohort-analysis.yml"
+      - "scripts/analyze-legacy-cohorts.ts"
+      - "scripts/test-performance-cohorts.ts"
+      - "src/lib/performance-cohorts.ts"
+      - "src/lib/pattern.ts"
+      - "src/lib/types.ts"
+      - "src/lib/services/generation-brief-service.ts"
+      - "src/lib/gemini/prompt.ts"
+      - "src/app/api/gemini/generate/route.ts"
+      - "package.json"
+      - "package-lock.json"
+
+concurrency:
+  group: legacy-age-matched-pattern-cohorts
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test cohort selection
+        run: npm run test:performance-cohorts
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Analyze existing age-matched Threads metrics
+        run: npm run analyze:legacy-cohorts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
