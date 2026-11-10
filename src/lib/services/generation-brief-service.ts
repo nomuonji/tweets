@@ -61,7 +61,7 @@ export type GenerationBrief = {
     exposurePerFollower: number | null;
     searchKeyword: string | null;
     discoveryMode: "Top" | "Latest" | null;
-    sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast";
+    sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "lower-exposure-per-follower" | "typical-exposure-per-follower" | "recent-contrast";
     createdAt: string;
     structure: string;
     text: string;
@@ -171,7 +171,7 @@ function sampleExternal(posts: ExternalPostDoc[], limit: number) {
   const selected = new Map<string, (typeof rows)[number] & {
     sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast";
   }>();
-  const addLane = (candidates: typeof rows, lane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast", quota: number) => {
+  const addLane = (candidates: typeof rows, lane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "lower-exposure-per-follower" | "typical-exposure-per-follower" | "recent-contrast", quota: number) => {
     let added = 0;
     for (const row of candidates) {
       if (selected.has(row.post.id)) continue;
@@ -180,10 +180,43 @@ function sampleExternal(posts: ExternalPostDoc[], limit: number) {
       if (added >= quota || selected.size >= limit) break;
     }
   };
-  const perLane = Math.max(1, Math.ceil(limit / 3));
-  addLane(rows.filter((row) => row.exposurePerFollower !== null).sort((x, y) => (y.exposurePerFollower ?? -1) - (x.exposurePerFollower ?? -1)), "higher-exposure-per-follower", perLane);
-  addLane(rows.filter((row) => row.likeRatio !== null).sort((x, y) => (y.likeRatio ?? -1) - (x.likeRatio ?? -1)), "higher-likes-per-follower", perLane);
-  addLane([...rows].sort((x, y) => Date.parse(y.post.created_at) - Date.parse(x.post.created_at)), "recent-contrast", limit);
+  const comparableExposure = rows.filter((row) => row.exposurePerFollower !== null);
+  const perLane = Math.max(1, Math.ceil(limit / 5));
+  addLane(
+    [...comparableExposure].sort((x, y) => (y.exposurePerFollower ?? -1) - (x.exposurePerFollower ?? -1)),
+    "higher-exposure-per-follower",
+    perLane,
+  );
+  addLane(
+    rows.filter((row) => row.likeRatio !== null).sort((x, y) => (y.likeRatio ?? -1) - (x.likeRatio ?? -1)),
+    "higher-likes-per-follower",
+    perLane,
+  );
+  addLane(
+    [...comparableExposure].sort((x, y) => (x.exposurePerFollower ?? Infinity) - (y.exposurePerFollower ?? Infinity)),
+    "lower-exposure-per-follower",
+    perLane,
+  );
+  if (comparableExposure.length > 0) {
+    const values = comparableExposure.map((row) => row.exposurePerFollower as number).sort((x, y) => x - y);
+    const middle = Math.floor(values.length / 2);
+    const medianExposure = values.length % 2
+      ? values[middle]
+      : (values[middle - 1] + values[middle]) / 2;
+    addLane(
+      [...comparableExposure].sort((x, y) =>
+        Math.abs((x.exposurePerFollower ?? 0) - medianExposure) -
+        Math.abs((y.exposurePerFollower ?? 0) - medianExposure),
+      ),
+      "typical-exposure-per-follower",
+      perLane,
+    );
+  }
+  addLane(
+    [...rows].sort((x, y) => Date.parse(y.post.created_at) - Date.parse(x.post.created_at)),
+    "recent-contrast",
+    limit,
+  );
   return Array.from(selected.values()).slice(0, limit);
 }
 
