@@ -98,7 +98,7 @@ function toExternalPost(
     raw?: Record<string, unknown>;
   },
   now: string,
-  source: { keyword?: string; accountId?: string },
+  source: { keyword?: string; accountId?: string; discoveryMode?: "Top" | "Latest" },
 ): ExternalPostDoc {
   // Firestore rejects `undefined`, and only one of keyword/accountId is ever
   // set. Writing both unconditionally made every keyword-sourced upsert throw,
@@ -115,6 +115,7 @@ function toExternalPost(
     ...(post.url ? { url: post.url } : {}),
     ...(source.keyword ? { search_keyword: source.keyword } : {}),
     ...(source.accountId ? { source_account_id: source.accountId } : {}),
+    ...(source.discoveryMode ? { discovery_mode: source.discoveryMode } : {}),
     fetched_at: now,
   } satisfies ExternalPostDoc;
   return {
@@ -153,6 +154,9 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
   // One paid request per source; stop as soon as this run reaches the remaining
   // monthly allowance instead of discovering the ceiling the hard way.
   let spent = 0;
+  // Alternate acquisition modes across cache windows without increasing paid requests.
+  const searchWindowBucket = Math.floor(now.toMillis() / (cacheHours() * 60 * 60 * 1000));
+  const discoveryMode: "Top" | "Latest" = searchWindowBucket % 2 === 0 ? "Top" : "Latest";
   const canSpend = () => budget.remaining === null || spent < budget.remaining;
   const sourceCap = maxSourcesPerRun();
   let fresh = 0;
@@ -181,15 +185,18 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
     if (source.kind === "keyword") {
       const posts = await fetchXSearchPosts(source.key, {
         limit: POSTS_PER_SOURCE,
-        searchType: "Top",
+        searchType: discoveryMode,
       });
       spent += 1;
       for (const post of posts) {
         if (TEXT_ONLY && post.media_type !== "text") continue;
-        await upsertExternalPost(toExternalPost(post, now.toISO()!, { keyword: source.key }));
+        await upsertExternalPost(toExternalPost(post, now.toISO()!, {
+          keyword: source.key,
+          discoveryMode,
+        }));
       }
       await saveDiscoveryState(account.id, source.key, now.toISO()!);
-      synced.push(`keyword:${source.key}`);
+      synced.push(`keyword:${source.key}:${discoveryMode}`);
       continue;
     }
 

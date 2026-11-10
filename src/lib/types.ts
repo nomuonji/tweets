@@ -71,6 +71,8 @@ export interface PatternStat {
   count: number;
   avgEngagementRate: number;
   medianEngagementRate: number;
+  /** Median exposure at a fixed post-age checkpoint (not lifetime totals). */
+  medianImpressions?: number | null;
   totalImpressions: number;
   totalLikes: number;
   totalReplies: number;
@@ -82,6 +84,10 @@ export interface PatternAnalysis {
   /** Character-sheet generation whose posts produced this analysis. */
   character_version?: number;
   accountMedianEngagementRate: number | null;
+  /** Age-normalized window used by the new learning pipeline. Legacy docs omit it. */
+  measurementWindow?: "24h" | "72h";
+  exposureMetric?: "views" | "impressions";
+  accountMedianImpressions?: number | null;
   patterns: PatternStat[];
   analyzedPosts: number;
   updatedAt: string;
@@ -120,10 +126,11 @@ export interface AccountDoc {
   /** Incremented whenever the character sheet changes. Legacy accounts are v1. */
   character_version?: number;
   character_updated_at?: string;
-  /** Learning pipeline: external-post collection and pattern analysis.
-   * Independent from publishing, so structure can be collected while posting
-   * stays off. Unset falls back to autoPostEnabled for backward compatibility. */
+  /** External-post inspiration collection; independent from self-learning. */
   discoveryEnabled?: boolean;
+  /** Self-performance analysis from this account's own published posts.
+   * Unset falls back to autoPostEnabled for backward compatibility. */
+  performanceLearningEnabled?: boolean;
   /** Output pipeline: draft generation and scheduled publishing. */
   autoPostEnabled?: boolean;
   /** Server-side draft refill (scripts/auto-generate-drafts.ts). false keeps the
@@ -424,6 +431,13 @@ export interface PostMetrics {
   link_clicks?: number | null;
 }
 
+export interface PostPerformanceSnapshot {
+  captured_at: string;
+  age_hours: number;
+  exposure_metric: "views" | "impressions";
+  metrics: PostMetrics;
+}
+
 export interface PostDoc {
   id: string;
   account_id: string;
@@ -434,6 +448,13 @@ export interface PostDoc {
   media_type: MediaType;
   has_url: boolean;
   metrics: PostMetrics;
+  /** Metrics captured at a comparable post age by the scheduled sync. */
+  performance_snapshots?: {
+    "24h"?: PostPerformanceSnapshot;
+    "72h"?: PostPerformanceSnapshot;
+  };
+  /** Set only on an in-memory prompt sample; never persisted by sync. */
+  performance_window?: "24h" | "72h";
   score: number;
   /** Character-sheet generation used to create this post. */
   character_version?: number;
@@ -493,6 +514,8 @@ export interface ExternalPostDoc {
   metrics: PostMetrics;
   search_keyword?: string;
   source_account_id?: string;
+  /** Search acquisition lane; Top and Latest alternate within the existing request budget. */
+  discovery_mode?: "Top" | "Latest";
   fetched_at: string;
   engagement_rate?: number | null;
   pattern?: {
@@ -509,6 +532,8 @@ export interface DraftDoc {
   base_post_id?: string | null;
   text: string;
   hashtags: string[];
+  /** One Threads topic tag, sent separately through the Threads API. */
+  topic_tag?: string;
   status: DraftStatus;
   schedule_time?: string | null;
   published_at?: string | null;

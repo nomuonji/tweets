@@ -10,10 +10,14 @@
  *   npm run analyze:patterns            # with LLM content insights
  *   npm run analyze:patterns -- --no-insights
  */
+import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import type { PostDoc } from "@/lib/types";
 import { computePatternAnalysis } from "@/lib/pattern";
-import { isDiscoveryEnabled } from "@/lib/account-gates";
+import {
+  isDiscoveryEnabled,
+  isPerformanceLearningEnabled,
+} from "@/lib/account-gates";
 import {
   generateContentInsights,
   generateDiscoveryKeywords,
@@ -65,7 +69,8 @@ async function fetchRecentPostsForAccount(
   }
 }
 
-function insightsAreFresh(existing: { content_insights?: { generatedAt: string } } | null): boolean {
+function insightsAreFresh(existing: { measurementWindow?: string; content_insights?: { generatedAt: string } } | null): boolean {
+  if (existing?.measurementWindow !== "24h" && existing?.measurementWindow !== "72h") return false;
   if (!existing?.content_insights?.generatedAt) return false;
   const generated = DateTime.fromISO(existing.content_insights.generatedAt);
   return (
@@ -92,8 +97,10 @@ function keywordsNeedRefresh(account: {
 }
 
 async function main() {
+  // Self-performance learning must continue even when external source
+  // discovery is deliberately disabled for an account.
   const accounts = (await getAccounts()).filter((account) =>
-    isDiscoveryEnabled(account),
+    isPerformanceLearningEnabled(account),
   );
   const skipInsights = process.argv.includes("--no-insights");
   let updated = 0;
@@ -104,19 +111,58 @@ async function main() {
       const characterVersion = getCharacterVersion(account);
       const posts = (await fetchRecentPostsForAccount(account.id, LOOKBACK_DAYS))
         .filter((post) => belongsToCharacterVersion(post, characterVersion));
-      if (posts.length < MIN_POSTS) {
+      const measurementWindow: "72h" | "24h" =
+        account.platform === "threads" ? "72h" : "24h";
+      const evaluatedPosts = posts.flatMap((post) => {
+        const snapshot = post.performance_snapshots?.[measurementWindow];
+        if (
+          !snapshot ||
+          snapshot.metrics.impressions === null ||
+          snapshot.metrics.impressions === undefined ||
+          !Number.isFinite(snapshot.metrics.impressions) ||
+          snapshot.metrics.impressions <= 0
+        ) return [];
+        // Learn from the comparable-age metrics, never the latest cumulative
+        // total whose exposure time differs from other posts.
+        return [{
+          ...post,
+          metrics: snapshot.metrics,
+          performance_window: measurementWindow,
+        }];
+      });
+      if (evaluatedPosts.length < MIN_POSTS) {
         console.log(
-          `[Pattern] ${account.handle}: only ${posts.length} posts for character v${characterVersion} in ${LOOKBACK_DAYS}d; skipping.`,
+          `[Pattern] ${account.handle}: ${evaluatedPosts.length}/${posts.length} posts have a valid ${measurementWindow} exposure snapshot for character v${characterVersion}; keeping the previous analysis until enough comparable observations exist.`,
         );
         continue;
       }
-      const analysis = computePatternAnalysis(posts, account.id);
+      const analysis = computePatternAnalysis(
+        evaluatedPosts,
+        account.id,
+        measurementWindow,
+        account.platform === "threads" ? "views" : "impressions",
+      );
       analysis.character_version = characterVersion;
 
-      if (!skipInsights && posts.length >= MIN_POSTS_FOR_INSIGHTS) {
-        const existing = await getPatternStats(account.id);
+      const existing = await getPatternStats(account.id);
+      if (
+        existing?.content_insights &&
+        (
+          existing.measurementWindow !== measurementWindow ||
+          getCharacterVersion(existing) !== characterVersion
+        )
+      ) {
+        // A merge-upsert would otherwise keep legacy insights and pair them
+        // with the new checkpoint-based pattern stats.
+        await adminDb.collection("pattern_stats").doc(account.id).update({
+          content_insights: FieldValue.delete(),
+        });
+      }
+
+      if (!skipInsights && evaluatedPosts.length >= MIN_POSTS_FOR_INSIGHTS) {
         if (
           existing &&
+          existing.measurementWindow === measurementWindow &&
           getCharacterVersion(existing) === characterVersion &&
           insightsAreFresh(existing)
         ) {
@@ -124,7 +170,7 @@ async function main() {
         } else {
           try {
             const insights = await generateContentInsights(
-              posts,
+              evaluatedPosts,
               account.concept,
             );
             if (insights) {
@@ -142,12 +188,13 @@ async function main() {
 
       if (
         !skipInsights &&
-        posts.length >= MIN_POSTS_FOR_KEYWORDS &&
+        isDiscoveryEnabled(account) &&
+        evaluatedPosts.length >= MIN_POSTS_FOR_KEYWORDS &&
         keywordsNeedRefresh(account)
       ) {
         try {
           const keywords = await generateDiscoveryKeywords(
-            posts,
+            evaluatedPosts,
             account.concept,
           );
           if (keywords && keywords.length > 0) {
@@ -172,7 +219,7 @@ async function main() {
       await savePatternStats(account.id, analysis);
       updated += 1;
       console.log(
-        `[Pattern] ${account.handle} v${characterVersion}: ${analysis.patterns.length} patterns over ${analysis.analyzedPosts} posts (median ${(analysis.accountMedianEngagementRate ?? 0) * 100}%)${analysis.content_insights ? " +content insights" : ""}.`,
+        `[Pattern] ${account.handle} v${characterVersion}: ${analysis.patterns.length} patterns from ${analysis.analyzedPosts} comparable ${measurementWindow} posts (median exposure ${analysis.accountMedianImpressions ?? "n/a"}, median engagement ${((analysis.accountMedianEngagementRate ?? 0) * 100).toFixed(2)}%)${analysis.content_insights ? " +content insights" : ""}.`,
       );
     } catch (error) {
       console.error(`[Pattern] Failed for ${account.handle}:`, error);

@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       undefined,
       undefined,
       body.promoProduct ?? null,
+      body.platform ?? "x",
     );
 
     return NextResponse.json({ ok: true, prompt });

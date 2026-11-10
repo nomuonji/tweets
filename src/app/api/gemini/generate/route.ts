@@ -58,6 +58,7 @@ export async function POST(request: Request) {
           patternAnalysis,
           account.explorationRate,
           promoProduct,
+          account.platform,
         );
         finalPrompt = prompt;
         suggestion = await requestGrok(prompt, xaiApiKey);
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
           patternAnalysis,
           account.explorationRate,
           promoProduct,
+          account.platform,
         );
         finalPrompt = prompt;
         const generated = await generateSuggestion(prompt);
@@ -126,12 +128,20 @@ return NextResponse.json({
           source: "top" as const,
         })),
         externalPosts: externalPosts.slice(0, 12),
-        patternStats: patternAnalysis
-          ? {
-              median: patternAnalysis.accountMedianEngagementRate,
-              patterns: patternAnalysis.patterns.slice(0, 8),
-            }
-          : null,
+        patternStats:
+          patternAnalysis?.measurementWindow === "24h" ||
+          patternAnalysis?.measurementWindow === "72h"
+            ? {
+                measurementWindow: patternAnalysis.measurementWindow,
+                exposureMetric: patternAnalysis.exposureMetric,
+                medianExposure: patternAnalysis.accountMedianImpressions,
+                // Backward-compatible alias; this remains a weighted,
+                // exposure-normalized interaction rate, not a raw view count.
+                median: patternAnalysis.accountMedianEngagementRate,
+                weightedInteractionRate: patternAnalysis.accountMedianEngagementRate,
+                patterns: patternAnalysis.patterns.slice(0, 8),
+              }
+            : null,
         existingDrafts: drafts.slice(0, 50).map((draft) => ({
           id: draft.id,
           text: draft.text,

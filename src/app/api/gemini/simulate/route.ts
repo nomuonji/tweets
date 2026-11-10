@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildPrompt } from "@/lib/gemini/prompt";
 import { generateSuggestion } from "@/lib/ai/generation-client";
-import type { DraftDoc, ExemplaryPost, PostDoc, Tip } from "@/lib/types";
+import type { DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 
 export type SimulateRequestBody = {
   prompt?: string;
@@ -12,6 +12,7 @@ export type SimulateRequestBody = {
   drafts?: DraftDoc[];
   tips?: Tip[];
   exemplaryPosts?: ExemplaryPost[];
+  platform?: Platform;
 };
 
 export async function POST(request: Request) {
@@ -27,7 +28,14 @@ export async function POST(request: Request) {
       [],
       body.tips ?? [],
       body.exemplaryPosts ?? [],
-      body.concept
+      body.concept,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      null,
+      body.platform ?? "x",
     );
 
     const generated = await generateSuggestion(prompt);

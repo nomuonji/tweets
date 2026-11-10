@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { getCharacterVersion } from "@/lib/character-version";
 import { extractPattern } from "@/lib/pattern";
+import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import type { DraftDoc, DraftProvenance } from "@/lib/types";
 
 export const MAX_AGENT_DRAFTS = 5;
@@ -35,6 +36,8 @@ export type NewDraftInput = {
   overwriteSimilar?: boolean;
   affiliate?: { productId: string; creativeAssetId?: string };
   ownedContent?: { itemId: string };
+  /** Optional Threads topic tag; stored separately from hashtags. */
+  topicTag?: string;
   /** 型/ネタ attribution for later analysis. Optional for manual drafts. */
   provenance?: DraftProvenance;
 };
@@ -106,6 +109,15 @@ export async function createAgentDrafts(
     const drafts = inputs.map((input) => {
       const text = input.text.trim(); const hashtags = input.hashtags ?? [];
       if (!text) throw new Error("Draft text is required.");
+      if (input.topicTag !== undefined && account.platform !== "threads") {
+        throw new Error("topicTag is only supported for Threads drafts.");
+      }
+      const topicTag = input.topicTag === undefined
+        ? undefined
+        : normalizeThreadsTopicTag(input.topicTag);
+      if (input.topicTag !== undefined && !topicTag) {
+        throw new Error("Threads topicTag must be 1–50 characters and cannot contain periods or ampersands.");
+      }
       if (input.affiliate && input.ownedContent) throw new Error("A draft cannot be both affiliate-product and owned-content distribution.");
       const fullText = draftTextWithHashtags(text, hashtags);
       const ownedContent = input.ownedContent ? ownedContentById.get(input.ownedContent.itemId.trim()) : undefined;
@@ -137,7 +149,7 @@ export async function createAgentDrafts(
       const similar = existing.find((candidate) => trigramSimilarity(fullText, draftTextWithHashtags(candidate.text, candidate.hashtags)) >= 0.82);
       if (similar && !input.overwriteSimilar) throw new Error("A too-similar draft already exists; set overwriteSimilar only after reviewing it.");
       const ref = adminDb.collection("drafts").doc();
-      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
+      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(topicTag ? { topic_tag: topicTag } : {}), ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
       transaction.set(ref, draft); existing.push(draft); return draft;
     });
     return drafts;

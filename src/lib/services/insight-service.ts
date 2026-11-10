@@ -43,15 +43,18 @@ export async function generateContentInsights(
 ): Promise<ContentInsight | null> {
   if (posts.length < 10) return null;
 
-  const sorted = [...posts].sort(
-    (a, b) => engagementRate(b.metrics) - engagementRate(a.metrics),
-  );
-  const top = sorted.slice(0, 8);
-  const bottom = sorted.slice(-8).reverse();
+  const byReach = (a: PostDoc, b: PostDoc) =>
+    (b.metrics.impressions ?? -1) - (a.metrics.impressions ?? -1) ||
+    (engagementRate(b.metrics) ?? -1) - (engagementRate(a.metrics) ?? -1);
+  const ranked = [...posts].sort(byReach);
+  const top = ranked.slice(0, 8);
+  const bottom = ranked.slice(Math.max(top.length, ranked.length - 8));
 
   const fmt = (post: PostDoc) => {
-    const rate = engagementRate(post.metrics) * 100;
-    return `- (反応率 ${rate.toFixed(1)}%) ${post.text
+    const rate = engagementRate(post.metrics);
+    const rateLabel = rate === null ? "反応率不明" : `反応率 ${(rate * 100).toFixed(1)}%`;
+    const windowLabel = post.performance_window ?? "同一観測時点";
+    return `- (${windowLabel}表示数 ${post.metrics.impressions ?? "不明"} / ${rateLabel}) ${post.text
       .replace(/\s+/g, " ")
       .slice(0, 120)}`;
   };
@@ -121,13 +124,16 @@ export async function generateDiscoveryKeywords(
 ): Promise<string[] | null> {
   if (posts.length < 10) return null;
 
-  const sorted = [...posts].sort(
-    (a, b) => engagementRate(b.metrics) - engagementRate(a.metrics),
-  );
-  const top = sorted.slice(0, 10);
+  const top = [...posts].sort(
+    (a, b) =>
+      (b.metrics.impressions ?? -1) - (a.metrics.impressions ?? -1) ||
+      (engagementRate(b.metrics) ?? -1) - (engagementRate(a.metrics) ?? -1),
+  ).slice(0, 10);
   const fmt = (post: PostDoc) => {
-    const rate = engagementRate(post.metrics) * 100;
-    return `- (反応率 ${rate.toFixed(1)}%) ${post.text
+    const rate = engagementRate(post.metrics);
+    const rateLabel = rate === null ? "反応率不明" : `反応率 ${(rate * 100).toFixed(1)}%`;
+    const windowLabel = post.performance_window ?? "同一観測時点";
+    return `- (${windowLabel}表示数 ${post.metrics.impressions ?? "不明"} / ${rateLabel}) ${post.text
       .replace(/\s+/g, " ")
       .slice(0, 120)}`;
   };

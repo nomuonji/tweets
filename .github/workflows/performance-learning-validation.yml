@@ -1,0 +1,85 @@
+name: Performance Learning Validation
+
+on:
+  push:
+    branches:
+      - main
+      - feat/threads-72h-performance-learning
+    paths:
+      - ".github/workflows/performance-learning-validation.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/analyze-patterns.ts"
+      - "scripts/test-performance-learning.ts"
+      - "src/app/api/gemini/generate/route.ts"
+      - "src/app/api/gemini/prepare-prompt/route.ts"
+      - "src/app/api/gemini/simulate/route.ts"
+      - "src/lib/account-gates.ts"
+      - "src/lib/gemini/prompt.ts"
+      - "src/lib/pattern.ts"
+      - "src/lib/performance-snapshots.ts"
+      - "src/lib/services/generation-brief-service.ts"
+      - "src/lib/services/insight-service.ts"
+      - "src/lib/services/prompt-service.ts"
+      - "src/lib/services/sync-service.ts"
+      - "src/lib/types.ts"
+      - "scripts/test-threads-topic-tag.ts"
+      - "src/lib/threads-topic-tag.ts"
+      - "src/lib/platforms/threads.ts"
+      - "src/lib/services/scheduler-service.ts"
+      - "src/lib/services/draft-service.ts"
+      - "src/lib/services/external-discovery-service.ts"
+      - "src/lib/gemini/parser.ts"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/analyze-patterns.ts"
+      - "scripts/test-performance-learning.ts"
+      - "src/app/api/gemini/generate/route.ts"
+      - "src/app/api/gemini/prepare-prompt/route.ts"
+      - "src/app/api/gemini/simulate/route.ts"
+      - "src/lib/account-gates.ts"
+      - "src/lib/gemini/prompt.ts"
+      - "src/lib/pattern.ts"
+      - "src/lib/performance-snapshots.ts"
+      - "src/lib/services/generation-brief-service.ts"
+      - "src/lib/services/insight-service.ts"
+      - "src/lib/services/prompt-service.ts"
+      - "src/lib/services/sync-service.ts"
+      - "src/lib/types.ts"
+      - "scripts/test-threads-topic-tag.ts"
+      - "src/lib/threads-topic-tag.ts"
+      - "src/lib/platforms/threads.ts"
+      - "src/lib/services/scheduler-service.ts"
+      - "src/lib/services/draft-service.ts"
+      - "src/lib/services/external-discovery-service.ts"
+      - "src/lib/gemini/parser.ts"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Performance learning regression tests
+        run: npm run test:performance-learning
+
+      - name: Threads topic-tag regression tests
+        run: npm run test:threads-topic-tag
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit

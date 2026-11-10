@@ -5,7 +5,8 @@ import { generateSuggestion, type GenerationProvider } from "@/lib/ai/generation
 import type { GeminiSuggestion } from "@/lib/gemini/parser";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
-import { extractPattern } from "@/lib/pattern";
+import { extractPattern, engagementRate } from "@/lib/pattern";
+import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import { markProductUsed, pickPromoProduct } from "./product-service";
 import {
   belongsToCharacterVersion,
@@ -22,8 +23,9 @@ async function fetchTopPosts(
   accountId: string,
   limit: number,
   characterVersion: number,
+  measurementWindow: "24h" | "72h",
 ) {
-  const candidateLimit = Math.max(limit, 30);
+  const candidateLimit = Math.max(limit * 20, 60);
   let snapshot: FirebaseFirestore.QuerySnapshot;
   try {
     let query = adminDb
@@ -32,13 +34,12 @@ async function fetchTopPosts(
     if (characterVersion > 1) {
       query = query.where("character_version", "==", characterVersion);
     }
-    snapshot = await query.orderBy("score", "desc").limit(candidateLimit).get();
+    snapshot = await query.orderBy("created_at", "desc").limit(candidateLimit).get();
   } catch (error) {
     // Missing composite indexes must never turn prompt generation into an
-    // unbounded account-wide scan. A bounded sample is less precise but keeps
-    // Firestore free-tier usage predictable until the index is deployed.
+    // unbounded account-wide scan. A bounded sample is less precise but safe.
     console.warn(
-      `[Prompt] Top-post query failed for ${accountId}; using a bounded sample.`,
+      `[Prompt] Recent-post query failed for ${accountId}; using a bounded sample.`,
       error,
     );
     snapshot = await adminDb
@@ -47,18 +48,30 @@ async function fetchTopPosts(
       .limit(candidateLimit * 2)
       .get();
   }
-  const posts = snapshot.docs
+
+  return snapshot.docs
     .map((doc) => ({ ...doc.data(), id: doc.id }) as PostDoc)
     .filter((post) => belongsToCharacterVersion(post, characterVersion))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, candidateLimit);
-  for (let i = posts.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [posts[i], posts[j]] = [posts[j], posts[i]];
-  }
-  return posts.slice(0, limit);
+    .flatMap((post) => {
+      const checkpoint = post.performance_snapshots?.[measurementWindow];
+      if (
+        !checkpoint ||
+        checkpoint.metrics.impressions === null ||
+        checkpoint.metrics.impressions === undefined ||
+        checkpoint.metrics.impressions <= 0
+      ) return [];
+      return [{
+        ...post,
+        metrics: checkpoint.metrics,
+        performance_window: measurementWindow,
+      }];
+    })
+    .sort((a, b) =>
+      (b.metrics.impressions ?? -1) - (a.metrics.impressions ?? -1) ||
+      (engagementRate(b.metrics) ?? -1) - (engagementRate(a.metrics) ?? -1),
+    )
+    .slice(0, limit);
 }
-
 async function fetchReferencePosts(accountId: string, limit: number): Promise<Tip[]> {
   const snapshot = await adminDb.collection("tips").where("account_ids", "array-contains", accountId).get();
   const tips = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Tip[];
@@ -133,7 +146,12 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
   const characterVersion = getCharacterVersion(account);
 
   const [topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis] = await Promise.all([
-    fetchTopPosts(accountId, 3, characterVersion),
+    fetchTopPosts(
+      accountId,
+      3,
+      characterVersion,
+      account.platform === "threads" ? "72h" : "24h",
+    ),
     fetchReferencePosts(accountId, 3),
     fetchRecentPosts(accountId, perCategoryLimit),
     fetchExistingDrafts(accountId, 20),
@@ -194,7 +212,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   let duplicate = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate, promoProduct);
+    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate, promoProduct, platform);
     const generated = await generateSuggestion(prompt);
     suggestion = generated.value;
     provider = generated.provider;
@@ -210,6 +228,9 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   }
 
   const now = DateTime.utc().toISO()!;
+  const topicTag = platform === "threads"
+    ? normalizeThreadsTopicTag(suggestion.topicTag)
+    : undefined;
   const draftId = `generated_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const newDraft: DraftDoc = {
     id: draftId,
@@ -217,6 +238,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     target_account_id: accountId,
     text: suggestion.tweet,
     hashtags: [],
+    ...(topicTag ? { topic_tag: topicTag } : {}),
     status: "scheduled",
     schedule_time: null,
     published_at: null,

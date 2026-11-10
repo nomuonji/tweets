@@ -6,6 +6,7 @@ import type {
   PostDoc,
   ProductDoc,
   Tip,
+  Platform,
 } from "@/lib/types";
 
 export function buildPrompt(
@@ -23,6 +24,7 @@ export function buildPrompt(
   patternAnalysis?: PatternAnalysis | null,
   explorationRate = 0.15,
   promoProduct: ProductDoc | null = null,
+  platform: Platform = "x",
 ) {
   // null/0 = no account-level limit. Promo drafts still need room for the link.
   const floor =
@@ -49,7 +51,8 @@ export function buildPrompt(
     const metrics = post.metrics;
     const structure = post.pattern?.structure ?? "未分類";
     const reactionReason = post.pattern?.reaction_reason ?? "不明";
-    return `- 構成:${compact(structure, 80)} / 反応理由:${compact(reactionReason, 100)} (表示:${metrics.impressions ?? "不明"}, いいね:${metrics.likes}, リポスト:${metrics.reposts_or_rethreads}, 返信:${metrics.replies})`;
+    const windowLabel = post.performance_window ?? "観測";
+    return `- 構成:${compact(structure, 80)} / 反応理由:${compact(reactionReason, 100)} (${windowLabel}表示数:${metrics.impressions ?? "不明"}, いいね:${metrics.likes}, リポスト:${metrics.reposts_or_rethreads}, 返信:${metrics.replies})`;
   };
 
   // --- Part 2: Input Values (Source Material) ---
@@ -92,63 +95,81 @@ character sheet and use the source only for an abstract writing technique.
         .join("\n")}\n`
     : "";
   const externalSection = externalPosts.length > 0
-    ? `\n[External Posts Winning In The Target Topic]\n${externalPosts
+    ? `\n[External Search Candidates — relevance is NOT verified]\n${externalPosts
         .slice(0, 12)
         .map((post) => {
           const pattern = post.pattern
             ? ` 型:${compact(post.pattern.hook, 80)} / ${compact(post.pattern.structure, 100)}`
             : "";
-          return `- ${compact(post.text)} (作者:@${post.author_handle}, 反応率:${(post.engagement_rate ?? 0).toFixed(4)})${pattern}`;
+          const source = `検索語:${compact(post.search_keyword ?? "reference account", 80)} / 検索枠:${post.discovery_mode ?? "timeline"}`;
+          return `- ${compact(post.text)} (${source}, 反応率:${post.engagement_rate === null || post.engagement_rate === undefined ? "不明" : post.engagement_rate.toFixed(4)})${pattern}`;
         })
-        .join("\n")}\n`
+        .join("\n")}\nRelevance rule: reject unrelated examples even when visible metrics are high. Search terms and engagement are not proof of audience fit.\n`
     : "";
 
-  const patternSection = patternAnalysis && patternAnalysis.patterns.length > 0
+  const topicTagInstruction = platform === "threads"
+    ? "For Threads, choose at most ONE topicTag without a leading #. It must directly name this post's subject, not a broad trend or unrelated popular topic. Use 1–50 characters; do not include periods (.) or ampersands (&). Omit topicTag when no clear fit exists."
+    : "This is an X post. Do not return topicTag.";
+
+    // Legacy pattern stats were calculated from lifetime totals and may contain
+  // synthetic engagement-rate fallbacks. Only consume explicitly measured
+  // age-normalized cohorts in the generator.
+  const measuredPatternAnalysis =
+    patternAnalysis?.measurementWindow === "24h" ||
+    patternAnalysis?.measurementWindow === "72h"
+      ? patternAnalysis
+      : null;
+
+  const patternSection = measuredPatternAnalysis && measuredPatternAnalysis.patterns.length > 0
     ? (() => {
-        const median = patternAnalysis.accountMedianEngagementRate ?? 0;
+        const windowLabel = measuredPatternAnalysis.measurementWindow;
+        const metricLabel = measuredPatternAnalysis.exposureMetric ?? "表示数";
+        const medianExposure = measuredPatternAnalysis.accountMedianImpressions ?? 0;
+        const medianRate = measuredPatternAnalysis.accountMedianEngagementRate;
         const fmt = (value: number) => `${(value * 100).toFixed(2)}%`;
-        const reliable = patternAnalysis.patterns
-          .filter((stat) => stat.count >= 3)
-          .sort((a, b) => b.avgEngagementRate - a.avgEngagementRate);
+        const reliable = measuredPatternAnalysis.patterns
+          .filter((stat) => stat.count >= 3 && typeof stat.medianImpressions === "number" && Number.isFinite(stat.medianImpressions))
+          .sort((a, b) => (b.medianImpressions ?? -1) - (a.medianImpressions ?? -1));
         const top = reliable.slice(0, 3);
-        const worst = reliable
-          .filter((stat) => stat.avgEngagementRate < median)
-          .slice(-2)
-          .reverse();
+        const worst = [...reliable].sort(
+          (a, b) => (a.medianImpressions ?? -1) - (b.medianImpressions ?? -1),
+        ).slice(0, 2);
         const lines = [
-          `\n[This Account's Pattern Performance]`,
-          `Account median engagement: ${fmt(median)}`,
+          `\n[This Account's Age-Normalized Pattern Performance]`,
+          `Measurement window: ${windowLabel}`,
+          `Account median ${metricLabel}: ${Math.round(medianExposure)}`,
+          `Median post-exposure engagement rate: ${medianRate === null ? "unknown" : fmt(medianRate)}`,
         ];
         if (top.length > 0) {
           lines.push(
-            `Best patterns (prefer these):\n${top
+            `Highest-reach patterns (prefer when relevant):\n${top
               .map(
                 (stat) =>
-                  `- ${stat.structure}: ${stat.count} posts, avg ${fmt(stat.avgEngagementRate)}`,
+                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions ?? 0)}, median engagement ${fmt(stat.medianEngagementRate)}`,
               )
               .join("\n")}`,
           );
         }
         if (worst.length > 0) {
           lines.push(
-            `Worst patterns (avoid repeating):\n${worst
+            `Lowest-reach patterns (do not over-repeat):\n${worst
               .map(
                 (stat) =>
-                  `- ${stat.structure}: ${stat.count} posts, avg ${fmt(stat.avgEngagementRate)}`,
+                  `- ${stat.structure}: ${stat.count} posts, median ${metricLabel} ${Math.round(stat.medianImpressions ?? 0)}, median engagement ${fmt(stat.medianEngagementRate)}`,
               )
               .join("\n")}`,
           );
         }
         lines.push(
-          "Choose a structure from the best patterns. Do not reuse a worst pattern unless no better option fits.\n",
+          "Treat exposure as the primary reach signal and engagement rate as a separate post-exposure signal. Do not infer causality from these correlations.\n",
         );
         return lines.join("\n");
       })()
     : "";
 
-  const contentSection = patternAnalysis?.content_insights
+  const contentSection = measuredPatternAnalysis?.content_insights
     ? (() => {
-        const insight = patternAnalysis.content_insights!;
+        const insight = measuredPatternAnalysis.content_insights!;
         const lines = [`\n[What Content Works For This Account]`];
         if (insight.winning_topics.length > 0) {
           lines.push(
@@ -181,20 +202,20 @@ character sheet and use the source only for an abstract writing technique.
 
   const explore = Math.random() < explorationRate;
   const explorationSection =
-    explore && patternAnalysis && patternAnalysis.patterns.length > 0
+    explore && measuredPatternAnalysis && measuredPatternAnalysis.patterns.length > 0
       ? (() => {
           const topKeys = new Set(
-            patternAnalysis!.patterns
+            measuredPatternAnalysis!.patterns
               .slice(0, 3)
               .map((stat) => stat.structure),
           );
-          const underExplored = patternAnalysis!.patterns.filter(
+          const underExplored = measuredPatternAnalysis!.patterns.filter(
             (stat) => !topKeys.has(stat.structure) && stat.count < 5,
           );
           const pool =
             underExplored.length > 0
               ? underExplored
-              : patternAnalysis!.patterns.filter(
+              : measuredPatternAnalysis!.patterns.filter(
                   (stat) => !topKeys.has(stat.structure),
                 );
           const target =
@@ -288,15 +309,18 @@ Generate ONE new post that:
 6. Add a concrete angle or observation rather than a generic summary.
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
 8. Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.
-${promoProduct ? "9. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
-${explore && patternAnalysis
-  ? "10. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
-  : "10. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
+11. Evaluate each external candidate against the actual character sheet and intended reader. Search keywords are not proof of relevance. Discard unrelated posts even when their metrics are strong; never force the account persona to fit a viral example.
+12. Keep reach, likes, replies, reposts and engagement rate as separate signals. Do not interpret likes/followers as engagement rate per impression, and do not claim correlation proves causation.
+${topicTagInstruction}
+${promoProduct ? "13. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
+${explore && measuredPatternAnalysis
+  ? "14. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
+  : "14. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
 
 Output strictly in JSON:
 {
   "tweet": "Content...",
-  "explanation": "Reasoning..."
+  "explanation": "Reasoning..."${platform === "threads" ? ',\n  "topicTag": "Optional one-topic label without #; omit the key when there is no clear fit"' : ""}
 }
 `;
 }
