@@ -13,7 +13,7 @@ export function resolveThreadsOAuthScopes(
   configured: string | undefined = process.env.THREADS_SCOPES,
 ): string[] {
   const requested = (configured ?? "")
-    .split(/[\\s,]+/)
+    .split(/[\s,]+/)
     .map((scope) => scope.trim())
     .filter(Boolean);
 
