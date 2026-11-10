@@ -6,6 +6,7 @@ import type {
   PostDoc,
   ProductDoc,
   Tip,
+  Platform,
 } from "@/lib/types";
 
 export function buildPrompt(
@@ -23,6 +24,7 @@ export function buildPrompt(
   patternAnalysis?: PatternAnalysis | null,
   explorationRate = 0.15,
   promoProduct: ProductDoc | null = null,
+  platform: Platform = "x",
 ) {
   // null/0 = no account-level limit. Promo drafts still need room for the link.
   const floor =
@@ -93,18 +95,23 @@ character sheet and use the source only for an abstract writing technique.
         .join("\n")}\n`
     : "";
   const externalSection = externalPosts.length > 0
-    ? `\n[External Posts Winning In The Target Topic]\n${externalPosts
+    ? `\n[External Search Candidates — relevance is NOT verified]\n${externalPosts
         .slice(0, 12)
         .map((post) => {
           const pattern = post.pattern
             ? ` 型:${compact(post.pattern.hook, 80)} / ${compact(post.pattern.structure, 100)}`
             : "";
-          return `- ${compact(post.text)} (作者:@${post.author_handle}, 反応率:${(post.engagement_rate ?? 0).toFixed(4)})${pattern}`;
+          const source = `検索語:${compact(post.search_keyword ?? "reference account", 80)} / 検索枠:${post.discovery_mode ?? "timeline"}`;
+          return `- ${compact(post.text)} (${source}, 反応率:${post.engagement_rate === null || post.engagement_rate === undefined ? "不明" : post.engagement_rate.toFixed(4)})${pattern}`;
         })
-        .join("\n")}\n`
+        .join("\n")}\nRelevance rule: reject unrelated examples even when visible metrics are high. Search terms and engagement are not proof of audience fit.\n`
     : "";
 
-  // Legacy pattern stats were calculated from lifetime totals and may contain
+  const topicTagInstruction = platform === "threads"
+    ? "For Threads, choose at most ONE topicTag without a leading #. It must directly name this post's subject, not a broad trend or unrelated popular topic. Use 1–50 characters; do not include periods (.) or ampersands (&). Omit topicTag when no clear fit exists."
+    : "This is an X post. Do not return topicTag.";
+
+    // Legacy pattern stats were calculated from lifetime totals and may contain
   // synthetic engagement-rate fallbacks. Only consume explicitly measured
   // age-normalized cohorts in the generator.
   const measuredPatternAnalysis =
@@ -302,6 +309,9 @@ Generate ONE new post that:
 6. Add a concrete angle or observation rather than a generic summary.
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
 8. Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.
+9. Evaluate each external candidate against the actual character sheet and intended reader. Search keywords are not proof of relevance. Discard unrelated posts even when their metrics are strong; never force the account persona to fit a viral example.
+10. Keep reach, likes, replies, reposts and engagement rate as separate signals. Do not interpret likes/followers as engagement rate per impression, and do not claim correlation proves causation.
+${topicTagInstruction}
 ${promoProduct ? "9. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
 ${explore && measuredPatternAnalysis
   ? "10. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
@@ -310,7 +320,7 @@ ${explore && measuredPatternAnalysis
 Output strictly in JSON:
 {
   "tweet": "Content...",
-  "explanation": "Reasoning..."
+  "explanation": "Reasoning..."${platform === "threads" ? ',\n  "topicTag": "Optional one-topic label without #; omit the key when there is no clear fit"' : ""}
 }
 `;
 }
