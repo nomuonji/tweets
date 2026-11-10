@@ -11,7 +11,10 @@ on:
       - "package.json"
       - "package-lock.json"
       - "scripts/analyze-patterns.ts"
+      - "scripts/analyze-legacy-cohorts.ts"
       - "scripts/test-performance-learning.ts"
+      - "scripts/test-performance-cohorts.ts"
+      - "src/lib/performance-cohorts.ts"
       - "scripts/test-generation-fallback.ts"
       - "scripts/auto-generate-drafts.ts"
       - "src/lib/ai/generation-client.ts"
@@ -56,6 +59,9 @@ on:
       - "package-lock.json"
       - "scripts/analyze-patterns.ts"
       - "scripts/test-performance-learning.ts"
+      - "scripts/analyze-legacy-cohorts.ts"
+      - "scripts/test-performance-cohorts.ts"
+      - "src/lib/performance-cohorts.ts"
       - "src/app/api/gemini/generate/route.ts"
       - "src/app/api/gemini/prepare-prompt/route.ts"
       - "src/app/api/gemini/simulate/route.ts"
@@ -95,6 +101,9 @@ jobs:
 
       - name: Performance learning regression tests
         run: npm run test:performance-learning
+
+      - name: Age-matched performance cohort tests
+        run: npm run test:performance-cohorts
 
       - name: Batch generation and provider fallback tests
         run: npm run test:generation-fallback
