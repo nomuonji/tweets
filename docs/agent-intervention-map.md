@@ -17,7 +17,7 @@ The system has two separate generation routes. Do not confuse them.
 
 ## 2. What the scheduled fallback actually does today
 
-The auto-generate-drafts GitHub Actions workflow runs every two hours. Its script, scripts/auto-generate-drafts.ts, checks each publishing-enabled account's queue and, when the queue is below five, calls generatePost once for that account.
+The auto-generate-drafts GitHub Actions workflow runs every two hours. Its script, scripts/auto-generate-drafts.ts, checks each publishing-enabled account's queue and, when it is below five, passes the full deficit (up to five) to generatePosts. That function builds one shared prompt and makes one model request for the batch, rather than one request per missing draft. Before writing, it transactionally re-reads the account, character version and draft inventory; it saves only distinct valid items and only up to the remaining inventory. A short or duplicate-heavy batch can be topped up by a later fallback cycle.
 
 That route is a server-side LLM generation fallback, not the multi-step external-agent route. It does not call get_generation_brief, does not plan a batch and does not run a separate agent tool-use / research loop. The richer agent contract exists in the MCP tools and generation-brief-service.ts, but it only intervenes when an external agent actually invokes those tools.
 
