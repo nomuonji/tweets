@@ -25,6 +25,8 @@ export function buildPrompt(
   explorationRate = 0.15,
   promoProduct: ProductDoc | null = null,
   platform: Platform = "x",
+  draftCount = 1,
+  promoDraftIndex: number | null = promoProduct ? 0 : null,
 ) {
   // null/0 = no account-level limit. Promo drafts still need room for the link.
   const floor =
@@ -33,9 +35,14 @@ export function buildPrompt(
   const ceiling =
     typeof maxPostLength === "number" && maxPostLength > 0 ? maxPostLength : 240;
   const maxPostLengthResolved = Math.max(ceiling, effectiveMin);
-  const targetLength =
+  const targetLengths = Array.from({ length: Math.max(1, draftCount) }, () =>
     Math.floor(Math.random() * (maxPostLengthResolved - effectiveMin + 1)) +
-    effectiveMin;
+    effectiveMin,
+  );
+  const targetLength = targetLengths[0];
+  const targetLengthSection = draftCount > 1
+    ? targetLengths.map((length, index) => `Draft ${index + 1}: ${length} characters`).join("\n")
+    : `Target: ${targetLength} characters (Absolute Max: ${maxPostLengthResolved})`;
 
   const compact = (value: string, max = 180) =>
     value.replace(/\s+/g, " ").trim().slice(0, max);
@@ -240,7 +247,7 @@ character sheet and use the source only for an abstract writing technique.
   const promoSection = promoProduct
     ? (() => {
         const lines = [
-          `\n[Promotion Target — THIS POST MUST NATURALLY INTRODUCE THIS PRODUCT]`,
+          `\n[Promotion Target — ${draftCount > 1 ? `ONLY DRAFT ${(promoDraftIndex ?? 0) + 1}` : "THIS POST"} MUST NATURALLY INTRODUCE THIS PRODUCT]`,
           `Write this post as a product introduction that fits the account's usual topic, voice, and style. It should read like a helpful recommendation, not a banner ad.`,
           `- 商品名: ${promoProduct.title}`,
         ];
@@ -285,11 +292,44 @@ ${characterSheetSection}${performanceSection}${styleSection}${tipSection}${refer
       ? `\n# 3. PAST POSTS (DUPLICATION PREVENTION)\nAVOID repeating the content or phrasing of these posts:\n${uniqueAvoid.map(t => `- ${t.replace(/\s+/g, " ").slice(0, 100)}`).join("\n")}\n`
       : `\n# 3. PAST POSTS (DUPLICATION PREVENTION)\n(No recent posts to avoid)\n`;
 
+  const taskIntro = draftCount > 1
+    ? `Generate exactly ${draftCount} independent new posts in the numbered order below. Each must use a different subject/angle, a different opening line, and a different structure where practical. Do not split one idea into several posts.`
+    : "Generate ONE new post that:";
+
+  const taskRules = [
+    "Matches its own target length in #1.",
+    "Obeys the CHARACTER SHEET above as the source of truth for persona, voice, values, opinions, and boundaries.",
+    "Is NOT similar to any post in #3 or to any other item in this batch.",
+    "Language: Japanese.",
+    "Prefer patterns visible in the strongest-performing posts, especially their opening hook and reason to react.",
+    "Add a concrete angle or observation rather than a generic summary.",
+    "Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.",
+    "Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.",
+    "Evaluate each external candidate against the actual character sheet and intended reader. Search keywords are not proof of relevance. Discard unrelated posts even when their metrics are strong; never force the account persona to fit a viral example.",
+    "Keep reach, likes, replies, reposts and engagement rate as separate signals. Do not interpret likes/followers as engagement rate per impression, and do not claim correlation proves causation.",
+    ...(draftCount > 1 ? [
+      "Make every item substantively different; no name swaps, paraphrases, repeated hooks, or multiple versions of the same idea.",
+      "Keep each explanation to one short sentence so the batch stays compact.",
+      ...(promoProduct ? [`Only item ${(promoDraftIndex ?? 0) + 1} may promote the product in [Promotion Target]. All other items must be ordinary non-promotional posts.`] : []),
+    ] : []),
+    topicTagInstruction,
+    ...(promoProduct ? ["Follow the [Promotion Target] section only for the designated item: naturally introduce the product and include its URL, in the account's usual voice."] : []),
+    ...(explore && measuredPatternAnalysis
+      ? ["Ignore the best-pattern preference for the exploration item and follow [Exploration Mode]: try an under-tested structure with fresh content."]
+      : ["Follow the pattern performance guidance in #2: use proven structures where relevant and avoid overusing underperforming ones."]),
+  ];
+
+  const itemSchema = `{
+    "tweet": "Content...",
+    "explanation": "One-sentence rationale..."${platform === "threads" ? `,
+    "topicTag": "Optional one-topic label without #"` : ""}
+  }`;
+
   return `
 You are a creative social media content generator.
 
 # 1. TARGET CHARACTER COUNT
-Target: ${targetLength} characters (Absolute Max: ${maxPostLengthResolved})
+${targetLengthSection} (Absolute Max: ${maxPostLengthResolved})
 
 ${inputValuesBlock}
 ${avoidanceBlock}
@@ -300,27 +340,16 @@ the current character sheet even if that means abandoning the voice, opinions,
 or recurring subjects in every past post listed above.
 
 # TASK
-Generate ONE new post that:
-1. Matches the length in #1.
-2. Obeys the CHARACTER SHEET above as the source of truth for persona, voice, values, opinions, and boundaries.
-3. Is NOT similar to any post in #3.
-4. Language: Japanese.
-5. Prefer patterns visible in the strongest-performing posts, especially their opening hook and reason to react.
-6. Add a concrete angle or observation rather than a generic summary.
-7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
-8. Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.
-11. Evaluate each external candidate against the actual character sheet and intended reader. Search keywords are not proof of relevance. Discard unrelated posts even when their metrics are strong; never force the account persona to fit a viral example.
-12. Keep reach, likes, replies, reposts and engagement rate as separate signals. Do not interpret likes/followers as engagement rate per impression, and do not claim correlation proves causation.
-${topicTagInstruction}
-${promoProduct ? "13. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
-${explore && measuredPatternAnalysis
-  ? "14. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
-  : "14. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
+${taskIntro}
+${taskRules.map((rule, index) => `${index + 1}. ${rule}`).join("\n")}
 
-Output strictly in JSON:
-{
-  "tweet": "Content...",
-  "explanation": "Reasoning..."${platform === "threads" ? ',\n  "topicTag": "Optional one-topic label without #; omit the key when there is no clear fit"' : ""}
-}
+Output strictly in JSON and in the requested order:
+${draftCount > 1
+    ? `{
+  "drafts": [
+    ${Array.from({ length: draftCount }, () => itemSchema).join(",\n    ")}
+  ]
+}`
+    : itemSchema}
 `;
 }

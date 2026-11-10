@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { generateSuggestion } from "@/lib/ai/generation-client";
+import { generateSuggestion, generateSuggestions } from "@/lib/ai/generation-client";
+import { parseGeminiSuggestionsResponse, parseSuggestionsText } from "@/lib/gemini/parser";
+import { buildPrompt } from "@/lib/gemini/prompt";
+import type { ProductDoc } from "@/lib/types";
 
 const originalFetch = globalThis.fetch;
 const ENV_KEYS = [
@@ -71,6 +74,87 @@ function resetEnv() {
   process.env.GEMINI_RETRY_BASE_MS = "0";
   process.env.OPENROUTER_API_KEY = "openrouter-test";
   process.env.OPENROUTER_FREE_MODELS = "qwen/qwen3.8-27b:free,google/gemma-4-26b-a4b-it:free";
+}
+
+/** Batch parsing accepts only an ordered, non-empty array of usable drafts. */
+function batchParserScenario() {
+  const batch = parseSuggestionsText(JSON.stringify({
+    drafts: [
+      { tweet: "一件目", explanation: "一つ目", topicTag: "読書" },
+      { tweet: "二件目", explanation: "二つ目", topic_tag: "日常" },
+    ],
+  }));
+  assert.equal(batch.length, 2);
+  assert.equal(batch[0].topicTag, "読書");
+  assert.equal(batch[1].topicTag, "日常");
+  assert.throws(() => parseSuggestionsText('{"drafts":[]}'), /non-empty drafts array/);
+  assert.throws(() => parseSuggestionsText('{"drafts":[{"explanation":"missing text"}]}'), /no tweet text/);
+
+  const functionCall = parseGeminiSuggestionsResponse({
+    candidates: [{
+      content: {
+        parts: [{ functionCall: { args: { drafts: [{ tweet: "structured draft" }] } } }],
+      },
+    }],
+  });
+  assert.equal(functionCall[0].tweet, "structured draft");
+}
+
+/** The periodic fallback obtains multiple drafts with one OpenCode Go request. */
+async function opencodeBatchScenario() {
+  process.env.OPENCODE_GO_API_KEY = "opencode-test";
+  process.env.OPENCODE_GO_MODELS = "claude-haiku-5-5,glm-5.3-flash";
+  let calls = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (!url.includes("opencode.ai/inference/go/openai/v1/chat/completions")) {
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+    calls += 1;
+    const body = requestBody(init);
+    return chatCompletion(JSON.stringify({
+      drafts: [
+        { tweet: "一つ目の独立した下書き", explanation: "切り口A" },
+        { tweet: "二つ目の独立した下書き", explanation: "切り口B" },
+        { tweet: "三つ目の独立した下書き", explanation: "切り口C" },
+      ],
+    }), body.model ?? "claude-haiku-5-5");
+  };
+
+  const result = await generateSuggestions("generate three independent drafts");
+  assert.equal(result.provider, "opencode");
+  assert.equal(result.value.length, 3);
+  assert.equal(calls, 1, "a three-draft batch must use one model request");
+}
+
+/** Batch prompts enumerate each target and reserve any promotion for one item. */
+function batchPromptScenario() {
+  const product = {
+    id: "test-product",
+    asin: "B000000000",
+    title: "Test product",
+    enabled: true,
+    times_used: 0,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  } as ProductDoc;
+  const prompt = buildPrompt(
+    [], [], [], [], [], [], [],
+    "Test character",
+    80,
+    240,
+    [],
+    null,
+    0,
+    product,
+    "threads",
+    3,
+    1,
+  );
+  assert.match(prompt, /Generate exactly 3 independent new posts/);
+  assert.match(prompt, /ONLY DRAFT 2/);
+  assert.match(prompt, /"drafts": \[/);
+  assert.match(prompt, /"topicTag"/);
 }
 
 /** OpenCode Go wins when its key is present, and it is called like a coding client. */
@@ -175,6 +259,10 @@ async function openRouterFallbackScenario() {
 
 async function main() {
   try {
+    resetEnv();
+    batchParserScenario();
+    batchPromptScenario();
+    await opencodeBatchScenario();
     resetEnv();
     await opencodePrimaryScenario();
     resetEnv();

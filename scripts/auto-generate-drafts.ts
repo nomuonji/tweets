@@ -2,7 +2,7 @@ import {
   getAccounts,
   getUsableDraftsByAccountId,
 } from "@/lib/services/firestore.server";
-import { generatePost } from "@/lib/services/prompt-service";
+import { generatePosts } from "@/lib/services/prompt-service";
 import { getCharacterVersion } from "@/lib/character-version";
 import { GenerationUnavailableError } from "@/lib/ai/generation-client";
 import { isPublishingEnabled } from "@/lib/account-gates";
@@ -50,10 +50,18 @@ async function main() {
         continue;
       }
 
-      console.log(`[Auto-Generate] Account ${account.handle} has ${usableDrafts.length} usable drafts. Generating a new one...`);
-      const draft = await generatePost(account.id, account.platform);
-      // Which provider/model actually answered is otherwise invisible in CI logs.
-      console.log(`[Auto-Generate] Generated draft ${draft.id} via ${draft.generatedBy} for ${account.handle}.`);
+      const neededCount = DRAFT_THRESHOLD - usableDrafts.length;
+      console.log(`[Auto-Generate] Account ${account.handle} has ${usableDrafts.length} usable drafts. Generating ${neededCount} in one batch request...`);
+      const drafts = await generatePosts(account.id, account.platform, neededCount);
+      if (drafts.length === 0) {
+        console.log(`[Auto-Generate] No refill needed for ${account.handle}; inventory was updated by another path before save.`);
+        continue;
+      }
+      const provider = drafts[0].generatedBy ?? "unknown";
+      console.log(`[Auto-Generate] Saved ${drafts.length}/${neededCount} drafts via ${provider} for ${account.handle} in one generation request.`);
+      if (drafts.length < neededCount) {
+        console.warn(`[Auto-Generate] Batch returned ${drafts.length}/${neededCount}; the next fallback cycle can top up the remaining gap.`);
+      }
 
     } catch (error) {
       console.error(`[Auto-Generate] Failed to process account ${account.handle}:`, error);

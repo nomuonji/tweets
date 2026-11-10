@@ -5,12 +5,19 @@ on:
     branches:
       - main
       - feat/threads-72h-performance-learning
+      - feat/batch-opencode-draft-refill
     paths:
       - ".github/workflows/performance-learning-validation.yml"
       - "package.json"
       - "package-lock.json"
       - "scripts/analyze-patterns.ts"
       - "scripts/test-performance-learning.ts"
+      - "scripts/test-generation-fallback.ts"
+      - "scripts/auto-generate-drafts.ts"
+      - "src/lib/ai/generation-client.ts"
+      - "scripts/test-generation-fallback.ts"
+      - "scripts/auto-generate-drafts.ts"
+      - "src/lib/ai/generation-client.ts"
       - "src/app/api/gemini/generate/route.ts"
       - "src/app/api/gemini/prepare-prompt/route.ts"
       - "src/app/api/gemini/simulate/route.ts"
@@ -77,6 +84,9 @@ jobs:
 
       - name: Performance learning regression tests
         run: npm run test:performance-learning
+
+      - name: Batch generation and provider fallback tests
+        run: npm run test:generation-fallback
 
       - name: Threads topic-tag regression tests
         run: npm run test:threads-topic-tag
