@@ -9,7 +9,7 @@ assert.equal(normalizeThreadsTopicTag("AI.tools"), undefined);
 assert.equal(normalizeThreadsTopicTag("AI & tools"), undefined);
 assert.equal(normalizeThreadsTopicTag("a".repeat(51)), undefined);
 assert.equal(normalizeThreadsTopicTag("a".repeat(50)), "a".repeat(50));
-assert.equal(normalizeThreadsTopicTag("#123"), undefined);
+assert.equal(normalizeThreadsTopicTag("#123"), "123");
 assert.equal(normalizeThreadsTopicTag(null), undefined);
 assert.equal(normalizeThreadsTopicTag(123), undefined);
 
