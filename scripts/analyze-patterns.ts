@@ -70,7 +70,11 @@ async function fetchRecentPostsForAccount(
 }
 
 function insightsAreFresh(existing: { measurementWindow?: string; content_insights?: { generatedAt: string } } | null): boolean {
-  if (existing?.measurementWindow !== "24h" && existing?.measurementWindow !== "72h") return false;
+  if (
+    existing?.measurementWindow !== "24h" &&
+    existing?.measurementWindow !== "48h" &&
+    existing?.measurementWindow !== "72h"
+  ) return false;
   if (!existing?.content_insights?.generatedAt) return false;
   const generated = DateTime.fromISO(existing.content_insights.generatedAt);
   return (
