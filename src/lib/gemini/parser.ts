@@ -2,6 +2,7 @@
 export type GeminiSuggestion = {
   tweet: string;
   explanation: string;
+  topicTag?: string;
 };
 
 type GeminiFunctionCall = {
@@ -46,9 +47,15 @@ export function parseSuggestionText(text: string): GeminiSuggestion {
       const json = JSON.parse(cleaned);
       if (json && typeof json === "object") {
           if (typeof json.tweet === "string") {
+              const topicTag = typeof json.topicTag === "string"
+                ? json.topicTag
+                : typeof json.topic_tag === "string"
+                  ? json.topic_tag
+                  : undefined;
               return {
                   tweet: json.tweet,
                   explanation: typeof json.explanation === "string" ? json.explanation : "",
+                  ...(topicTag ? { topicTag } : {}),
               };
           }
       }
@@ -60,9 +67,11 @@ export function parseSuggestionText(text: string): GeminiSuggestion {
     // Matches "tweet": "..." where ... can contain escaped quotes
     const tweetRegex = /"tweet"\s*:\s*"((?:[^"\\]|\\.)*)"/i;
     const explanationRegex = /"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"/i;
+    const topicTagRegex = /"(?:topicTag|topic_tag)"\s*:\s*"((?:[^"\\]|\\.)*)"/i;
 
     const tweetMatch = cleaned.match(tweetRegex);
     const explanationMatch = cleaned.match(explanationRegex);
+    const topicTagMatch = cleaned.match(topicTagRegex);
 
     if (tweetMatch) {
       // Helper to unescape JSON string content
@@ -85,7 +94,8 @@ export function parseSuggestionText(text: string): GeminiSuggestion {
         ? unescapeJsonString(explanationMatch[1])
         : "";
 
-      return { tweet, explanation };
+      const topicTag = topicTagMatch ? unescapeJsonString(topicTagMatch[1]) : undefined;
+      return { tweet, explanation, ...(topicTag ? { topicTag } : {}) };
     }
 
     // C. Fallback logic
@@ -132,12 +142,15 @@ export function parseGeminiResponse(raw: unknown): GeminiSuggestion {
     const candidateArgs = functionArgs.find(
       (args) =>
         typeof args.tweet === "string" && typeof args.explanation === "string"
-    ) as { tweet?: string; explanation?: string } | undefined;
+    ) as { tweet?: string; explanation?: string; topicTag?: string; topic_tag?: string } | undefined;
 
     if (candidateArgs?.tweet && candidateArgs?.explanation) {
       return {
         tweet: candidateArgs.tweet,
         explanation: candidateArgs.explanation,
+        ...((candidateArgs.topicTag ?? candidateArgs.topic_tag)
+          ? { topicTag: candidateArgs.topicTag ?? candidateArgs.topic_tag }
+          : {}),
       };
     }
 
