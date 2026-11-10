@@ -9,6 +9,7 @@
     "lint": "next lint",
     "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "sync:posts": "tsx -r dotenv/config scripts/sync.ts",
+    "capture:performance": "tsx -r dotenv/config scripts/capture-performance-snapshots.ts",
     "sync:schedules": "tsx -r dotenv/config scripts/execute-scheduled.ts",
     "sync:refresh-tokens": "tsx -r dotenv/config scripts/refresh-tokens.ts",
     "auto:sync": "tsx -r dotenv/config scripts/auto-sync.ts",
@@ -25,6 +26,7 @@
     "test:threads-publish-reliability": "tsx scripts/test-threads-publish-reliability.ts",
     "test:firestore-efficiency": "tsx scripts/test-firestore-efficiency.ts",
     "test:performance-learning": "tsx scripts/test-performance-learning.ts",
+    "test:threads-insights": "tsx scripts/test-threads-insights.ts",
     "test:threads-topic-tag": "tsx scripts/test-threads-topic-tag.ts",
     "diagnose:scheduler": "tsx -r dotenv/config scripts/diagnose-scheduler.ts",
     "tip:add": "tsx -r dotenv/config scripts/add-tip.ts",
@@ -33,7 +35,7 @@
     "test:affiliate-distribution": "tsx scripts/test-affiliate-distribution.ts",
     "test:affiliate-placement": "tsx scripts/test-affiliate-placement.ts",
     "test:amazon-associates": "tsx scripts/test-amazon-associates.ts",
-    "prebuild": "npm run test:mcp-auth && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates && npm run test:threads-publish-reliability && npm run test:performance-learning && npm run test:threads-topic-tag",
+    "prebuild": "npm run test:mcp-auth && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates && npm run test:threads-publish-reliability && npm run test:performance-learning && npm run test:threads-insights && npm run test:threads-topic-tag",
     "test:mcp-auth": "tsx scripts/test-mcp-auth.ts"
   },
   "dependencies": {
