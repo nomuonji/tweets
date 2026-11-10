@@ -41,6 +41,17 @@ on:
     branches:
       - main
     paths:
+      - ".github/workflows/performance-learning-validation.yml"
+      - ".github/workflows/performance-snapshots.yml"
+      - ".env.example"
+      - "README.md"
+      - "scripts/capture-performance-snapshots.ts"
+      - "scripts/test-threads-insights.ts"
+      - "src/app/api/oauth/[platform]/authorize/route.ts"
+      - "src/app/api/oauth/[platform]/callback/route.ts"
+      - "src/app/accounts/[platform]/oauth/page.tsx"
+      - "src/components/accounts/manual-account-form.tsx"
+      - "src/lib/oauth/threads-scopes.ts"
       - "package.json"
       - "package-lock.json"
       - "scripts/analyze-patterns.ts"
@@ -87,6 +98,9 @@ jobs:
 
       - name: Batch generation and provider fallback tests
         run: npm run test:generation-fallback
+
+      - name: Threads Insights parser and OAuth scope tests
+        run: npm run test:threads-insights
 
       - name: Threads topic-tag regression tests
         run: npm run test:threads-topic-tag
