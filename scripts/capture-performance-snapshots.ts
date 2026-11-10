@@ -170,7 +170,12 @@ async function main() {
         // A boundary race or malformed timestamp should not be persisted as a
         // checkpoint for the wrong age. The next scheduled run can retry.
         if (!snapshot) return null;
-        if (snapshot.metrics.impressions === null) counts.missingViews += 1;
+        if (snapshot.metrics.impressions === null) {
+          // Do not mark the checkpoint complete when Meta did not return Views.
+          // The next scheduled pass may retry while the age window is still open.
+          counts.missingViews += 1;
+          return null;
+        }
         if (window === "24h") counts.captured24h += 1;
         else counts.captured72h += 1;
 
