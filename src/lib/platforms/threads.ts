@@ -1,6 +1,7 @@
 import axios from "axios";
 import { DateTime } from "luxon";
 import type { AccountDoc, PostMetrics } from "@/lib/types";
+import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import type { PublishResult, SyncPostPayload } from "./types";
 
 const THREADS_API_BASE = "https://graph.threads.net";
@@ -568,7 +569,7 @@ export async function getThreadsUserProfile(accessToken: string): Promise<{
 
 export async function publishThreadsPost(
   account: AccountDoc,
-  payload: { text: string; mediaUrls?: string[]; url?: string },
+  payload: { text: string; mediaUrls?: string[]; url?: string; topicTag?: string },
   options: ThreadsPublishOptions = {},
 ): Promise<PublishResult> {
   const accessToken = getThreadsAccessToken(account);
@@ -579,6 +580,13 @@ export async function publishThreadsPost(
   const userId = getThreadsUserId(account);
   if (!userId) {
     throw new Error("Threads user ID is not configured");
+  }
+
+  const topicTag = payload.topicTag === undefined
+    ? undefined
+    : normalizeThreadsTopicTag(payload.topicTag);
+  if (payload.topicTag !== undefined && !topicTag) {
+    throw new Error("Invalid Threads topic tag: use 1–50 characters without periods or ampersands.");
   }
 
   const startedAt = options.startedAt ?? DateTime.utc().toISO()!;
@@ -595,6 +603,7 @@ export async function publishThreadsPost(
           {
             media_type: "TEXT",
             text: payload.text,
+            ...(topicTag ? { topic_tag: topicTag } : {}),
             access_token: accessToken,
           },
         );
