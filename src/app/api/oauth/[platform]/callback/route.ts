@@ -221,14 +221,14 @@ async function handleThreadsCallback(code: string, state: string, requestUrl: UR
     scopes: [],
     token: {
       accessToken: tokenData.access_token,
-      refreshToken: undefined,
+      // Threads long-lived user tokens are refreshed using the current access token.
+      refreshToken: tokenData.access_token,
       expiresAt,
       userId: profile.id,
     },
     extra: {
       threads_user_id: profile.id,
       threads_scopes_requested: resolveThreadsOAuthScopes(),
-      threads_insights_permission_verified: false,
     },
   });
 
