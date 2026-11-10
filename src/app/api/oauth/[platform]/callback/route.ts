@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 import { upsertAccount } from "@/lib/services/account-service";
 import { getThreadsUserProfile } from "@/lib/platforms/threads";
+import { resolveThreadsOAuthScopes } from "@/lib/oauth/threads-scopes";
 
 type RouteContext = {
   params: {
@@ -40,9 +41,7 @@ export async function GET(request: Request, { params }: RouteContext) {
 }
 
 async function handleXCallback(code: string, state: string, requestUrl: URL) {
-  console.info("[OAuth:X] callback", { code, state });
   const stored = readCookie("oauth_x");
-  console.info("[OAuth:X] stored", stored);
   clearCookie("oauth_x");
 
   if (!stored || stored.state !== state || !stored.codeVerifier) {
@@ -135,9 +134,7 @@ async function handleXCallback(code: string, state: string, requestUrl: URL) {
 }
 
 async function handleThreadsCallback(code: string, state: string, requestUrl: URL) {
-  console.info("[OAuth:Threads] callback", { code, state });
   const stored = readCookie("oauth_threads");
-  console.info("[OAuth:Threads] stored", stored);
   clearCookie("oauth_threads");
 
   if (!stored || stored.state !== state) {
@@ -152,25 +149,51 @@ async function handleThreadsCallback(code: string, state: string, requestUrl: UR
     return redirectWithMessage("threads", requestUrl, "Threads OAuth 環境変数が不足しています。");
   }
 
-  const tokenUrl = new URL("https://graph.facebook.com/v18.0/oauth/access_token");
-  tokenUrl.searchParams.set("client_id", appId);
-  tokenUrl.searchParams.set("client_secret", appSecret);
-  tokenUrl.searchParams.set("redirect_uri", redirectUri);
-  tokenUrl.searchParams.set("code", code);
+  const shortLivedTokenUrl = new URL("https://graph.threads.net/oauth/access_token");
+  shortLivedTokenUrl.searchParams.set("client_id", appId);
+  shortLivedTokenUrl.searchParams.set("client_secret", appSecret);
+  shortLivedTokenUrl.searchParams.set("grant_type", "authorization_code");
+  shortLivedTokenUrl.searchParams.set("redirect_uri", redirectUri);
+  shortLivedTokenUrl.searchParams.set("code", code);
 
-  const tokenResponse = await fetch(tokenUrl.toString(), { method: "GET" });
-  if (!tokenResponse.ok) {
-    const detail = await safeJson(tokenResponse);
+  const shortLivedTokenResponse = await fetch(shortLivedTokenUrl.toString(), {
+    method: "POST",
+  });
+  if (!shortLivedTokenResponse.ok) {
+    const detail = await safeJson(shortLivedTokenResponse);
     return redirectWithMessage(
       "threads",
       requestUrl,
-      `トークンの取得に失敗しました: ${tokenResponse.status} ${JSON.stringify(detail)}`,
+      `トークンの取得に失敗しました: ${shortLivedTokenResponse.status} ${JSON.stringify(detail)}`,
     );
   }
 
-  const tokenData = (await tokenResponse.json()) as {
+  const shortLivedTokenData = (await shortLivedTokenResponse.json()) as {
+    access_token: string;
+  };
+
+  // Store only a long-lived token. The short-lived token is never persisted.
+  const longLivedTokenUrl = new URL("https://graph.threads.net/access_token");
+  longLivedTokenUrl.searchParams.set("grant_type", "th_exchange_token");
+  longLivedTokenUrl.searchParams.set("client_secret", appSecret);
+  longLivedTokenUrl.searchParams.set("access_token", shortLivedTokenData.access_token);
+
+  const longLivedTokenResponse = await fetch(longLivedTokenUrl.toString(), {
+    method: "GET",
+  });
+  if (!longLivedTokenResponse.ok) {
+    const detail = await safeJson(longLivedTokenResponse);
+    return redirectWithMessage(
+      "threads",
+      requestUrl,
+      `長期トークンへの交換に失敗しました: ${longLivedTokenResponse.status} ${JSON.stringify(detail)}`,
+    );
+  }
+
+  const tokenData = (await longLivedTokenResponse.json()) as {
     access_token: string;
     expires_in?: number;
+    token_type?: string;
   };
 
   let profile: { id: string; name?: string; username?: string };
@@ -204,6 +227,8 @@ async function handleThreadsCallback(code: string, state: string, requestUrl: UR
     },
     extra: {
       threads_user_id: profile.id,
+      threads_scopes_requested: resolveThreadsOAuthScopes(),
+      threads_insights_permission_verified: false,
     },
   });
 
