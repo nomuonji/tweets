@@ -130,9 +130,12 @@ return NextResponse.json({
         externalPosts: externalPosts.slice(0, 12),
         patternStats:
           patternAnalysis?.measurementWindow === "24h" ||
+          patternAnalysis?.measurementWindow === "48h" ||
           patternAnalysis?.measurementWindow === "72h"
             ? {
                 measurementWindow: patternAnalysis.measurementWindow,
+                measurementBasis: patternAnalysis.measurementBasis,
+                cohortAgeHours: patternAnalysis.cohortAgeHours,
                 exposureMetric: patternAnalysis.exposureMetric,
                 medianExposure: patternAnalysis.accountMedianImpressions,
                 // Backward-compatible alias; this remains a weighted,
