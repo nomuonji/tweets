@@ -54,6 +54,7 @@ No broad auto-commenting is being added. A safe reply agent would need to read r
 
 - likeRatio means likes divided by the source account's followers; it is not an impression-normalized engagement rate.
 - exposurePerFollower is a rough comparison, not a causal measure of distribution.
+- External-source brief samples include higher-exposure, lower-exposure, median-like typical-exposure, higher-like-ratio and recent-contrast lanes. Lower exposure is not proof that the post was bad; every sample still needs account/audience relevance review.
 - recent-contrast is a recency sample, not a verified low-performing control group.
 - Views, replies, likes, reposts, clicks and sales are different outcomes. A reach improvement is not proof of revenue.
 - Fixed-age cohorts reduce age-comparison errors but do not by themselves prove that a particular creative choice caused the result.
