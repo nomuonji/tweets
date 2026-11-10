@@ -2,6 +2,16 @@ name: Threads Performance Snapshots
 
 on:
   workflow_dispatch:
+  # Run immediately when the capture implementation changes on main.
+  # This provides a Vercel-independent execution path for Firebase snapshots.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/performance-snapshots.yml"
+      - "scripts/capture-performance-snapshots.ts"
+      - "src/lib/platforms/threads.ts"
+      - "src/lib/performance-snapshots.ts"
+      - "src/lib/account-gates.ts"
   schedule:
     # Two opportunities inside each six-hour capture window without running a
     # full account/post sync or increasing the existing sync cadence.
