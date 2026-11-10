@@ -6,6 +6,7 @@ import type { GeminiSuggestion } from "@/lib/gemini/parser";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
 import { extractPattern, engagementRate } from "@/lib/pattern";
+import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import { markProductUsed, pickPromoProduct } from "./product-service";
 import {
   belongsToCharacterVersion,
@@ -211,7 +212,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   let duplicate = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate, promoProduct);
+    const prompt = buildPrompt(topPosts, referencePosts, recentPosts, drafts, extraAvoid, tips, exemplaryPosts, account.concept, account.minPostLength, account.maxPostLength, externalPosts, patternAnalysis, account.explorationRate, promoProduct, platform);
     const generated = await generateSuggestion(prompt);
     suggestion = generated.value;
     provider = generated.provider;
@@ -227,6 +228,9 @@ export async function generatePost(accountId: string, platform: Platform, limit 
   }
 
   const now = DateTime.utc().toISO()!;
+  const topicTag = platform === "threads"
+    ? normalizeThreadsTopicTag(suggestion.topicTag)
+    : undefined;
   const draftId = `generated_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const newDraft: DraftDoc = {
     id: draftId,
@@ -234,6 +238,7 @@ export async function generatePost(accountId: string, platform: Platform, limit 
     target_account_id: accountId,
     text: suggestion.tweet,
     hashtags: [],
+    ...(topicTag ? { topic_tag: topicTag } : {}),
     status: "scheduled",
     schedule_time: null,
     published_at: null,
