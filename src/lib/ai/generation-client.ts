@@ -9,6 +9,8 @@ import {
 import {
   parseGeminiResponse,
   parseSuggestionText,
+  parseGeminiSuggestionsResponse,
+  parseSuggestionsText,
   type GeminiSuggestion,
 } from "@/lib/gemini/parser";
 
@@ -386,4 +388,16 @@ export function generateSuggestion(
 
 export function generateText(prompt: string): Promise<GenerationResult<string>> {
   return generateWithFallback(prompt, extractGeminiText, (text) => text);
+}
+
+
+/** Generate several distinct drafts with one model request and one shared prompt. */
+export function generateSuggestions(
+  prompt: string,
+): Promise<GenerationResult<GeminiSuggestion[]>> {
+  return generateWithFallback(
+    prompt,
+    parseGeminiSuggestionsResponse,
+    parseSuggestionsText,
+  );
 }
