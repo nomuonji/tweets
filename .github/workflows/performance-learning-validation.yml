@@ -21,6 +21,13 @@ on:
       - "src/lib/services/prompt-service.ts"
       - "src/lib/services/sync-service.ts"
       - "src/lib/types.ts"
+      - "scripts/test-threads-topic-tag.ts"
+      - "src/lib/threads-topic-tag.ts"
+      - "src/lib/platforms/threads.ts"
+      - "src/lib/services/scheduler-service.ts"
+      - "src/lib/services/draft-service.ts"
+      - "src/lib/services/external-discovery-service.ts"
+      - "src/lib/gemini/parser.ts"
   pull_request:
     branches:
       - main
@@ -39,6 +46,13 @@ on:
       - "src/lib/services/prompt-service.ts"
       - "src/lib/services/sync-service.ts"
       - "src/lib/types.ts"
+      - "scripts/test-threads-topic-tag.ts"
+      - "src/lib/threads-topic-tag.ts"
+      - "src/lib/platforms/threads.ts"
+      - "src/lib/services/scheduler-service.ts"
+      - "src/lib/services/draft-service.ts"
+      - "src/lib/services/external-discovery-service.ts"
+      - "src/lib/gemini/parser.ts"
 
 jobs:
   validate:
