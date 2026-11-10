@@ -1,12 +1,13 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { buildPrompt } from "@/lib/gemini/prompt";
-import { generateSuggestion, type GenerationProvider } from "@/lib/ai/generation-client";
+import { generateSuggestion, generateSuggestions, type GenerationProvider } from "@/lib/ai/generation-client";
 import type { GeminiSuggestion } from "@/lib/gemini/parser";
 import type { AccountDoc, DraftDoc, ExemplaryPost, PostDoc, Tip, Platform } from "@/lib/types";
 import { getExternalPostsForAccount, getPatternStats } from "./firestore.server";
 import { extractPattern, engagementRate } from "@/lib/pattern";
 import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
+import { isPublishingEnabled } from "@/lib/account-gates";
 import { markProductUsed, pickPromoProduct } from "./product-service";
 import {
   belongsToCharacterVersion,
@@ -135,7 +136,7 @@ async function fetchExemplaryPosts(accountId: string): Promise<ExemplaryPost[]> 
 
 // --- Core Service Functions ---
 
-export async function preparePromptPayload(accountId: string, limit = 15) {
+export async function preparePromptPayload(accountId: string, limit = 15, draftCount = 1) {
   const account = await fetchAccount(accountId);
   if (!account) {
     throw new Error("Account not found.");
@@ -172,11 +173,16 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
   // Product promotion: roll once per generation. `時々` = a probability,
   // defaulting to off (0) unless the account owner enables it.
   const promoRate = Math.min(Math.max(account.promoRate ?? 0, 0), 1);
+  // Preserve the per-draft chance approximately when one request produces a batch.
+  const batchPromoProbability = 1 - Math.pow(1 - promoRate, Math.max(1, draftCount));
   const shouldPromo =
     account.promoEnabled === true &&
     promoRate > 0 &&
-    Math.random() < promoRate;
+    Math.random() < batchPromoProbability;
   const promoProduct = shouldPromo ? await pickPromoProduct(accountId) : null;
+  const promoDraftIndex = promoProduct
+    ? Math.floor(Math.random() * Math.max(1, draftCount))
+    : null;
 
   return {
     account,
@@ -189,11 +195,176 @@ export async function preparePromptPayload(accountId: string, limit = 15) {
     externalPosts,
     patternAnalysis,
     promoProduct,
+    promoDraftIndex,
     characterVersion,
   };
 }
 
 
+
+/**
+ * Create up to five drafts from one model request. The live inventory and
+ * character version are re-read transactionally immediately before saving.
+ */
+export async function generatePosts(
+  accountId: string,
+  platform: Platform,
+  requestedCount: number,
+  limit = 15,
+): Promise<DraftDoc[]> {
+  const draftCount = Math.min(Math.max(Math.floor(requestedCount), 0), 5);
+  if (!Number.isFinite(requestedCount) || draftCount === 0) return [];
+
+  const payload = await preparePromptPayload(accountId, limit, draftCount);
+  const {
+    account,
+    topPosts,
+    referencePosts,
+    recentPosts,
+    drafts,
+    tips,
+    exemplaryPosts,
+    externalPosts,
+    patternAnalysis,
+    promoProduct,
+    promoDraftIndex,
+    characterVersion,
+  } = payload;
+
+  if (account.platform !== platform) {
+    throw new Error(`Platform mismatch for account ${accountId}.`);
+  }
+
+  const prompt = buildPrompt(
+    topPosts,
+    referencePosts,
+    recentPosts,
+    drafts,
+    [],
+    tips,
+    exemplaryPosts,
+    account.concept,
+    account.minPostLength,
+    account.maxPostLength,
+    externalPosts,
+    patternAnalysis,
+    account.explorationRate,
+    promoProduct,
+    platform,
+    draftCount,
+    promoDraftIndex,
+  );
+  const generated = await generateSuggestions(prompt);
+  const suggestions = generated.value.slice(0, draftCount);
+  if (suggestions.length === 0) {
+    throw new Error("The batch generator returned no usable drafts.");
+  }
+
+  const createdDrafts: DraftDoc[] = [];
+  let promoWasUsed = false;
+  await adminDb.runTransaction(async (transaction) => {
+    createdDrafts.length = 0;
+    promoWasUsed = false;
+
+    const accountRef = adminDb.collection("accounts").doc(accountId);
+    const draftsQuery = adminDb
+      .collection("drafts")
+      .where("target_account_id", "==", accountId);
+    const [accountSnapshot, draftSnapshot] = await Promise.all([
+      transaction.get(accountRef),
+      transaction.get(draftsQuery),
+    ]);
+
+    if (!accountSnapshot.exists) {
+      throw new Error("Account was removed before the batch could be saved.");
+    }
+    const latestAccount = {
+      id: accountSnapshot.id,
+      ...accountSnapshot.data(),
+    } as AccountDoc;
+    if (
+      !isPublishingEnabled(latestAccount) ||
+      latestAccount.serverGenerationEnabled === false
+    ) {
+      return;
+    }
+    if (getCharacterVersion(latestAccount) !== characterVersion) {
+      throw new Error("Character version changed while the batch was generating; refusing stale drafts.");
+    }
+
+    const latestDrafts = draftSnapshot.docs.map(
+      (doc) => ({ id: doc.id, ...doc.data() }) as DraftDoc,
+    );
+    const usableDrafts = latestDrafts.filter((draft) =>
+      (draft.status === "draft" || draft.status === "scheduled") &&
+      belongsToCharacterVersion(draft, characterVersion),
+    );
+    const remaining = Math.max(0, 5 - usableDrafts.length);
+    if (remaining === 0) return;
+
+    const knownTexts = new Set(
+      [...latestDrafts.map((draft) => draft.text), ...recentPosts.map((post) => post.text)]
+        .filter(Boolean)
+        .map(normalizeText),
+    );
+    const unique: Array<{ suggestion: GeminiSuggestion; index: number }> = [];
+    suggestions.forEach((suggestion, index) => {
+      const text = suggestion.tweet.trim();
+      if (!text) return;
+      const normalized = normalizeText(text);
+      if (knownTexts.has(normalized)) return;
+      knownTexts.add(normalized);
+      unique.push({ suggestion: { ...suggestion, tweet: text }, index });
+    });
+
+    const selected = unique.slice(0, remaining);
+    if (selected.length === 0) return;
+
+    const now = DateTime.utc().toISO()!;
+    for (const { suggestion, index } of selected) {
+      const topicTag = platform === "threads"
+        ? normalizeThreadsTopicTag(suggestion.topicTag)
+        : undefined;
+      const draftId = `generated_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const isPromoDraft = Boolean(promoProduct && index === promoDraftIndex);
+      const newDraft: DraftDoc = {
+        id: draftId,
+        target_platform: platform,
+        target_account_id: accountId,
+        text: suggestion.tweet,
+        hashtags: [],
+        ...(topicTag ? { topic_tag: topicTag } : {}),
+        status: "scheduled",
+        schedule_time: null,
+        published_at: null,
+        created_by: `${generated.provider}-auto`,
+        generatedBy: generated.model
+          ? `${generated.provider}:${generated.model}`
+          : generated.provider,
+        created_at: now,
+        updated_at: now,
+        similarity_warning: false,
+        character_version: characterVersion,
+        pattern: extractPattern(suggestion.tweet),
+        ...(isPromoDraft && promoProduct
+          ? { promo_product_id: promoProduct.id, promo_product_asin: promoProduct.asin }
+          : {}),
+      };
+      transaction.create(adminDb.collection("drafts").doc(draftId), newDraft);
+      createdDrafts.push(newDraft);
+      if (isPromoDraft) promoWasUsed = true;
+    }
+  });
+
+  if (promoProduct && promoWasUsed) {
+    try {
+      await markProductUsed(accountId, promoProduct.id);
+    } catch (error) {
+      console.error("[Prompt] Draft batch was saved, but product usage could not be recorded:", error);
+    }
+  }
+  return createdDrafts;
+}
 
 export async function generatePost(accountId: string, platform: Platform, limit = 15): Promise<DraftDoc> {
   const payload = await preparePromptPayload(accountId, limit);
