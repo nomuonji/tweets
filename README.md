@@ -9,6 +9,7 @@ Internal tool for analysing X (Twitter) and Threads posts, generating AI-assiste
 - OAuth 2.0 PKCE flow for X and Threads, plus a manual registration form for pasting tokens.
 - GitHub Actions workflows for post sync, schedule execution, and token refresh.
 - External discovery collects cached X search results for configured keywords and reference accounts before draft generation.
+- Threads post Insights are captured at comparable 24h / 72h ages by a targeted low-volume job; Views are kept distinct from Impressions.
 - A self-improvement loop classifies every post into a structure type, aggregates engagement per type weekly, and feeds the best/worst patterns back into the generator.
 - Content-level learning: a weekly LLM pass extracts the topics, traits, and experiments that work per account and injects them into the prompt.
 - Exploration: each account can set an exploration rate (default 0.2) so generation periodically tries new structures/topics instead of only repeating proven winners.
@@ -59,6 +60,11 @@ scripts/               # Node entry points for GitHub Actions / local runs
 2. Install dependencies: `npm install`
 3. Run local dev server: `npm run dev`
 
+### Threads measurement
+- The OAuth callback uses the current Threads authorization/token exchange endpoints and persists a long-lived token.
+- Existing Threads accounts must be re-authorized once to grant `threads_manage_insights`; the request scopes recorded in account metadata are not treated as proof that Meta granted the permission. The first successful per-post Insights request is the operational verification.
+- The snapshot job queries only `created_at` ranges corresponding to post ages 24–30h and 72–78h, skips an already-saved checkpoint, limits Meta API concurrency to 3, and commits only successful snapshots in batches of at most 400 writes. No full-history scan or new composite index is required.
+
 ### Handy Commands
 | Command | Description |
 | --- | --- |
@@ -73,6 +79,7 @@ scripts/               # Node entry points for GitHub Actions / local runs
 ### GitHub Actions
 - `auto-generate-drafts.yml` — every 2 hours (and manual) to top the draft queue back up to 5 usable drafts per publishing account. This is the "投稿自動補充" mode: it runs server-side, so it keeps working while the Vercel deployment is down. Scheduled runs always generate; manual runs follow the `allow_generation` input.
 - `sync.yml` — every 6 hours (and manual) to import posts incrementally.
+- `performance-snapshots.yml` — every 3 hours; reads only posts in the 24h / 72h measurement windows, requests per-post Threads Insights where the checkpoint is missing, then writes successful results in batches. It does not run the full post sync.
 - `scheduler.yml` — every 15 minutes, with bounded Firestore reads and slot idempotency.
 - `refresh-tokens.yml` — daily token refresh.  
   Configure repository secrets (`FIREBASE_SERVICE_ACCOUNT`, `OPENCODE_GO_API_KEY`, `OPENAI_API_KEY`, `X_CLIENT_ID`, `X_CLIENT_SECRET`, `THREADS_APP_ID`, `THREADS_APP_SECRET`, etc.).

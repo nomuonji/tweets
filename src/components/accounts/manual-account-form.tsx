@@ -142,6 +142,9 @@ export function ManualAccountForm() {
             <code className="rounded bg-muted px-1">31573770612207145</code>）。
           </p>
           <p>
+            24時間・72時間のViews計測には `threads_manage_insights` 権限が必要です。既存トークンは Threads OAuth から再認可してください。
+          </p>
+          <p>
             環境変数（THREADS_ACCESS_TOKEN / THREADS_USER_ID）でも動作しますが、
             本番ではアカウントごとに保存することを推奨します。
           </p>
@@ -366,7 +369,7 @@ function Oauth2Fields({ form, onChange }: OauthFieldsProps) {
           <Textarea
             id={id}
             value={form.scopes}
-            placeholder="tweet.read tweet.write users.read"
+            placeholder="threads_basic,threads_content_publish,threads_manage_insights"
             className="h-20 font-mono text-xs"
             onChange={(event) => onChange("scopes", event.target.value)}
           />

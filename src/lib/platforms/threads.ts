@@ -289,6 +289,68 @@ function mapMetrics(item: ThreadsItem): PostMetrics {
   };
 }
 
+export function parseThreadsPostInsights(response: {
+  data?: InsightMetric[];
+}): PostMetrics {
+  const value = (
+    name: "views" | "likes" | "replies" | "reposts" | "quotes",
+  ): number | null => {
+    const metric = response.data?.find((item) => item.name === name);
+    const number = metric?.values?.[0]?.value;
+    return typeof number === "number" && Number.isFinite(number)
+      ? number
+      : null;
+  };
+
+  return {
+    // Threads reports Views, not Impressions. The checkpoint stores the
+    // distinction explicitly as exposure_metric="views".
+    impressions: value("views"),
+    likes: value("likes") ?? 0,
+    replies: value("replies") ?? 0,
+    reposts_or_rethreads: value("reposts") ?? 0,
+    quotes: value("quotes") ?? 0,
+    link_clicks: null,
+  };
+}
+
+export async function fetchThreadsPostInsights(
+  account: AccountDoc,
+  postId: string,
+): Promise<PostMetrics> {
+  const accessToken = getThreadsAccessToken(account);
+  if (!accessToken) {
+    throw new Error("Threads access token is not configured for Insights.");
+  }
+
+  try {
+    const response = await axios.get<{ data?: InsightMetric[] }>(
+      `${THREADS_API_BASE}/v1.0/${encodeURIComponent(postId)}/insights`,
+      {
+        params: {
+          metric: "views,likes,replies,reposts,quotes",
+          access_token: accessToken,
+        },
+        timeout: 15000,
+      },
+    );
+    return parseThreadsPostInsights(response.data);
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const body = error.response?.data as {
+        error?: { code?: number; message?: string };
+      } | undefined;
+      const code = body?.error?.code;
+      const message = body?.error?.message;
+      throw new Error(
+        `Threads Insights API failed${status ? ` (HTTP ${status})` : ""}${code ? ` code ${code}` : ""}${message ? `: ${message}` : ""}`,
+      );
+    }
+    throw error;
+  }
+}
+
 type FetchThreadsResult = {
   posts: SyncPostPayload[];
   debug: string[];
