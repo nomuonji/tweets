@@ -123,13 +123,19 @@ character sheet and use the source only for an abstract writing technique.
   // age-normalized cohorts in the generator.
   const measuredPatternAnalysis =
     patternAnalysis?.measurementWindow === "24h" ||
+    patternAnalysis?.measurementWindow === "48h" ||
     patternAnalysis?.measurementWindow === "72h"
       ? patternAnalysis
       : null;
 
   const patternSection = measuredPatternAnalysis && measuredPatternAnalysis.patterns.length > 0
     ? (() => {
-        const windowLabel = measuredPatternAnalysis.measurementWindow;
+        const cohort = measuredPatternAnalysis.cohortAgeHours;
+        const windowLabel = measuredPatternAnalysis.measurementBasis === "fetched_at_age_matched"
+          ? `approx. ${measuredPatternAnalysis.measurementWindow} (legacy metrics fetched ${cohort?.min ?? "?"}–${cohort?.max ?? "?"}h after publication)`
+          : measuredPatternAnalysis.measurementBasis === "mixed_exact_snapshot_and_fetched_at"
+            ? `approx. ${measuredPatternAnalysis.measurementWindow} (exact snapshots + legacy fetches, ${cohort?.min ?? "?"}–${cohort?.max ?? "?"}h cohort)`
+            : `${measuredPatternAnalysis.measurementWindow} age-matched snapshots`;
         const metricLabel = measuredPatternAnalysis.exposureMetric ?? "表示数";
         const medianExposure = measuredPatternAnalysis.accountMedianImpressions ?? 0;
         const medianRate = measuredPatternAnalysis.accountMedianEngagementRate;
