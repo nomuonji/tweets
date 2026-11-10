@@ -116,6 +116,76 @@ export function parseSuggestionText(text: string): GeminiSuggestion {
 }
 
 /**
+ * Parses a multi-draft JSON response. Every returned item must be a usable
+ * suggestion; callers may accept a shorter batch and top it up on a later run.
+ */
+export function parseSuggestionsText(text: string): GeminiSuggestion[] {
+  const cleaned = sanitizeCandidateText(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error("Failed to parse batch JSON response from model.");
+  }
+
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).drafts)
+      ? (parsed as { drafts: unknown[] }).drafts
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).suggestions)
+        ? (parsed as { suggestions: unknown[] }).suggestions
+        : null;
+
+  if (!entries || entries.length === 0) {
+    throw new Error("Batch response must contain a non-empty drafts array.");
+  }
+
+  return entries.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Batch item ${index + 1} is not an object.`);
+    }
+    const item = entry as Record<string, unknown>;
+    if (typeof item.tweet !== "string" || !item.tweet.trim()) {
+      throw new Error(`Batch item ${index + 1} has no tweet text.`);
+    }
+    const topicTag = typeof item.topicTag === "string"
+      ? item.topicTag
+      : typeof item.topic_tag === "string"
+        ? item.topic_tag
+        : undefined;
+    return {
+      tweet: item.tweet.trim(),
+      explanation: typeof item.explanation === "string" ? item.explanation : "",
+      ...(topicTag ? { topicTag } : {}),
+    };
+  });
+}
+
+/** Extracts a batch from Gemini text output or structured function-call args. */
+export function parseGeminiSuggestionsResponse(raw: unknown): GeminiSuggestion[] {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Gemini batch response was empty or invalid.");
+  }
+
+  const { candidates } = raw as GeminiResponse;
+  const parts = candidates?.[0]?.content?.parts ?? [];
+  const text = parts.map((part) => part?.text ?? "").join("").trim();
+  if (text) return parseSuggestionsText(text);
+
+  const args = parts
+    .map((part) => part?.functionCall?.args ?? null)
+    .find((value) =>
+      value && (
+        Array.isArray(value.drafts) ||
+        Array.isArray(value.suggestions)
+      ),
+    );
+  if (args) return parseSuggestionsText(JSON.stringify(args));
+
+  throw new Error("Gemini batch response did not include text or a drafts function call.");
+}
+
+/**
  * Parses the raw response from Gemini/Grok API into a structured suggestion.
  * Handles JSON, function calls, and fallback text parsing.
  */
