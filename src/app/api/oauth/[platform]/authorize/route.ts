@@ -1,5 +1,6 @@
 ﻿import { NextResponse } from "next/server";
 import { createCodeChallenge, createCodeVerifier, createState } from "@/lib/oauth/pkce";
+import { resolveThreadsOAuthScopes } from "@/lib/oauth/threads-scopes";
 
 type RouteContext = {
   params: {
@@ -67,7 +68,7 @@ function authorizeX() {
 function authorizeThreads() {
   const appId = process.env.THREADS_APP_ID;
   const redirectUri = process.env.THREADS_REDIRECT_URI;
-  const scope = process.env.THREADS_SCOPES ?? "threads_basic";
+  const scope = resolveThreadsOAuthScopes().join(",");
 
   if (!appId || !redirectUri) {
     return NextResponse.json(
@@ -81,7 +82,7 @@ function authorizeThreads() {
 
   const state = createState();
 
-  const url = new URL("https://www.facebook.com/v18.0/dialog/oauth");
+  const url = new URL("https://threads.net/oauth/authorize");
   url.searchParams.set("client_id", appId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
