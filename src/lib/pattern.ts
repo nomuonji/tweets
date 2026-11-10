@@ -23,7 +23,9 @@ export interface PatternAnalysis {
   character_version?: number;
   accountMedianEngagementRate: number | null;
   accountMedianImpressions: number | null;
-  measurementWindow: "24h" | "72h";
+  measurementWindow: "24h" | "48h" | "72h";
+  measurementBasis?: "fixed_age_snapshot" | "fetched_at_age_matched" | "mixed_exact_snapshot_and_fetched_at";
+  cohortAgeHours?: { min: number; max: number };
   exposureMetric: "views" | "impressions";
   patterns: PatternStat[];
   analyzedPosts: number;
@@ -98,7 +100,7 @@ export function computePatternAnalysis(
     pattern?: PostPattern;
   }>,
   accountId: string,
-  measurementWindow: "24h" | "72h" = "72h",
+  measurementWindow: "24h" | "48h" | "72h" = "72h",
   exposureMetric: "views" | "impressions" = "impressions",
 ): PatternAnalysis {
   // Do not let missing/zero exposure enter the denominator or pattern ranking.
