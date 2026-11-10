@@ -104,7 +104,7 @@ async function publishDraft(
   }
   return publishThreadsPost(
     account,
-    { text: buildPostText(draft) },
+    { text: buildPostText(draft), ...(draft.topic_tag ? { topicTag: draft.topic_tag } : {}) },
     {
       startedAt,
       onProgress: (progress) => persistThreadsProgress(draft.id, progress),
