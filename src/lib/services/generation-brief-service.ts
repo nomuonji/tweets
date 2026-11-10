@@ -149,7 +149,7 @@ async function fetchOpenDrafts(accountId: string): Promise<DraftDoc[]> {
 }
 
 /**
- * Keep three observation lanes instead of treating likes/follower as a reach
+ * Keep five observation lanes instead of treating likes/follower as a reach
  * metric. "recent-contrast" is a temporal sample, not a low-performing control.
  */
 function sampleExternal(posts: ExternalPostDoc[], limit: number) {
@@ -169,7 +169,7 @@ function sampleExternal(posts: ExternalPostDoc[], limit: number) {
     };
   });
   const selected = new Map<string, (typeof rows)[number] & {
-    sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast";
+    sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "lower-exposure-per-follower" | "typical-exposure-per-follower" | "recent-contrast";
   }>();
   const addLane = (candidates: typeof rows, lane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "lower-exposure-per-follower" | "typical-exposure-per-follower" | "recent-contrast", quota: number) => {
     let added = 0;
