@@ -85,7 +85,9 @@ export interface PatternAnalysis {
   character_version?: number;
   accountMedianEngagementRate: number | null;
   /** Age-normalized window used by the new learning pipeline. Legacy docs omit it. */
-  measurementWindow?: "24h" | "72h";
+  measurementWindow?: "24h" | "48h" | "72h";
+  measurementBasis?: "fixed_age_snapshot" | "fetched_at_age_matched" | "mixed_exact_snapshot_and_fetched_at";
+  cohortAgeHours?: { min: number; max: number };
   exposureMetric?: "views" | "impressions";
   accountMedianImpressions?: number | null;
   patterns: PatternStat[];
