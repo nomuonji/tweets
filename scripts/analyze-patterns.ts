@@ -99,8 +99,11 @@ function keywordsNeedRefresh(account: {
 async function main() {
   // Self-performance learning must continue even when external source
   // discovery is deliberately disabled for an account.
-  const accounts = (await getAccounts()).filter((account) =>
-    isPerformanceLearningEnabled(account),
+  const threadsOnly = process.argv.includes("--threads-only");
+  const accounts = (await getAccounts()).filter(
+    (account) =>
+      isPerformanceLearningEnabled(account) &&
+      (!threadsOnly || account.platform === "threads"),
   );
   const skipInsights = process.argv.includes("--no-insights");
   let updated = 0;
