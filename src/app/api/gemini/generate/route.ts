@@ -58,6 +58,7 @@ export async function POST(request: Request) {
           patternAnalysis,
           account.explorationRate,
           promoProduct,
+          account.platform,
         );
         finalPrompt = prompt;
         suggestion = await requestGrok(prompt, xaiApiKey);
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
           patternAnalysis,
           account.explorationRate,
           promoProduct,
+          account.platform,
         );
         finalPrompt = prompt;
         const generated = await generateSuggestion(prompt);
