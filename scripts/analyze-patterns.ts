@@ -69,12 +69,17 @@ async function fetchRecentPostsForAccount(
   }
 }
 
-function insightsAreFresh(existing: { measurementWindow?: string; content_insights?: { generatedAt: string } } | null): boolean {
+function insightsAreFresh(existing: {
+  measurementWindow?: string;
+  measurementBasis?: string;
+  content_insights?: { generatedAt: string };
+} | null): boolean {
   if (
     existing?.measurementWindow !== "24h" &&
     existing?.measurementWindow !== "48h" &&
     existing?.measurementWindow !== "72h"
   ) return false;
+  if (existing.measurementBasis !== "fixed_age_snapshot") return false;
   if (!existing?.content_insights?.generatedAt) return false;
   const generated = DateTime.fromISO(existing.content_insights.generatedAt);
   return (
@@ -150,12 +155,18 @@ async function main() {
         account.platform === "threads" ? "views" : "impressions",
       );
       analysis.character_version = characterVersion;
+      analysis.measurementBasis = "fixed_age_snapshot";
+      analysis.cohortAgeHours =
+        measurementWindow === "72h"
+          ? { min: 72, max: 78 }
+          : { min: 24, max: 30 };
 
       const existing = await getPatternStats(account.id);
       if (
         existing?.content_insights &&
         (
           existing.measurementWindow !== measurementWindow ||
+          existing.measurementBasis !== "fixed_age_snapshot" ||
           getCharacterVersion(existing) !== characterVersion
         )
       ) {
