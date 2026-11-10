@@ -514,6 +514,8 @@ export interface ExternalPostDoc {
   metrics: PostMetrics;
   search_keyword?: string;
   source_account_id?: string;
+  /** Search acquisition lane; Top and Latest alternate within the existing request budget. */
+  discovery_mode?: "Top" | "Latest";
   fetched_at: string;
   engagement_rate?: number | null;
   pattern?: {
@@ -530,6 +532,8 @@ export interface DraftDoc {
   base_post_id?: string | null;
   text: string;
   hashtags: string[];
+  /** One Threads topic tag, sent separately through the Threads API. */
+  topic_tag?: string;
   status: DraftStatus;
   schedule_time?: string | null;
   published_at?: string | null;
