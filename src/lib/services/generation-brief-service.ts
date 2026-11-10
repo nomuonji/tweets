@@ -248,9 +248,12 @@ export async function buildGenerationBrief(
   const count = Math.min(Math.max(requested ?? neededCount, 1), 10);
 
   const measuredPatternStats =
-    patternStats?.measurementWindow === "24h" ||
-    patternStats?.measurementWindow === "48h" ||
-    patternStats?.measurementWindow === "72h"
+    getCharacterVersion(patternStats ?? {}) === characterVersion &&
+    (
+      patternStats?.measurementWindow === "24h" ||
+      patternStats?.measurementWindow === "48h" ||
+      patternStats?.measurementWindow === "72h"
+    )
       ? patternStats
       : null;
   const patterns = [...(measuredPatternStats?.patterns ?? [])]
