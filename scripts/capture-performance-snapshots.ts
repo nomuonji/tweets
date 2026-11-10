@@ -5,7 +5,8 @@ import { isPerformanceLearningEnabled } from "@/lib/account-gates";
 import { fetchThreadsPostInsights } from "@/lib/platforms/threads";
 import { buildPerformanceSnapshotUpdate } from "@/lib/performance-snapshots";
 import { getAccounts } from "@/lib/services/firestore.server";
-import type { AccountDoc, PostDoc, PerformanceWindow } from "@/lib/types";
+import type { AccountDoc, PostDoc, PostPerformanceSnapshot } from "@/lib/types";
+import type { PerformanceWindow } from "@/lib/performance-snapshots";
 
 const WINDOWS: Record<
   PerformanceWindow,
@@ -29,7 +30,7 @@ type DuePost = {
 type SnapshotWrite = {
   ref: FirebaseFirestore.DocumentReference;
   window: PerformanceWindow;
-  snapshot: NonNullable<PostDoc["performance_snapshots"]>["24h"];
+  snapshot: PostPerformanceSnapshot;
 };
 
 async function fetchDuePosts(
