@@ -38,9 +38,9 @@ const PROVIDER_GUIDE: Record<
       "Threads Graph API を使う場合は、Meta（Facebook）App Dashboard でリダイレクト URI を設定してください。",
     steps: [
       "Meta for Developers で Threads 用のクライアント認証情報を発行します。",
-      "投稿の読み取りと作成に必要な権限を申請します。必要に応じて審査を通してください。",
-      "取得したアクセストークンとユーザー ID を Firestore の /accounts に保存します。",
-      "トークンが失効する場合は npm run sync:refresh-tokens を定期実行するか、GitHub Actions の間隔を調整します。",
+      "Threads OAuth で threads_basic、threads_content_publish、threads_manage_insights を認可します。Insights計測には threads_manage_insights が必要です。",
+      "認可後に短期トークンを長期トークンへ交換し、ユーザー ID とともに Firestore の /accounts に保存します。",
+      "既存アカウントのInsights計測を有効にする場合も、Threadsアカウントを再認可して権限を追加してください。",
     ],
   },
 };
