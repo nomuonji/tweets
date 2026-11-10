@@ -347,8 +347,7 @@ Output strictly in JSON and in the requested order:
 ${draftCount > 1
     ? `{
   "drafts": [
-    ${itemSchema},
-    ${itemSchema}
+    ${Array.from({ length: draftCount }, () => itemSchema).join(",\n    ")}
   ]
 }`
     : itemSchema}
