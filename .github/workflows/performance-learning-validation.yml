@@ -74,5 +74,8 @@ jobs:
       - name: Performance learning regression tests
         run: npm run test:performance-learning
 
+      - name: Threads topic-tag regression tests
+        run: npm run test:threads-topic-tag
+
       - name: TypeScript typecheck
         run: npx tsc --noEmit
