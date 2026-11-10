@@ -9,6 +9,5 @@ export function normalizeThreadsTopicTag(value: unknown): string | undefined {
   if (!topic) return undefined;
   if (Array.from(topic).length > 50) return undefined;
   if (/[.&]/.test(topic)) return undefined;
-  if (/^\d+$/.test(topic)) return undefined;
   return topic;
 }
