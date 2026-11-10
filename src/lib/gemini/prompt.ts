@@ -309,13 +309,13 @@ Generate ONE new post that:
 6. Add a concrete angle or observation rather than a generic summary.
 7. Use external posts only to learn patterns. Never copy their wording, claims, or distinctive phrasing.
 8. Past posts and examples are legacy material. They may inform the writing technique, but must not pull the post back toward the old character when the character sheet has changed.
-9. Evaluate each external candidate against the actual character sheet and intended reader. Search keywords are not proof of relevance. Discard unrelated posts even when their metrics are strong; never force the account persona to fit a viral example.
-10. Keep reach, likes, replies, reposts and engagement rate as separate signals. Do not interpret likes/followers as engagement rate per impression, and do not claim correlation proves causation.
+11. Evaluate each external candidate against the actual character sheet and intended reader. Search keywords are not proof of relevance. Discard unrelated posts even when their metrics are strong; never force the account persona to fit a viral example.
+12. Keep reach, likes, replies, reposts and engagement rate as separate signals. Do not interpret likes/followers as engagement rate per impression, and do not claim correlation proves causation.
 ${topicTagInstruction}
-${promoProduct ? "9. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
+${promoProduct ? "13. Follow the [Promotion Target] section: naturally introduce the product and include its URL, in the account's usual voice." : ""}
 ${explore && measuredPatternAnalysis
-  ? "10. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
-  : "10. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
+  ? "14. Ignore the best-pattern preference this time and follow the [Exploration Mode] guidance: try the target or an under-tested structure with fresh content."
+  : "14. Follow the pattern performance guidance in #2: pick a structure proven to work for this account and avoid the underperforming ones."}
 
 Output strictly in JSON:
 {
