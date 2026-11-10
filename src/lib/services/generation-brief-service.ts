@@ -67,8 +67,10 @@ export type GenerationBrief = {
     text: string;
     url: string | null;
   }>;
-  /** Own-account structure performance, from a fixed-age measured cohort only. */
-  measurementWindow: "24h" | "72h" | null;
+  /** Own-account structure performance from comparable-age observations. */
+  measurementWindow: "24h" | "48h" | "72h" | null;
+  measurementBasis: "fixed_age_snapshot" | "fetched_at_age_matched" | "mixed_exact_snapshot_and_fetched_at" | null;
+  cohortAgeHours: { min: number; max: number } | null;
   exposureMetric: "views" | "impressions" | null;
   patterns: Array<{
     structure: string;
@@ -247,6 +249,7 @@ export async function buildGenerationBrief(
 
   const measuredPatternStats =
     patternStats?.measurementWindow === "24h" ||
+    patternStats?.measurementWindow === "48h" ||
     patternStats?.measurementWindow === "72h"
       ? patternStats
       : null;
@@ -332,6 +335,8 @@ export async function buildGenerationBrief(
     })),
     external,
     measurementWindow: measuredPatternStats?.measurementWindow ?? null,
+    measurementBasis: measuredPatternStats?.measurementBasis ?? null,
+    cohortAgeHours: measuredPatternStats?.cohortAgeHours ?? null,
     exposureMetric: measuredPatternStats?.exposureMetric ?? null,
     patterns,
     avoid: {
