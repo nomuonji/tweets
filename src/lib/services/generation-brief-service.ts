@@ -46,16 +46,23 @@ export type GenerationBrief = {
   tips: Array<{ id: string; title: string; text: string }>;
   /** Style samples. The strongest reproduction lever per docs/reference-style-policy.md. */
   exemplary: Array<{ id: string; text: string; explanation: string }>;
-  /** ネタ / 型 supply from other accounts, ranked by follower-relative reach. */
+  /** Stratified outside examples; the agent must verify relevance before use. */
   external: Array<{
     id: string;
     author: string;
     followers: number | null;
     likes: number;
+    replies: number;
     reposts: number;
     impressions: number | null;
-    /** likes / followers — the "unknown account went viral" signal. */
+    /** likes / followers; NOT an impression-normalized engagement rate. */
     likeRatio: number | null;
+    /** impressions / followers; a rough signal, not proof of causation. */
+    exposurePerFollower: number | null;
+    searchKeyword: string | null;
+    discoveryMode: "Top" | "Latest" | null;
+    sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast";
+    createdAt: string;
     structure: string;
     text: string;
     url: string | null;
@@ -142,28 +149,42 @@ async function fetchOpenDrafts(accountId: string): Promise<DraftDoc[]> {
 }
 
 /**
- * Rank external posts by follower-relative reach. Raw likes reward big
- * accounts, so a post from a 176-follower account that got 12k likes has to
- * outrank a 90k-like post from a 90k-follower account.
+ * Keep three observation lanes instead of treating likes/follower as a reach
+ * metric. "recent-contrast" is a temporal sample, not a low-performing control.
  */
-function rankExternal(posts: ExternalPostDoc[]) {
-  return posts
-    .map((post) => {
-      const followers = post.author_followers ?? null;
-      const likes = post.metrics?.likes ?? 0;
-      return {
-        post,
-        followers,
-        likes,
-        likeRatio: followers && followers > 0 ? likes / followers : null,
-      };
-    })
-    .sort((a, b) => {
-      const ar = a.likeRatio ?? -1;
-      const br = b.likeRatio ?? -1;
-      if (br !== ar) return br - ar;
-      return b.likes - a.likes;
-    });
+function sampleExternal(posts: ExternalPostDoc[], limit: number) {
+  const rows = posts.map((post) => {
+    const followers = post.author_followers ?? null;
+    const likes = post.metrics?.likes ?? 0;
+    const impressions = post.metrics?.impressions ?? null;
+    return {
+      post,
+      followers,
+      likes,
+      likeRatio: followers && followers > 0 ? likes / followers : null,
+      exposurePerFollower:
+        followers && followers > 0 && impressions !== null && impressions > 0
+          ? impressions / followers
+          : null,
+    };
+  });
+  const selected = new Map<string, (typeof rows)[number] & {
+    sampleLane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast";
+  }>();
+  const addLane = (candidates: typeof rows, lane: "higher-exposure-per-follower" | "higher-likes-per-follower" | "recent-contrast", quota: number) => {
+    let added = 0;
+    for (const row of candidates) {
+      if (selected.has(row.post.id)) continue;
+      selected.set(row.post.id, { ...row, sampleLane: lane });
+      added += 1;
+      if (added >= quota || selected.size >= limit) break;
+    }
+  };
+  const perLane = Math.max(1, Math.ceil(limit / 3));
+  addLane(rows.filter((row) => row.exposurePerFollower !== null).sort((x, y) => (y.exposurePerFollower ?? -1) - (x.exposurePerFollower ?? -1)), "higher-exposure-per-follower", perLane);
+  addLane(rows.filter((row) => row.likeRatio !== null).sort((x, y) => (y.likeRatio ?? -1) - (x.likeRatio ?? -1)), "higher-likes-per-follower", perLane);
+  addLane([...rows].sort((x, y) => Date.parse(y.post.created_at) - Date.parse(x.post.created_at)), "recent-contrast", limit);
+  return Array.from(selected.values()).slice(0, limit);
 }
 
 export async function buildGenerationBrief(
@@ -214,16 +235,21 @@ export async function buildGenerationBrief(
       medianEngagementRate: stat.medianEngagementRate,
     }));
 
-  const external = rankExternal(externalPosts)
-    .slice(0, EXTERNAL_LIMIT)
-    .map(({ post, followers, likes, likeRatio }) => ({
+  const external = sampleExternal(externalPosts, EXTERNAL_LIMIT)
+    .map(({ post, followers, likes, likeRatio, exposurePerFollower, sampleLane }) => ({
       id: post.id,
       author: post.author_handle ?? "unknown",
       followers,
       likes,
+      replies: post.metrics?.replies ?? 0,
       reposts: post.metrics?.reposts_or_rethreads ?? 0,
       impressions: post.metrics?.impressions ?? null,
       likeRatio,
+      exposurePerFollower,
+      searchKeyword: post.search_keyword ?? null,
+      discoveryMode: post.discovery_mode ?? null,
+      sampleLane,
+      createdAt: post.created_at,
       structure: post.pattern?.structure ?? extractPattern(post.text).structure,
       text: post.text,
       url: post.url ?? null,
@@ -234,8 +260,12 @@ export async function buildGenerationBrief(
     "Decide the 型 (structure) for each draft first, and make every draft use a different 型.",
     "Every draft needs a different opening line. Never start two drafts the same way.",
     "One claim per draft. Do not merge two ideas into one post.",
-    "Use external posts as ネタ (subject matter) and 型 (structure) supply only. Do not copy their wording.",
-    "Prefer external posts with a high likeRatio: those are cases where the text, not the follower count, did the work.",
+    "Before using an external post, compare its actual text with this account’s character sheet, intended reader and subject. Reject off-topic results even when metrics are high; searchKeyword is retrieval provenance, not proof of relevance.",
+    "External metrics differ: likeRatio means likes/followers; exposurePerFollower means impressions/followers. Neither proves causation or audience fit.",
+    "Use higher-exposure and higher-like samples as hypotheses. Use recent-contrast to inspect topics and structures beyond high-ranked posts; it is NOT a low-performing control group.",
+    "Use external posts as subject or structure inspiration only. Do not copy wording, claims, persona or emotional stance.",
+    ...(account.platform === "threads" ? ["For each Threads draft, set one topicTag without # only when the post has a clear topic match. Omit weak fits. Use 1–50 characters and avoid periods and ampersands."] : ["Do not set topicTag for X drafts."]),
+    "Run a final content-quality check before saving. The agent may create drafts only; it must never publish them.",
     `Length: ${account.minPostLength ?? "no minimum"}–${account.maxPostLength ?? "platform limit"} characters.`,
     "Attach provenance to each draft: tipIds you followed, externalPostIds you drew on, and a one-line rationale.",
     "Set provenance.structure to the 型 you chose. pattern.structure is a regex guess and collapses distinct 型 into the same bucket, so analysis relies on your label.",
