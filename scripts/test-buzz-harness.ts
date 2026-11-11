@@ -136,21 +136,37 @@ function fixture() {
     },
   ];
 
-  const candidates = Array.from({ length: 15 }, (_, index) => {
-    const mechanismId = mechanisms[index % mechanisms.length].id;
-    const sourcePostIdsForCandidate = mechanisms[index % mechanisms.length].sourcePostIds;
+  const candidateIdeas = [
+    ["A commuter reaches the platform just as the doors close.", "The usual post would complain about missing the train.", "The platform announcement becomes the scene's unexpected punchline.", "A one-scene observational post keeps the moment familiar.", "The train was technically on time; my timing was the delayed part."],
+    ["A shopper compares two nearly identical discount labels.", "The ordinary angle is another generic money-saving tip.", "The real surprise is that the smaller sticker creates more hesitation.", "A quick checkout vignette lets the reader see the choice.", "The coupon saved 30 yen and cost me four minutes of dignity."],
+    ["A delivery note sits on the wrong apartment door.", "Most retellings would blame the courier immediately.", "One small detail makes the neighbour's explanation plausible.", "A concise mystery-with-a-reveal format carries the scene.", "The parcel was delivered correctly to the wrong version of my home."],
+    ["A restaurant customer tries to order without blocking the queue.", "The standard advice is simply to decide before reaching the counter.", "The menu's layout, not the customer's indecision, creates the pause.", "A short menu-reading scene gives the reader an instant foothold.", "The queue moved faster when I stopped trying to read the menu like a contract."],
+    ["Someone opens the washing machine and finds one lonely sock.", "A basic joke would declare the sock missing forever.", "The useful twist is that the pair was separated before the wash.", "A tiny household observation lands without a lecture.", "The washing machine has been blamed for a separation it did not cause."],
+    ["An English learner reads quite good as faint praise.", "The obvious explanation is a direct dictionary translation.", "The surrounding speaker and context reverse the implied temperature.", "A short dialogue example shows the shift in meaning.", "The adjective stayed the same; the speaker's enthusiasm did not."],
+    ["A group chat message receives a read receipt but no reply.", "The default interpretation is that everyone is ignoring the sender.", "The next message reveals that the group thought someone else owned the answer.", "A two-message exchange makes the misunderstanding visible.", "Six people saw the question and collectively appointed an imaginary seventh person."],
+    ["A friend sends a single full stop after a long message.", "The easy reading is to label the punctuation angry.", "The sender's normal writing style is the missing context.", "A compact before-and-after chat example explains the ambiguity.", "Sometimes the punctuation is cold; sometimes that person just types like a printer."],
+    ["A colleague says they will get back to you later.", "The standard post would translate later into never.", "A specific next action separates a real delay from a polite exit.", "A practical message example leaves room for uncertainty.", "Later is not a date, but it can still come with an owner and a next step."],
+    ["A Japanese learner hears otsukaresama at the end of a meeting.", "A literal gloss makes it sound like praise for hard work.", "The phrase is doing social coordination rather than reporting fatigue.", "A short scene compares the phrase with its English alternatives.", "Nobody was congratulating the spreadsheet; they were closing the interaction."],
+    ["A recurring meeting ends with a long list of action items.", "The familiar solution is to send everyone another reminder.", "The missing piece is who can make the next decision.", "A simple handoff example makes the hidden role obvious.", "The meeting did not need another summary; it needed one person allowed to decide."],
+    ["Housemates keep finding the kitchen bin full.", "The ordinary advice is to make a chore rota.", "The real friction is that nobody knows when the bin is considered full.", "A household rule comparison makes the disagreement concrete.", "We did not need a rota; we needed a definition of full."],
+    ["A project team has three copies of the final presentation.", "The generic fix is to name one file final-final.", "The deeper shift is to assign the person who accepts the final version.", "A file handoff scene gives the reader a recognisable work problem.", "The deck had four final versions because nobody owned the word final."],
+    ["Two people keep missing each other's callback windows.", "The usual explanation is that both are busy.", "One shared time window is more useful than another vague promise.", "A tiny scheduling exchange demonstrates the alternative.", "We exchanged six missed calls to avoid agreeing on one ten-minute slot."],
+    ["A shift ends with a note that says everything is handled.", "The default handover assumes the next person can infer the rest.", "The key is to name the unresolved exception, not narrate the whole shift.", "A before-and-after handover note makes the difference tangible.", "Everything was handled except the one thing the next shift needed to know."],
+  ];
+  const candidates = candidateIdeas.map((idea, index) => {
+    const mechanism = mechanisms[index % mechanisms.length];
     return {
       id: `candidate-${index + 1}`,
       accountId: "account-1",
-      mechanismId,
-      audienceMoment: `A reader is in a recognizable situation ${index + 1} and needs one clear point of attention.`,
-      ordinaryIdea: `The normal treatment would explain the situation ${index + 1} in general terms.`,
-      meaningfulShift: `Move one expectation in the scene ${index + 1} and preserve the recognizable setting.`,
-      familiarFormat: `Return to a normal short social post format for scene ${index + 1}.`,
-      hook: `A concrete hook for scenario ${index + 1}.`,
-      immediateReward: `The reader gets one useful or entertaining recognition in scenario ${index + 1}.`,
-      shareReason: `A person can send scenario ${index + 1} to a colleague or friend who knows it.`,
-      sourcePostIds: sourcePostIdsForCandidate,
+      mechanismId: mechanism.id,
+      audienceMoment: idea[0],
+      ordinaryIdea: idea[1],
+      meaningfulShift: idea[2],
+      familiarFormat: idea[3],
+      hook: idea[4],
+      immediateReward: `The reader can recognize the specific situation in example ${index + 1} without needing extra background.`,
+      shareReason: `A reader can send this example to someone who has encountered the same situation.`,
+      sourcePostIds: mechanism.sourcePostIds,
       surfaceCopyChecked: true as const,
     };
   });
