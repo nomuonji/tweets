@@ -57,7 +57,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
       status: "rejected" as const,
       runId: null,
       reportHash: null,
-      errors: parsed.error.issues.map((issue) => \`\${issue.path.join(".")}: \${issue.message}\`),
+      errors: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
       metrics: null,
     };
   }
@@ -123,7 +123,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   // target. A candidate-only packet cannot create a save permission.
   for (const draft of packet.drafts) {
     if (!liveAccountDocs.has(draft.accountId)) {
-      validation.errors.push(\`No live account snapshot was available for draft target \${draft.accountId}.\`);
+      validation.errors.push(`No live account snapshot was available for draft target ${draft.accountId}.`);
     }
   }
   validation.passed = validation.errors.length === 0;
