@@ -23,6 +23,8 @@ const accountSchema = z.object({
 const searchClusterSchema = z.object({
   id: z.string().trim().min(1).max(80),
   searchKeyword: z.string().trim().min(2).max(160),
+  /** Must match the query identity recorded by the server-side collector. */
+  discoveryQueryId: z.string().trim().min(8).max(240),
   query: z.string().trim().min(4).max(500),
   acquisitionLane: z.enum(["Top", "Latest", "mixed"]),
   origin: z.enum(["seed_followup", "blind_discovery"]),
@@ -287,6 +289,8 @@ export function buzzSourceReceipt(post: ExternalPostDoc) {
     fetchedAt: post.fetched_at,
     searchKeyword: post.search_keyword ?? null,
     discoveryMode: post.discovery_mode ?? null,
+    discoveryOrigin: post.discovery_origin ?? null,
+    discoveryQueryId: post.discovery_query_id ?? null,
     engagementRate: post.engagement_rate ?? null,
     metrics: post.metrics,
   };
@@ -340,10 +344,9 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   const candidateById = new Map(packet.candidates.map((item) => [item.id, item]));
   const mechanismFamilies = unique(packet.mechanisms.map((item) => item.transferableMechanism.toLowerCase()));
 
-  const blindClusters = packet.searchClusters.filter((cluster) => cluster.origin === "blind_discovery").length;
-  if (blindClusters < Math.ceil(packet.searchClusters.length * 0.3)) {
-    errors.push("At least 30% of discovery clusters must be marked blind_discovery, not just extensions of the initial seed.");
-  }
+  // A packet label is not evidence of blind discovery. Only canonical source
+  // records written by the collector can establish that a cluster is blind.
+  const verifiedBlindClusters = new Set<string>();
 
   for (const profile of packet.accounts) {
     const live = liveAccounts.get(profile.accountId);
@@ -378,6 +381,17 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (post.platform !== "x" || !post.text?.trim() || !post.url?.startsWith("https://")) errors.push(`External post ${observation.externalPostId} is missing a canonical X URL or text snapshot.`);
     if (!post.author_handle?.trim()) errors.push(`External post ${observation.externalPostId} has no author handle.`);
     if (post.search_keyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(`External post ${observation.externalPostId} was not retrieved under its claimed search keyword.`);
+    if (post.discovery_query_id !== cluster.discoveryQueryId) errors.push(`External post ${observation.externalPostId} does not match the collector-recorded query identity for cluster ${cluster.id}.`);
+    if (cluster.origin === "blind_discovery") {
+      if (post.discovery_origin !== "blind_discovery" || !post.discovery_query_id) {
+        errors.push(`Blind-discovery cluster ${cluster.id} has no canonical server-verified blind discovery receipt; a packet label is insufficient.`);
+      } else {
+        verifiedBlindClusters.add(cluster.id);
+        blindObservationCount += 1;
+      }
+    } else if (post.discovery_origin !== "account_keyword") {
+      errors.push(`Seed-followup cluster ${cluster.id} is not backed by a canonical account-keyword source record.`);
+    }
     if (!post.discovery_mode || !["Top", "Latest"].includes(post.discovery_mode)) errors.push(`External post ${observation.externalPostId} has no verified Top/Latest acquisition lane.`);
     if (typeof post.engagement_rate !== "number" || !Number.isFinite(post.engagement_rate) || post.engagement_rate < 0) errors.push(`External post ${observation.externalPostId} has no measured follower-relative engagement signal; do not invent a reaction band.`);
     else engagementRates.push({ id: observation.externalPostId, rate: post.engagement_rate });
@@ -386,13 +400,13 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (post.author_handle) authors.push(post.author_handle.toLowerCase());
     if (post.search_keyword) searchKeywords.push(post.search_keyword.toLowerCase());
     if (post.discovery_mode) discoveryModes.push(post.discovery_mode);
-    if (cluster.origin === "blind_discovery") blindObservationCount += 1;
   }
 
   if (authors.length < 4 || unique(authors).length < 4) errors.push("The corpus must contain at least 6 posts from at least 4 distinct authors.");
   if (unique(searchKeywords).length < 3) errors.push("The corpus must span at least 3 independently searched keywords/clusters.");
   if (!discoveryModes.includes("Top") || !discoveryModes.includes("Latest")) errors.push("The sample must include both Top and Latest acquisition lanes.");
-  if (blindObservationCount < Math.ceil(packet.observations.length * 0.3)) errors.push("At least 30% of observed posts must come from blind-discovery clusters.");
+  if (verifiedBlindClusters.size < Math.ceil(packet.searchClusters.length * 0.3)) errors.push("At least 30% of search clusters must have canonical server-verified blind-discovery provenance.");
+  if (blindObservationCount < Math.ceil(packet.observations.length * 0.3)) errors.push("At least 30% of observed posts must come from canonically verified blind-discovery sources.");
   if (engagementRates.length >= 6 && unique(engagementRates).length < 3) errors.push("The observed engagement signals do not provide enough variation to compare strong, typical and weak examples.");
 
   const sortedRates = [...engagementRates].sort((a, b) => a.rate - b.rate);
@@ -419,6 +433,16 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
       const observation = packet.observations.find((item) => item.externalPostId === sourceId);
       if (observation && observation.clusterId !== cluster.id) {
         errors.push(`Search cluster ${cluster.id} claims post ${sourceId}, but its observation is assigned to ${observation.clusterId}.`);
+      }
+      const sourcePost = sourcePosts.get(sourceId);
+      if (sourcePost && sourcePost.discovery_query_id !== cluster.discoveryQueryId) {
+        errors.push(`Search cluster ${cluster.id} contains post ${sourceId} from a different collector query.`);
+      }
+      if (cluster.origin === "blind_discovery" && sourcePost?.discovery_origin !== "blind_discovery") {
+        errors.push(`Search cluster ${cluster.id} contains a post without canonical blind-discovery provenance.`);
+      }
+      if (cluster.origin === "seed_followup" && sourcePost?.discovery_origin !== "account_keyword") {
+        errors.push(`Search cluster ${cluster.id} contains a post outside the canonical account-keyword seed lane.`);
       }
     }
     const observedModes = cluster.sourcePostIds
