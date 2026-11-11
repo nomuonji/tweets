@@ -535,6 +535,34 @@ export interface ExternalPostDoc {
   };
 }
 
+/**
+ * Append-only record of one acquisition event for an external X post.
+ * Unlike external_posts, this receipt is never merged or overwritten.
+ */
+export interface ExternalPostObservationDoc {
+  id: string;
+  external_post_id: string;
+  platform: "x";
+  platform_post_id: string;
+  author_handle: string;
+  canonical_url: string;
+  text_hash: string;
+  created_at: string;
+  fetched_at: string;
+  search_keyword: string;
+  discovery_query_id: string;
+  discovery_origin: "blind_discovery";
+  discovery_mode: "Top" | "Latest";
+  source_type: "account_independent_query";
+  source_seed_id: string;
+  source_theme: string;
+  source_language: "ja" | "en";
+  run_id: string;
+  collector_version: "blind-discovery-v1";
+  author_followers?: number | null;
+  metrics: PostMetrics;
+}
+
 export interface DraftDoc {
   id: string;
   target_platform: Platform;
