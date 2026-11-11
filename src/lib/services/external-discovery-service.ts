@@ -58,7 +58,7 @@ function authorRecord(
   post: { raw?: Record<string, unknown> },
 ): Record<string, unknown> | null {
   const raw = post.raw ?? {};
-  for (const key of ["user_info", "author"]) {
+  for (const key of ["user_info", "author", "user"]) {
     const value = raw[key];
     if (value && typeof value === "object") {
       return value as Record<string, unknown>;
