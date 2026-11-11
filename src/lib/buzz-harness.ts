@@ -438,7 +438,10 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
 
     let sourceKeyword = post.search_keyword;
     let sourceQueryId = post.discovery_query_id;
-    let sourceMode = post.discovery_mode;
+    let sourceMode: "Top" | "Latest" | undefined =
+      post.discovery_mode === "Top" || post.discovery_mode === "Latest"
+        ? post.discovery_mode
+        : undefined;
     let sourceFetchedAt = post.fetched_at;
 
     if (cluster.origin === "blind_discovery") {
@@ -455,7 +458,11 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
         blindObservationCount += 1;
         sourceKeyword = receipt.search_keyword;
         sourceQueryId = receipt.discovery_query_id;
-        sourceMode = receipt.discovery_mode;
+        if (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") {
+          sourceMode = receipt.discovery_mode;
+        } else {
+          errors.push(`Blind-discovery receipt for ${observation.externalPostId} has an invalid acquisition lane.`);
+        }
         sourceFetchedAt = receipt.fetched_at;
       }
     } else {
@@ -470,7 +477,11 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
       } else {
         sourceKeyword = receipt.search_keyword;
         sourceQueryId = receipt.discovery_query_id;
-        sourceMode = receipt.discovery_mode;
+        if (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") {
+          sourceMode = receipt.discovery_mode;
+        } else {
+          errors.push(`Account-keyword receipt for ${observation.externalPostId} has an invalid acquisition lane.`);
+        }
         sourceFetchedAt = receipt.fetched_at;
       }
     }
@@ -532,8 +543,10 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
         );
         if (!receipt) {
           errors.push(`Search cluster ${cluster.id} contains post ${sourceId} without a matching immutable blind-discovery receipt.`);
-        } else {
+        } else if (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") {
           observedModes.push(receipt.discovery_mode);
+        } else {
+          errors.push(`Search cluster ${cluster.id} receipt has an invalid acquisition lane.`);
         }
       } else {
         if (sourcePost.discovery_query_id !== cluster.discoveryQueryId) {
