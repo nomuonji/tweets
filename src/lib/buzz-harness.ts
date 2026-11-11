@@ -260,11 +260,16 @@ function unique<T>(values: T[]): T[] {
 
 function allPassedNotes(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.values(value as Record<string, unknown>).every((entry) => {
-    if (!entry || typeof entry !== "object") return false;
+  const notes = Object.values(value as Record<string, unknown>).map((entry) => {
+    if (!entry || typeof entry !== "object") return "";
     const note = entry as { pass?: unknown; note?: unknown };
-    return note.pass === true && typeof note.note === "string" && note.note.trim().length >= 20;
+    return note.pass === true && typeof note.note === "string" && note.note.trim().length >= 40
+      ? normalizeForHash(note.note).toLowerCase()
+      : "";
   });
+  // One boilerplate sentence reused across all rubric items is not evidence
+  // that the writer inspected each dimension independently.
+  return notes.length > 0 && notes.every(Boolean) && unique(notes).length === notes.length;
 }
 
 function withinDays(value: string | undefined, days: number, nowMs: number): boolean {
@@ -367,6 +372,12 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   if (packet.searchClusters.some((cluster) => cluster.sourcePostIds.some((id) => !observationIds.has(id)))) errors.push("A search cluster references a post that is not in the observed corpus.");
   for (const cluster of packet.searchClusters) {
     if (!packet.observations.some((item) => item.clusterId === cluster.id)) errors.push(`Search cluster ${cluster.id} has no linked observation.`);
+    for (const sourceId of cluster.sourcePostIds) {
+      const observation = packet.observations.find((item) => item.externalPostId === sourceId);
+      if (observation && observation.clusterId !== cluster.id) {
+        errors.push(`Search cluster ${cluster.id} claims post ${sourceId}, but its observation is assigned to ${observation.clusterId}.`);
+      }
+    }
     const observedModes = cluster.sourcePostIds
       .map((id) => sourcePosts.get(id)?.discovery_mode)
       .filter((mode): mode is "Top" | "Latest" => mode === "Top" || mode === "Latest");
@@ -396,7 +407,23 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (!liveAccounts.has(candidate.accountId)) errors.push(`Candidate ${candidate.id} targets an account that was not read back live.`);
     if (!mechanismById.has(candidate.mechanismId)) errors.push(`Candidate ${candidate.id} references an unknown mechanism.`);
     if (candidate.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(`Candidate ${candidate.id} cites a post outside the verified corpus.`);
+    const mechanism = mechanismById.get(candidate.mechanismId);
+    if (mechanism && !candidate.sourcePostIds.some((id) => mechanism.sourcePostIds.includes(id))) {
+      errors.push(`Candidate ${candidate.id} does not cite evidence from its assigned mechanism.`);
+    }
     if (candidate.surfaceCopyChecked !== true) errors.push(`Candidate ${candidate.id} has not passed the surface-copy check.`);
+  }
+  const candidateBodies = packet.candidates.map((candidate) => ({
+    id: candidate.id,
+    body: [candidate.audienceMoment, candidate.ordinaryIdea, candidate.meaningfulShift, candidate.familiarFormat, candidate.hook].join(" "),
+  }));
+  for (let i = 0; i < candidateBodies.length; i += 1) {
+    for (let j = i + 1; j < candidateBodies.length; j += 1) {
+      const similarity = trigramSimilarity(candidateBodies[i].body, candidateBodies[j].body);
+      if (similarity >= 0.72) {
+        errors.push(`Candidates ${candidateBodies[i].id} and ${candidateBodies[j].id} are surface-similar (${similarity.toFixed(2)}); diverge the concepts, not only the labels.`);
+      }
+    }
   }
 
   const draftCounts = new Map<string, number>();
