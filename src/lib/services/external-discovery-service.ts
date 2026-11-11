@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { DateTime } from "luxon";
-import type { AccountDoc, ExternalPostDoc, ReferenceAccountDoc } from "@/lib/types";
+import type { AccountDoc, ExternalPostDoc, ExternalPostObservationDoc, ReferenceAccountDoc } from "@/lib/types";
+import { adminDb } from "@/lib/firebase/admin";
 import { engagementRate, extractPattern } from "@/lib/pattern";
 import { fetchRecentXPosts, fetchXSearchPosts } from "@/lib/platforms/x";
 import {
@@ -20,7 +22,7 @@ const TEXT_ONLY = true;
  */
 function cacheHours(): number {
   const parsed = Number(process.env.DISCOVERY_CACHE_HOURS ?? "");
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 24;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 48;
 }
 
 /**
@@ -30,7 +32,7 @@ function cacheHours(): number {
  */
 function maxSourcesPerRun(): number {
   const parsed = Number(process.env.DISCOVERY_MAX_SOURCES_PER_ACCOUNT ?? "");
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
 }
 
 /**
@@ -133,20 +135,113 @@ function toExternalPost(
   };
 }
 
-export async function syncExternalDiscovery(account: AccountDoc): Promise<{
+
+const COLLECTOR_VERSION = "external-discovery-v2";
+
+function buildExternalObservationId(
+  runId: string,
+  targetAccountId: string,
+  queryId: string,
+  postId: string,
+  mode: "Top" | "Latest" | "timeline",
+): string {
+  const digest = createHash("sha256")
+    .update(`${runId}\\n${targetAccountId}\\n${queryId}\\n${postId}\\n${mode}`)
+    .digest("hex")
+    .slice(0, 40);
+  return `externalobs_${digest}`;
+}
+
+async function appendExternalObservation(
+  post: ExternalPostDoc,
+  source: {
+    targetAccountId: string;
+    keyword?: string;
+    accountId?: string;
+    discoveryMode?: "Top" | "Latest";
+    discoveryOrigin: "account_keyword" | "reference_account";
+    discoveryQueryId: string;
+  },
+  runId: string,
+  fetchedAt: string,
+): Promise<void> {
+  const author = post.author_handle?.trim() || "unknown";
+  const receipt: ExternalPostObservationDoc = {
+    id: buildExternalObservationId(
+      runId,
+      source.targetAccountId,
+      source.discoveryQueryId,
+      post.platform_post_id,
+      source.discoveryMode ?? "timeline",
+    ),
+    external_post_id: post.id,
+    platform: "x",
+    platform_post_id: post.platform_post_id,
+    author_handle: author,
+    canonical_url: post.url ?? `https://x.com/i/web/status/${post.platform_post_id}`,
+    text_hash: createHash("sha256").update(post.text).digest("hex"),
+    created_at: post.created_at,
+    fetched_at: fetchedAt,
+    search_keyword: source.keyword ?? `reference account: ${source.accountId ?? "unknown"}`,
+    discovery_query_id: source.discoveryQueryId,
+    discovery_origin: source.discoveryOrigin,
+    discovery_mode: source.discoveryMode ?? "timeline",
+    source_type: source.discoveryOrigin === "account_keyword"
+      ? "account_keyword_query"
+      : "reference_account_timeline",
+    target_account_id: source.targetAccountId,
+    ...(source.accountId ? { source_account_id: source.accountId } : {}),
+    run_id: runId,
+    collector_version: COLLECTOR_VERSION,
+    author_followers: post.author_followers ?? null,
+    metrics: post.metrics,
+  };
+
+  const ref = adminDb.collection("external_post_observations").doc(receipt.id);
+  try {
+    await ref.create(receipt);
+  } catch (error) {
+    const detail = error as { code?: string | number; message?: string };
+    const alreadyExists =
+      detail.code === 6 ||
+      detail.code === "6" ||
+      detail.code === "already-exists" ||
+      /already exists/i.test(detail.message ?? "");
+    if (!alreadyExists) throw error;
+    const existing = await ref.get();
+    const current = existing.data() as ExternalPostObservationDoc | undefined;
+    if (
+      !current ||
+      current.external_post_id !== receipt.external_post_id ||
+      current.discovery_query_id !== receipt.discovery_query_id ||
+      current.text_hash !== receipt.text_hash ||
+      current.canonical_url !== receipt.canonical_url ||
+      current.discovery_mode !== receipt.discovery_mode
+    ) {
+      throw new Error(`Immutable external observation receipt conflict: ${receipt.id}`);
+    }
+  }
+}
+
+export async function syncExternalDiscovery(
+  account: AccountDoc,
+  options: { runId?: string } = {},
+): Promise<{
   synced: string[];
   cached: number;
   budget: RapidApiBudgetState;
   stoppedByBudget: boolean;
 }> {
   const now = DateTime.utc();
-  const budget = await getRapidApiBudgetState();
+  const jstDate = now.setZone("Asia/Tokyo").toISODate()!;
+  const runId = options.runId ?? `external_${jstDate.replace(/-/g, "")}`;
+  const initialBudget = await getRapidApiBudgetState();
   const synced: string[] = [];
   const keywords = account.discoveryKeywords ?? [];
   const referenceIds = account.referenceAccountIds ?? [];
 
-  if (budget.exhausted) {
-    return { synced, cached: 0, budget, stoppedByBudget: true };
+  if (initialBudget.budget === null || initialBudget.remaining === null || initialBudget.exhausted) {
+    return { synced, cached: 0, budget: initialBudget, stoppedByBudget: true };
   }
 
   // Freshness comes from one small state doc per source. It used to be derived
@@ -159,13 +254,9 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
     return at.isValid && now.diff(at, "hours").hours < cacheHours();
   };
 
-  // One paid request per source; stop as soon as this run reaches the remaining
-  // monthly allowance instead of discovering the ceiling the hard way.
-  let spent = 0;
   // Alternate acquisition modes across cache windows without increasing paid requests.
   const searchWindowBucket = Math.floor(now.toMillis() / (cacheHours() * 60 * 60 * 1000));
   const discoveryMode: "Top" | "Latest" = searchWindowBucket % 2 === 0 ? "Top" : "Latest";
-  const canSpend = () => budget.remaining === null || spent < budget.remaining;
   const sourceCap = maxSourcesPerRun();
   let fresh = 0;
 
@@ -186,24 +277,31 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
       fresh += 1;
       continue;
     }
-    if (!canSpend()) {
-      return { synced, cached: fresh, budget, stoppedByBudget: true };
+    // Two monthly-budget slots are protected for the Blind Top + Latest pair.
+    const currentBudget = await getRapidApiBudgetState();
+    if (currentBudget.remaining === null || currentBudget.remaining <= 2) {
+      return { synced, cached: fresh, budget: currentBudget, stoppedByBudget: true };
     }
 
     if (source.kind === "keyword") {
       const posts = await fetchXSearchPosts(source.key, {
         limit: POSTS_PER_SOURCE,
         searchType: discoveryMode,
+        reserveRequests: 2,
       });
-      spent += 1;
+      const fetchedAt = DateTime.utc().toISO()!;
       for (const post of posts) {
         if (TEXT_ONLY && post.media_type !== "text") continue;
-        await upsertExternalPost(toExternalPost(post, now.toISO()!, {
+        const sourceInfo = {
+          targetAccountId: account.id,
           keyword: source.key,
           discoveryMode,
-          discoveryOrigin: "account_keyword",
+          discoveryOrigin: "account_keyword" as const,
           discoveryQueryId: `keyword:${source.key}`,
-        }));
+        };
+        const external = toExternalPost(post, fetchedAt, sourceInfo);
+        await appendExternalObservation(external, sourceInfo, runId, fetchedAt);
+        await upsertExternalPost(external);
       }
       await saveDiscoveryState(account.id, source.key, now.toISO()!);
       synced.push(`keyword:${source.key}:${discoveryMode}`);
@@ -218,22 +316,25 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
     }
     const posts = await fetchRecentXPosts(
       { id: reference.id, platform: "x", handle: reference.handle, display_name: reference.display_name ?? reference.handle, connected: true, scopes: [], created_at: now.toISO()!, updated_at: now.toISO()! },
-      { limit: POSTS_PER_SOURCE },
+      { limit: POSTS_PER_SOURCE, reserveRequests: 2 },
     );
-    spent += 1;
+    const fetchedAt = DateTime.utc().toISO()!;
     for (const post of posts.posts) {
       if (TEXT_ONLY && post.media_type !== "text") continue;
-      await upsertExternalPost(
-        toExternalPost(post, now.toISO()!, {
-          accountId: reference.id,
-          discoveryOrigin: "reference_account",
-          discoveryQueryId: `reference:${reference.id}`,
-        }),
-      );
+      const sourceInfo = {
+        targetAccountId: account.id,
+        accountId: reference.id,
+        discoveryOrigin: "reference_account" as const,
+        discoveryQueryId: `reference:${reference.id}`,
+      };
+      const external = toExternalPost(post, fetchedAt, sourceInfo);
+      await appendExternalObservation(external, sourceInfo, runId, fetchedAt);
+      await upsertExternalPost(external);
     }
     await saveDiscoveryState(account.id, source.key, now.toISO()!);
     synced.push(`account:${reference.handle}`);
   }
 
-  return { synced, cached: fresh, budget, stoppedByBudget: false };
+  const finalBudget = await getRapidApiBudgetState();
+  return { synced, cached: fresh, budget: finalBudget, stoppedByBudget: false };
 }
