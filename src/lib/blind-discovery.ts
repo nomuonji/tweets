@@ -9,7 +9,7 @@ export interface BlindDiscoverySeed {
 
 export const BLIND_DISCOVERY_SEEDS: readonly BlindDiscoverySeed[] = [
   { id: "ja-unexpected", query: "思ってたのと違う", theme: "everyday surprises", language: "ja" },
-  { id: "en-unexpected", query: '"I didn’t expect"', theme: "everyday surprises", language: "en" },
+  { id: "en-unexpected", query: '"I didn't expect"', theme: "everyday surprises", language: "en" },
   { id: "ja-useful", query: "地味に便利", theme: "small inventions and utility", language: "ja" },
   { id: "en-useful", query: '"unexpectedly useful"', theme: "small inventions and utility", language: "en" },
   { id: "ja-friction", query: "地味に困る", theme: "everyday friction", language: "ja" },
@@ -45,7 +45,7 @@ export function buildBlindDiscoveryPlan(
   if (!Number.isInteger(cursorIndex) || cursorIndex < 0) {
     throw new Error("Blind discovery cursor must be a non-negative integer.");
   }
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(jstDate)) {
+  if (!/^\d{4}-\\d{2}-\\d{2}$/.test(jstDate)) {
     throw new Error("Blind discovery date must be a JST YYYY-MM-DD value.");
   }
   const index = cursorIndex % BLIND_DISCOVERY_SEEDS.length;
