@@ -1,55 +1,14 @@
-name: Auto Generate Drafts
+name: Auto Generate Drafts (Disabled)
 
 on:
   workflow_dispatch:
-    inputs:
-      allow_generation:
-        description: "Run server-side generation (drafts top up to 5 per publishing account)"
-        type: boolean
-        default: true
-  schedule:
-    # Re-enabled on 2026-10-30: the Vercel deployment is disabled, so the
-    # agent-driven path (get_generation_brief + create_drafts over MCP) is
-    # unreachable. This job is the only remaining way to refill the draft queue.
-    # Generation is idempotent by design: it only runs for accounts whose usable
-    # drafts are below the threshold, and the scheduler still owns publishing.
-    - cron: "0 */2 * * *"
 
 jobs:
-  run:
+  refuse-legacy-generation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Execute auto draft generation
-        run: npm run auto:generate
-        env:
-          # Scheduled runs always generate; manual runs follow the dispatch input.
-          ALLOW_AUTO_GENERATION: ${{ github.event_name == 'schedule' && 'true' || inputs.allow_generation }}
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          # Primary provider. Gemini and the OpenRouter free models stay as the
-          # fallback chain inside the generation client.
-          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
-          # Quality-first order (measured, see src/lib/ai/generation-client.ts).
-          OPENCODE_GO_MODELS: claude-haiku-5-5,glm-5.3-flash,gpt-6-luna,deepseek-v4.1-flash
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-          GEMINI_MODELS: gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_FREE_MODELS: qwen/qwen3.8-27b:free,google/gemma-4-26b-a4b-it:free,openrouter/free
+      - name: Explain the required editorial harness
+        run: |
+          echo "::error::Legacy scheduled generation is disabled because it bypasses the Buzz Editorial Harness."
+          echo "Use the Tweets Operator MCP: get_generation_work -> get_generation_brief -> submit_buzz_harness_run -> create_drafts."
+          exit 1
