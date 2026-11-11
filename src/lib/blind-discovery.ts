@@ -9,7 +9,7 @@ export interface BlindDiscoverySeed {
 
 export const BLIND_DISCOVERY_SEEDS: readonly BlindDiscoverySeed[] = [
   { id: "ja-unexpected", query: "思ってたのと違う", theme: "everyday surprises", language: "ja" },
-  { id: "en-unexpected", query: '"I didn't expect"', theme: "everyday surprises", language: "en" },
+  { id: "en-unexpected", query: "\"I didn't expect\"", theme: "everyday surprises", language: "en" },
   { id: "ja-useful", query: "地味に便利", theme: "small inventions and utility", language: "ja" },
   { id: "en-useful", query: '"unexpectedly useful"', theme: "small inventions and utility", language: "en" },
   { id: "ja-friction", query: "地味に困る", theme: "everyday friction", language: "ja" },
