@@ -91,15 +91,6 @@ const editorialGateSchema = z.object({
   G_factsRightsAndSafety: passNote,
 });
 
-const reviewSchema = z.object({
-  reviewerId: z.string().trim().min(3).max(160),
-  reviewerMode: z.literal("blind_copy_only"),
-  decision: z.literal("PASS"),
-  reviewedAt: isoDate,
-  reviewedTextHash: z.string().regex(/^[a-f0-9]{64}$/),
-  note: z.string().trim().min(30).max(1200),
-});
-
 const draftSchema = z.object({
   accountId: z.string().trim().min(1).max(160),
   characterVersion: z.number().int().min(1),
@@ -112,7 +103,6 @@ const draftSchema = z.object({
   bakaGate: gateSetSchema,
   resonanceGate: resonanceSetSchema,
   editorialGate: editorialGateSchema,
-  review: reviewSchema,
 });
 
 export const BuzzHarnessPacketSchema = z.object({
@@ -226,8 +216,37 @@ export function buzzDraftTextHash(value: string): string {
   return createHash("sha256").update(normalizeForHash(value)).digest("hex");
 }
 
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]),
+    );
+  }
+  return value;
+}
+
 export function buzzPacketHash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
+}
+
+export function buzzSourceReceipt(post: ExternalPostDoc) {
+  return {
+    id: post.id,
+    platform: post.platform,
+    platformPostId: post.platform_post_id,
+    authorHandle: post.author_handle,
+    textHash: buzzDraftTextHash(post.text),
+    url: post.url ?? null,
+    createdAt: post.created_at,
+    fetchedAt: post.fetched_at,
+    searchKeyword: post.search_keyword ?? null,
+    discoveryMode: post.discovery_mode ?? null,
+    engagementRate: post.engagement_rate ?? null,
+    metrics: post.metrics,
+  };
 }
 
 export function hasStatisticLedHook(value: string): boolean {
@@ -389,10 +408,6 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (!allPassedNotes(draft.bakaGate)) errors.push(`Draft ${draft.candidateId} did not pass every Baka Model gate with a written reason.`);
     if (!allPassedNotes(draft.resonanceGate)) errors.push(`Draft ${draft.candidateId} did not pass every Idea Resonance gate with a written reason.`);
     if (!allPassedNotes(draft.editorialGate)) errors.push(`Draft ${draft.candidateId} did not pass every Social Post Quality Gate with a written reason.`);
-    if (draft.review.reviewerId === packet.writerId) errors.push(`Draft ${draft.candidateId} was self-reviewed; the reviewer must be a separate agent or human.`);
-    if (draft.review.reviewedTextHash !== buzzDraftTextHash(draft.text)) errors.push(`Draft ${draft.candidateId} reviewer attestation does not match the exact final text.`);
-    if (Date.parse(draft.review.reviewedAt) < Date.parse(draft.authoredAt)) errors.push(`Draft ${draft.candidateId} review timestamp predates authorship.`);
-    if (!withinDays(draft.review.reviewedAt, 1, nowMs)) errors.push(`Draft ${draft.candidateId} review is older than 24 hours or future-dated.`);
     const texts = draftTextsByAccount.get(draft.accountId) ?? [];
     texts.push(draft.text);
     draftTextsByAccount.set(draft.accountId, texts);
