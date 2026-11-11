@@ -367,6 +367,18 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   if (packet.searchClusters.some((cluster) => cluster.sourcePostIds.some((id) => !observationIds.has(id)))) errors.push("A search cluster references a post that is not in the observed corpus.");
   for (const cluster of packet.searchClusters) {
     if (!packet.observations.some((item) => item.clusterId === cluster.id)) errors.push(`Search cluster ${cluster.id} has no linked observation.`);
+    const observedModes = cluster.sourcePostIds
+      .map((id) => sourcePosts.get(id)?.discovery_mode)
+      .filter((mode): mode is "Top" | "Latest" => mode === "Top" || mode === "Latest");
+    if (cluster.acquisitionLane === "Top" && !observedModes.includes("Top")) {
+      errors.push(`Search cluster ${cluster.id} claims Top but its canonical posts contain no Top result.`);
+    }
+    if (cluster.acquisitionLane === "Latest" && !observedModes.includes("Latest")) {
+      errors.push(`Search cluster ${cluster.id} claims Latest but its canonical posts contain no Latest result.`);
+    }
+    if (cluster.acquisitionLane === "mixed" && (!observedModes.includes("Top") || !observedModes.includes("Latest"))) {
+      errors.push(`Search cluster ${cluster.id} claims mixed acquisition but is missing a Top or Latest canonical post.`);
+    }
   }
 
   if (packet.mechanisms.length < 3 || mechanismFamilies.length < 3) errors.push("At least 3 distinct response mechanisms must be extracted.");
