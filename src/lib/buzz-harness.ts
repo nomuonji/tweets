@@ -96,7 +96,7 @@ const draftSchema = z.object({
   characterVersion: z.number().int().min(1),
   candidateId: z.string().trim().min(1).max(100),
   mechanismId: z.string().trim().min(1).max(80),
-  sourcePostIds,
+  sourcePostIds: sourceIds,
   objective: z.enum(["reach", "sharing", "entertainment", "conversation", "utility"]),
   text: z.string().trim().min(20).max(500),
   authoredAt: isoDate,
