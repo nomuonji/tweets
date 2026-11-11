@@ -7,6 +7,7 @@ import type { AccountDoc, DraftDoc, ExternalPostDoc, PostDoc } from "@/lib/types
 import {
   BuzzHarnessPacketSchema,
   buzzDraftTextHash,
+  buzzFinalCopy,
   buzzPacketHash,
   buzzSourceReceipt,
   trigramSimilarity,
@@ -157,10 +158,11 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   if (validation.passed) {
     for (const draft of packet.drafts) {
       (approvedDraftsByAccount[draft.accountId] ??= []).push({
-        textHash: buzzDraftTextHash(draft.text),
+        textHash: buzzDraftTextHash(buzzFinalCopy(draft.text, draft.hashtags ?? [])),
         candidateId: draft.candidateId,
         sourcePostIds: [...draft.sourcePostIds].sort(),
         characterVersion: draft.characterVersion,
+        topicTag: draft.topicTag ?? null,
       });
     }
   }
@@ -185,8 +187,8 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
       ? packet.drafts.map((draft) => ({
           accountId: draft.accountId,
           objective: draft.objective,
-          text: draft.text,
-          textHash: buzzDraftTextHash(draft.text),
+          text: buzzFinalCopy(draft.text, draft.hashtags ?? []),
+          textHash: buzzDraftTextHash(buzzFinalCopy(draft.text, draft.hashtags ?? [])),
         }))
       : [],
     consumedAccountIds: [],
