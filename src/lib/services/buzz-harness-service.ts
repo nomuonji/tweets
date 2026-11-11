@@ -13,7 +13,7 @@ import {
 
 export interface BuzzHarnessAuthorization {
   runId: string;
-  reportHash: string;
+  approvalHash: string;
 }
 
 function sourceFingerprint(post: ExternalPostDoc) {
@@ -172,7 +172,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   await runRef.create({
     runId: packet.runId,
     schemaVersion: packet.schemaVersion,
-    status: validation.passed ? "approved" : "rejected",
+    status: validation.passed ? "awaiting_review" : "rejected",
     reportHash,
     packetHash,
     writerId: packet.writerId,
@@ -189,15 +189,90 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   });
 
   return {
-    status: validation.passed ? "approved" as const : "rejected" as const,
+    status: validation.passed ? "awaiting_review" as const : "rejected" as const,
     runId: packet.runId,
     reportHash: validation.passed ? reportHash : null,
     errors: validation.errors,
     warnings: validation.warnings,
     metrics: validation.metrics,
     nextAction: validation.passed
-      ? "Call create_drafts with this runId/reportHash, one account at a time, and the exact approved text plus provenance.externalPostIds, provenance.candidateId and provenance.buzzRunId. This approval expires in 24 hours. It never publishes."
+      ? "This run is not yet saveable. A separate blind reviewer must read every final text without the author rationale, then call approve_buzz_harness_run with a different reviewerId and reviewerModel. Only that tool returns an approvalHash accepted by create_drafts."
       : "Do not save drafts. Fix the listed failures, create a new runId, and submit a new packet.",
+  };
+}
+
+export async function approveBuzzHarnessRun(args: {
+  runId: string;
+  reportHash: string;
+  reviewerId: string;
+  reviewerModel: string;
+  reviewerMode: "blind_copy_only";
+  reviews: Array<{
+    textHash: string;
+    decision: "PASS";
+    reviewedAt: string;
+    note: string;
+  }>;
+}) {
+  const runRef = adminDb.collection("buzz_harness_runs").doc(args.runId);
+  const snap = await runRef.get();
+  if (!snap.exists) throw new Error("Buzz Harness run not found.");
+  const run = snap.data() ?? {};
+  if (run.status !== "awaiting_review") throw new Error("Buzz Harness run is not awaiting blind review.");
+  if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
+  if (Date.parse(String(run.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness run expired. Submit a fresh evidence packet.");
+  if (args.reviewerId.trim() === String(run.writerId ?? "").trim()) throw new Error("The reviewer must be a different identity from the writer.");
+  if (args.reviewerModel.trim().toLowerCase() === String(run.model ?? "").trim().toLowerCase()) throw new Error("The reviewer must use a different model from the writer.");
+  if (args.reviewerMode !== "blind_copy_only") throw new Error("The final review must be performed without the author's rationale.");
+
+  const manifest = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>;
+  const expectedHashes = Object.values(manifest).flat().map((item) => item.textHash).sort();
+  const reviews = [...args.reviews].sort((a, b) => a.textHash.localeCompare(b.textHash));
+  const receivedHashes = reviews.map((item) => item.textHash);
+  if (expectedHashes.length === 0) throw new Error("The submitted run has no save-eligible final drafts.");
+  if (receivedHashes.length !== expectedHashes.length || new Set(receivedHashes).size !== receivedHashes.length) {
+    throw new Error("The independent reviewer must review every exact final text exactly once.");
+  }
+  if (JSON.stringify(receivedHashes) !== JSON.stringify(expectedHashes)) {
+    throw new Error("The independent reviewer receipt does not cover the exact final-copy hashes in this run.");
+  }
+  for (const review of reviews) {
+    const reviewedAt = Date.parse(review.reviewedAt);
+    if (!Number.isFinite(reviewedAt) || reviewedAt > Date.now() || Date.now() - reviewedAt > 24 * 60 * 60 * 1000) {
+      throw new Error("Each review timestamp must be valid, recent and not future-dated.");
+    }
+    if (review.decision !== "PASS" || review.note.trim().length < 30) {
+      throw new Error("Every final text needs an explicit PASS and a substantive blind-review note.");
+    }
+  }
+
+  const approvalHash = buzzPacketHash({
+    runId: args.runId,
+    reportHash: args.reportHash,
+    reviewerId: args.reviewerId,
+    reviewerModel: args.reviewerModel,
+    reviewerMode: args.reviewerMode,
+    reviews,
+  });
+  await runRef.update({
+    status: "approved",
+    approvalHash,
+    reviewerReceipt: {
+      reviewerId: args.reviewerId,
+      reviewerModel: args.reviewerModel,
+      reviewerMode: args.reviewerMode,
+      reviewedDraftCount: reviews.length,
+      reviews,
+    },
+    updatedAt: DateTime.utc().toISO(),
+  });
+
+  return {
+    status: "approved" as const,
+    runId: args.runId,
+    approvalHash,
+    reviewedDraftCount: reviews.length,
+    nextAction: "Call create_drafts with this approvalHash and the exact reviewed copy. Saving consumes this run once per account; it never publishes.",
   };
 }
 
