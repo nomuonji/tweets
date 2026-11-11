@@ -5,7 +5,8 @@ import { extractPattern } from "@/lib/pattern";
 import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import type { DraftDoc, DraftProvenance } from "@/lib/types";
 import type { BuzzHarnessAuthorization } from "@/lib/services/buzz-harness-service";
-import { buzzDraftTextHash } from "@/lib/buzz-harness";
+import { buzzDraftTextHash, buzzPacketHash, buzzSourceReceipt } from "@/lib/buzz-harness";
+import type { ExternalPostDoc } from "@/lib/types";
 
 export const MAX_AGENT_DRAFTS = 5;
 const PLATFORM_LIMITS = { x: 280, threads: 500 } as const;
@@ -129,18 +130,40 @@ export async function createAgentDrafts(
       throw new Error("Draft count does not match the Buzz Harness approval for this account.");
     }
     const accountReceipt = Array.isArray(harness.accountReceipts)
-      ? (harness.accountReceipts as Array<{ accountId?: string; handle?: string; platform?: string; characterVersion?: number; conceptHash?: string }>).find((item) => item.accountId === accountId)
+      ? (harness.accountReceipts as Array<{ accountId?: string; handle?: string; platform?: string; characterVersion?: number; conceptHash?: string; neededDraftCount?: number }>).find((item) => item.accountId === accountId)
       : undefined;
+    const currentGap = Math.max(0, MAX_AGENT_DRAFTS - usable.length);
     if (
       !accountReceipt ||
       accountReceipt.characterVersion !== version ||
       version !== expectedCharacterVersion ||
       accountReceipt.handle !== account.handle ||
       accountReceipt.platform !== account.platform ||
-      accountReceipt.conceptHash !== buzzDraftTextHash(String(account.concept ?? ""))
+      accountReceipt.conceptHash !== buzzDraftTextHash(String(account.concept ?? "")) ||
+      accountReceipt.neededDraftCount !== currentGap
     ) {
-      throw new Error("Buzz Harness account/character receipt is stale or the live persona changed. Rerun research and review.");
+      throw new Error("Buzz Harness account, persona or inventory receipt is stale. Rerun research and review.");
     }
+
+    // Re-read every source used by this account in the same transaction as the
+    // draft save. A resync/edit after approval invalidates the reviewed evidence.
+    const expectedSourceReceipts = Array.isArray(harness.sourceReceipts)
+      ? harness.sourceReceipts as Array<Record<string, unknown> & { id?: string }>
+      : [];
+    const accountSourceIds = Array.from(new Set(approvedForAccount.flatMap((item) => item.sourcePostIds))).sort();
+    const verifiedSourceIds = new Set<string>();
+    for (const sourceId of accountSourceIds) {
+      const expectedReceipt = expectedSourceReceipts.find((receipt) => receipt.id === sourceId);
+      if (!expectedReceipt) throw new Error("Buzz Harness source receipt is missing; rerun research and review.");
+      const sourceSnap = await transaction.get(adminDb.collection("external_posts").doc(sourceId));
+      if (!sourceSnap.exists) throw new Error("A reviewed external source was deleted; rerun research and review.");
+      const currentSource = { id: sourceSnap.id, ...sourceSnap.data() } as ExternalPostDoc;
+      if (buzzPacketHash(buzzSourceReceipt(currentSource)) !== buzzPacketHash(expectedReceipt)) {
+        throw new Error("A reviewed external source changed after review; rerun research and review.");
+      }
+      verifiedSourceIds.add(sourceId);
+    }
+
     const expectedByHash = new Map(approvedForAccount.map((item) => [item.textHash, item]));
     for (const input of inputs) {
       const textHash = buzzDraftTextHash(input.text);
@@ -157,6 +180,21 @@ export async function createAgentDrafts(
       expectedByHash.delete(textHash);
     }
     if (expectedByHash.size > 0) throw new Error("One or more approved drafts were omitted from this account save.");
+
+    const latestPosts = await transaction.get(
+      adminDb.collection("posts").where("account_id", "==", accountId).limit(100),
+    );
+    const latestPostTexts = latestPosts.docs
+      .map((doc) => String(doc.data().text ?? ""))
+      .filter(Boolean);
+    for (const input of inputs) {
+      const normalizedInput = draftTextWithHashtags(input.text, input.hashtags);
+      for (const priorText of latestPostTexts) {
+        if (trigramSimilarity(normalizedInput, priorText) >= 0.82) {
+          throw new Error("A published post became too similar to this approved copy after review. Rerun the harness.");
+        }
+      }
+    }
 
     const now = DateTime.utc().toISO()!;
     const drafts = inputs.map((input) => {
