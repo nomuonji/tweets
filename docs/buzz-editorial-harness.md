@@ -20,8 +20,9 @@ Hard requirements:
 - 3+ distinct search clusters/keywords.
 - 6+ actual posts from 4+ distinct authors.
 - Both Top and Latest acquisition lanes.
-- 30%+ observations from blind discovery.
-- Actual source IDs, text, author, canonical URL, search keyword, publication/fetch time, acquisition lane and measured follower-relative engagement signal.
+- 30%+ observations from blind discovery, with at least 30% of clusters backed by canonical collector-written `discovery_origin=blind_discovery` and a matching `discovery_query_id`. A packet's `origin` field alone is never evidence.
+- Actual source IDs, text, author, canonical URL, search keyword, collector query identity, publication/fetch time, acquisition lane and measured follower-relative engagement signal.
+- Account-keyword and reference-account results are not blind discovery. The current account-scoped collector records those as such; until a separate blind-discovery acquisition path writes canonical blind receipts, the harness must reject the packet rather than count a caller-labelled cluster.
 - At least two counterexamples, including a post in the sample's lowest engagement quartile.
 - 3+ distinct response mechanisms.
 - 15+ distinct candidate concepts from 3+ mechanisms.
@@ -87,7 +88,7 @@ npm run test:buzz-harness checks acceptance and rejection cases for evidence cov
 
 ## Known limitations
 
-- The harness validates only posts already stored in the canonical external_posts collection. It does not itself crawl X or authenticate that the caller read the whole source page; acquisition/sync is a separate stage.
+- The harness validates only posts already stored in the canonical external_posts collection. It does not itself crawl X or authenticate that the caller read the whole source page; acquisition/sync is a separate stage. Blind discovery is counted only when the canonical source record carries collector-written provenance. The current account-scoped collector cannot create blind-discovery records, so new submissions remain blocked until a separate independent-discovery collector is implemented and deployed.
 - The writer's declared identity/model is not authenticated as a credential. The reviewer is an actual server-side Gemini API call.
 - The minimum corpus and follower-relative engagement signal requirements can reject a run if the source pool is incomplete. The correct response is to collect evidence, not lower thresholds.
 - PASS is an editorial/evidence gate, not a human panel, market experiment or prediction of virality.
