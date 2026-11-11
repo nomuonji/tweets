@@ -21,7 +21,7 @@ Start with get_system_health, then call get_generation_work for every target acc
 3. Generate 15+ distinct concept candidates before selecting the final drafts.
 4. Run the Baka Model, Idea Resonance and Social Post Quality Gate A–G for every final text. Reject weak work instead of padding inventory.
 5. Submit submit_buzz_harness_run. Only awaiting_review means the server accepted the evidence packet for the next stage; it does NOT permit saving.
-6. A separate reviewer/model must read every final text without the author's rationale and call approve_buzz_harness_run with an exact PASS receipt per text hash. Reviewer identity and model must differ from the writer's declared identity/model.
+6. Read back get_buzz_harness_run, then call approve_buzz_harness_run with only runId/reportHash. The server makes an actual Gemini API call using a configured model distinct from the writer's declared model. It reviews exact final copy, target-account context and raw source-post text without author rationale or gate explanations, and must independently PASS all seven editorial gates. No caller-supplied reviewer identity or PASS receipt is accepted. If Gemini is missing/unavailable, the response is malformed, or any gate fails, no approvalHash is issued and nothing may be saved.
 7. Call create_drafts with the returned approvalHash, exact reviewed text and matching provenance. Do not edit copy after review.
 8. Re-run get_generation_work / list_drafts and verify the inventory.
 
@@ -35,4 +35,4 @@ The server cross-checks account character versions, canonical external post reco
 - Never publish arbitrary text or call publish_draft during replenishment. The existing scheduler owns publication.
 - Never lower quality gates or claim that a passing desk review guarantees virality.
 
-The reviewer identity/model values are not cryptographically authenticated by this server. State that limitation when describing the harness; do not claim an authenticated independent human reviewer.
+The reviewer is an actual server-side Gemini API invocation. The writer's declared model is still not cryptographically authenticated; do not claim the writer's model identity is cryptographically verified.
