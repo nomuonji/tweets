@@ -9,6 +9,7 @@ import type { AccountDoc, DraftDoc, ExternalPostDoc, PostDoc } from "@/lib/types
 import {
   BuzzHarnessPacketSchema,
   blindReviewItemSchema,
+  type BlindReviewItem,
   buzzDraftTextHash,
   buzzFinalCopy,
   buzzPacketHash,
@@ -156,6 +157,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
     candidateId: string;
     sourcePostIds: string[];
     characterVersion: number;
+    topicTag?: string | null;
   }>> = {};
 
   if (validation.passed) {
@@ -298,13 +300,7 @@ async function runServerSideBlindReview(
   if (reviewerId === writerId.trim()) {
     throw new Error("The writer identity conflicts with the reserved server-side reviewer identity. No approval was issued.");
   }
-  const reviews: Array<{
-    textHash: string;
-    decision: "PASS" | "REJECT";
-    note: string;
-    checks: Record<string, { pass: boolean; note: string }>;
-    reviewedAt: string;
-  }> = [];
+  const reviews: Array<BlindReviewItem & { reviewedAt: string }> = [];
 
   // Batch at most three copies per independent request. Any API, parsing or
   // schema failure aborts approval instead of silently skipping a reviewer.
