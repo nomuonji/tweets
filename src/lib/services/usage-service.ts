@@ -111,6 +111,78 @@ export async function setRapidApiMonthlyBudget(
   return { budget: normalizeBudget(value) };
 }
 
+
+export class RapidApiBudgetExceededError extends Error {
+  readonly budget: number;
+  readonly used: number;
+  readonly reserveRemaining: number;
+
+  constructor(budget: number, used: number, reserveRemaining: number) {
+    super(`RapidAPI monthly budget exhausted: ${used}/${budget} used; ${reserveRemaining} requests reserved.`);
+    this.name = "RapidApiBudgetExceededError";
+    this.budget = budget;
+    this.used = used;
+    this.reserveRemaining = reserveRemaining;
+  }
+}
+
+/**
+ * Atomically reserves one provider request before HTTP is sent.
+ * Failed provider calls still consume a reservation because the provider may
+ * have charged the request. Concurrent workers cannot spend the same slot.
+ */
+export async function reserveRapidApiRequest(
+  reserveRemaining = 0,
+): Promise<RapidApiBudgetState> {
+  const remainingReserve = Math.max(0, Math.floor(reserveRemaining));
+  const usageRef = adminDb.collection(COLLECTION).doc("rapidapi_twitter");
+  const budgetRef = adminDb.collection(BUDGET_COLLECTION).doc(BUDGET_DOC);
+  const now = DateTime.utc();
+  const month = now.toFormat("yyyy-MM");
+  let result: RapidApiBudgetState | null = null;
+
+  await adminDb.runTransaction(async (tx) => {
+    const usageSnapshot = await tx.get(usageRef);
+    const budgetSnapshot = await tx.get(budgetRef);
+    const budgetData = budgetSnapshot.data() ?? {};
+    const hasStoredBudget = budgetSnapshot.exists && BUDGET_FIELD in budgetData;
+    const configured = hasStoredBudget
+      ? normalizeBudget(budgetData[BUDGET_FIELD])
+      : normalizeBudget(Number(process.env.RAPIDAPI_MONTHLY_BUDGET ?? ""));
+    const budgetSource: RapidApiBudgetState["budgetSource"] =
+      hasStoredBudget ? "firestore" : configured === null ? "none" : "env";
+
+    if (configured === null) {
+      throw new Error("RapidAPI requests are blocked because no positive monthly budget is configured.");
+    }
+
+    const usageData = usageSnapshot.data() as { month?: string; count?: number } | undefined;
+    const used = usageData?.month === month ? Math.max(0, usageData.count ?? 0) : 0;
+    if (used + 1 + remainingReserve > configured) {
+      throw new RapidApiBudgetExceededError(configured, used, remainingReserve);
+    }
+
+    const nextCount = used + 1;
+    tx.set(usageRef, {
+      month,
+      count: nextCount,
+      updated_at: now.toISO(),
+    }, { merge: true });
+
+    result = {
+      month,
+      count: nextCount,
+      budget: configured,
+      budgetSource,
+      remaining: Math.max(0, configured - nextCount),
+      exhausted: nextCount >= configured,
+    };
+  });
+
+  if (!result) throw new Error("RapidAPI request reservation did not return a budget state.");
+  return result;
+}
+
 export type RapidApiBudgetState = {
   month: string;
   count: number;
