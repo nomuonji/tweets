@@ -414,6 +414,10 @@ export async function getBlindDiscoveryWork(
       receipt.discovery_origin === "blind_discovery" &&
       receipt.source_type === "account_independent_query" &&
       receipt.collector_version === COLLECTOR_VERSION &&
+      typeof receipt.source_seed_id === "string" &&
+      typeof receipt.source_theme === "string" &&
+      (receipt.source_language === "ja" || receipt.source_language === "en") &&
+      (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") &&
       Number.isFinite(Date.parse(receipt.fetched_at)) &&
       Date.parse(receipt.fetched_at) >= cutoff,
     )
