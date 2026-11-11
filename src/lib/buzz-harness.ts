@@ -159,6 +159,38 @@ export interface BuzzHarnessValidationResult {
   };
 }
 
+export const blindReviewGateKeys = [
+  "A_entryAndUnderstanding",
+  "B_specificCore",
+  "C_readerReward",
+  "D_shareOrConversationReason",
+  "E_voiceAndNaturalness",
+  "F_marketMechanismTransfer",
+  "G_factsRightsAndSafety",
+] as const;
+
+const blindReviewCheckSchema = z.object({
+  pass: z.boolean(),
+  note: z.string().trim().min(30).max(700),
+}).strict();
+
+export const blindReviewItemSchema = z.object({
+  textHash: z.string().regex(/^[a-f0-9]{64}$/),
+  decision: z.enum(["PASS", "REJECT"]),
+  note: z.string().trim().min(30).max(1200),
+  checks: z.object({
+    A_entryAndUnderstanding: blindReviewCheckSchema,
+    B_specificCore: blindReviewCheckSchema,
+    C_readerReward: blindReviewCheckSchema,
+    D_shareOrConversationReason: blindReviewCheckSchema,
+    E_voiceAndNaturalness: blindReviewCheckSchema,
+    F_marketMechanismTransfer: blindReviewCheckSchema,
+    G_factsRightsAndSafety: blindReviewCheckSchema,
+  }).strict(),
+});
+
+export type BlindReviewItem = z.infer<typeof blindReviewItemSchema>;
+
 export interface BlindReviewReceiptInput {
   writerId: string;
   writerModel: string;
@@ -166,11 +198,8 @@ export interface BlindReviewReceiptInput {
   reviewerModel: string;
   reviewerMode: "blind_copy_only";
   expectedTextHashes: string[];
-  reviews: Array<{
-    textHash: string;
-    decision: "PASS";
+  reviews: Array<BlindReviewItem & {
     reviewedAt: string;
-    note: string;
   }>;
 }
 
@@ -203,8 +232,9 @@ export function validateBlindReviewReceipt(
     if (!Number.isFinite(reviewedAt) || reviewedAt > nowMs || nowMs - reviewedAt > 24 * 60 * 60 * 1000) {
       errors.push("Every review timestamp must be valid, recent and not future-dated.");
     }
-    if (review.decision !== "PASS" || review.note.trim().length < 30) {
-      errors.push("Every final text needs an explicit PASS and a substantive blind-review note.");
+    const failedChecks = blindReviewGateKeys.filter((key) => !review.checks[key].pass);
+    if (review.decision !== "PASS" || failedChecks.length > 0 || review.note.trim().length < 30) {
+      errors.push(`Final copy ${review.textHash} did not pass the independent blind review: ${failedChecks.join(", ") || "reviewer decision REJECT"}.`);
     }
   }
   return unique(errors);
