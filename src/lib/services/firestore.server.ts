@@ -217,11 +217,12 @@ export async function savePatternStats(
 }
 
 // --- Draft Functions ---
-export async function saveDraft(draft: Omit<DraftDoc, 'id'> & { id?: string }): Promise<DraftDoc> {
-    const docRef = draft.id ? adminDb.collection("drafts").doc(draft.id) : adminDb.collection("drafts").doc();
-    const finalDraft = { ...draft, id: docRef.id };
-    await docRef.set(finalDraft, { merge: true });
-    return finalDraft;
+/**
+ * @deprecated Direct draft writes bypass the Buzz Editorial Harness.
+ * Kept as a fail-closed compatibility symbol for old imports.
+ */
+export async function saveDraft(_draft: Omit<DraftDoc, 'id'> & { id?: string }): Promise<DraftDoc> {
+    throw new Error("Direct saveDraft is disabled. Use submit_buzz_harness_run and the harness-bound create_drafts tool.");
 }
 
 export async function getDraftsByAccountId(accountId: string): Promise<DraftDoc[]> {
