@@ -218,7 +218,6 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
 
   const clusterById = new Map(packet.searchClusters.map((cluster) => [cluster.id, cluster]));
   const observationIds = new Set(packet.observations.map((item) => item.externalPostId));
-  const observationById = new Map(packet.observations.map((item) => [item.externalPostId, item]));
   const mechanismById = new Map(packet.mechanisms.map((item) => [item.id, item]));
   const candidateById = new Map(packet.candidates.map((item) => [item.id, item]));
   const mechanismFamilies = unique(packet.mechanisms.map((item) => item.transferableMechanism.toLowerCase()));
@@ -244,7 +243,7 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   const authors: string[] = [];
   const searchKeywords: string[] = [];
   const discoveryModes: string[] = [];
-  const engagementRates: number[] = [];
+  const engagementRates: Array<{ id: string; rate: number }> = [];
   let blindObservationCount = 0;
 
   for (const observation of packet.observations) {
@@ -278,12 +277,22 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   if (blindObservationCount < Math.ceil(packet.observations.length * 0.3)) errors.push("At least 30% of observed posts must come from blind-discovery clusters.");
   if (engagementRates.length >= 6 && unique(engagementRates).length < 3) errors.push("The observed engagement signals do not provide enough variation to compare strong, typical and weak examples.");
 
-  const sortedRates = [...engagementRates].sort((a, b) => a - b);
+  const sortedRates = [...engagementRates].sort((a, b) => a.rate - b.rate);
+  const lowCount = sortedRates.length >= 6 ? Math.max(1, Math.ceil(sortedRates.length * 0.25)) : 0;
+  const highCount = sortedRates.length >= 6 ? Math.max(1, Math.ceil(sortedRates.length * 0.25)) : 0;
+  const lowReactionIds = new Set(sortedRates.slice(0, lowCount).map((item) => item.id));
+  const highReactionIds = new Set(sortedRates.slice(Math.max(0, sortedRates.length - highCount)).map((item) => item.id));
   const reactionBands = {
-    low: sortedRates.length >= 6 ? 1 : 0,
-    high: sortedRates.length >= 6 ? 1 : 0,
-    typical: sortedRates.length >= 6 ? sortedRates.length - 2 : 0,
+    low: lowReactionIds.size,
+    high: highReactionIds.size,
+    typical: Math.max(0, sortedRates.length - lowReactionIds.size - highReactionIds.size),
   };
+  if (sortedRates.length >= 6 && !packet.counterexamples.some((item) => lowReactionIds.has(item.externalPostId))) {
+    errors.push("At least one counterexample must come from an observed post in the lowest quartile of measured follower-relative engagement.");
+  }
+  if (sortedRates.length >= 6 && !packet.observations.some((item) => highReactionIds.has(item.externalPostId))) {
+    errors.push("The corpus has no verified high-reaction example in its upper quartile.");
+  }
   if (packet.observations.length < 6 || packet.observations.length > 40) errors.push("The market corpus needs at least 6 actual posts.");
   if (packet.searchClusters.some((cluster) => cluster.sourcePostIds.some((id) => !observationIds.has(id)))) errors.push("A search cluster references a post that is not in the observed corpus.");
   for (const cluster of packet.searchClusters) {
