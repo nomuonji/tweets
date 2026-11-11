@@ -214,6 +214,14 @@ function fixture() {
       bakaGate: gate(bakaKeys) as BuzzHarnessPacket["drafts"][number]["bakaGate"],
       resonanceGate: gate(resonanceKeys) as BuzzHarnessPacket["drafts"][number]["resonanceGate"],
       editorialGate: gate(editorialKeys) as BuzzHarnessPacket["drafts"][number]["editorialGate"],
+      review: {
+        reviewerId: "reviewer-agent-beta",
+        reviewerMode: "blind_copy_only",
+        decision: "PASS",
+        reviewedAt: isoNow,
+        reviewedTextHash: buzzDraftTextHash(draftText),
+        note: "The final copy was reviewed without author rationale, and the reviewer recorded a reason against every required reader-side and safety gate.",
+      },
     }],
   };
 
