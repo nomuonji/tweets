@@ -464,9 +464,9 @@ export async function getBlindDiscoveryWork(
       discoveryMode: receipt.discovery_mode,
       authorFollowers: receipt.author_followers ?? null,
       metrics: receipt.metrics,
-      sourceSeedId: receipt.source_seed_id,
-      sourceTheme: receipt.source_theme,
-      sourceLanguage: receipt.source_language,
+      sourceSeedId: receipt.source_seed_id!,
+      sourceTheme: receipt.source_theme!,
+      sourceLanguage: receipt.source_language!,
       runId: receipt.run_id,
       receiptId: receipt.id,
     });
