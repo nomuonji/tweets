@@ -1,12 +1,14 @@
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { getCharacterVersion } from "@/lib/character-version";
+import { isPublishingEnabled } from "@/lib/account-gates";
 import { getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
 import type { AccountDoc, DraftDoc, ExternalPostDoc, PostDoc } from "@/lib/types";
 import {
   BuzzHarnessPacketSchema,
   buzzDraftTextHash,
   buzzPacketHash,
+  buzzSourceReceipt,
   trigramSimilarity,
   validateBlindReviewReceipt,
   validateBuzzHarnessPacket,
@@ -15,23 +17,6 @@ import {
 export interface BuzzHarnessAuthorization {
   runId: string;
   approvalHash: string;
-}
-
-function sourceFingerprint(post: ExternalPostDoc) {
-  return {
-    id: post.id,
-    platform: post.platform,
-    platformPostId: post.platform_post_id,
-    authorHandle: post.author_handle,
-    textHash: buzzDraftTextHash(post.text),
-    url: post.url ?? null,
-    createdAt: post.created_at,
-    fetchedAt: post.fetched_at,
-    searchKeyword: post.search_keyword ?? null,
-    discoveryMode: post.discovery_mode ?? null,
-    engagementRate: post.engagement_rate ?? null,
-    metrics: post.metrics,
-  };
 }
 
 async function existingTexts(accountId: string): Promise<string[]> {
@@ -121,6 +106,16 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
 
   // Require the server readback and the packet to agree on every final draft
   // target. A candidate-only packet cannot create a save permission.
+  for (const profile of packet.accounts) {
+    const live = liveAccountDocs.get(profile.accountId);
+    if (!live) {
+      validation.errors.push(`No live account snapshot was available for ${profile.accountId}.`);
+      continue;
+    }
+    if (!isPublishingEnabled(live)) {
+      validation.errors.push(`Account ${profile.accountId} is not currently publishing-enabled; do not replenish it.`);
+    }
+  }
   for (const draft of packet.drafts) {
     if (!liveAccountDocs.has(draft.accountId)) {
       validation.errors.push(`No live account snapshot was available for draft target ${draft.accountId}.`);
@@ -132,7 +127,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   const sourceReceipts = sourceIds
     .map((id) => sourcePosts.get(id))
     .filter((post): post is ExternalPostDoc => Boolean(post))
-    .map(sourceFingerprint)
+    .map(buzzSourceReceipt)
     .sort((a, b) => a.id.localeCompare(b.id));
   const accountReceipts = Array.from(liveAccounts.values())
     .map((account) => ({
@@ -186,6 +181,14 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
     accountReceipts,
     sourceReceipts,
     approvedDraftsByAccount,
+    blindReviewQueue: validation.passed
+      ? packet.drafts.map((draft) => ({
+          accountId: draft.accountId,
+          objective: draft.objective,
+          text: draft.text,
+          textHash: buzzDraftTextHash(draft.text),
+        }))
+      : [],
     consumedAccountIds: [],
   });
 
@@ -305,6 +308,9 @@ export async function getBuzzHarnessRun(runId: string) {
     accountReceipts: Array.isArray(run.accountReceipts) ? run.accountReceipts : [],
     sourceReceipts: Array.isArray(run.sourceReceipts) ? run.sourceReceipts : [],
     approvedDraftsByAccount: manifests,
+    // Deliberately expose only raw copy/objective to the blind reviewer.
+    // No author rationale, candidate explanation, mechanism notes or gate notes.
+    blindReviewQueue: Array.isArray(run.blindReviewQueue) ? run.blindReviewQueue : [],
     reviewerReceipt: run.reviewerReceipt ?? null,
     consumedAccountIds: Array.isArray(run.consumedAccountIds) ? run.consumedAccountIds : [],
     updatedAt: run.updatedAt ?? null,
