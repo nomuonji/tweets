@@ -4,6 +4,8 @@ import { getCharacterVersion } from "@/lib/character-version";
 import { extractPattern } from "@/lib/pattern";
 import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import type { DraftDoc, DraftProvenance } from "@/lib/types";
+import type { BuzzHarnessAuthorization } from "@/lib/services/buzz-harness-service";
+import { buzzDraftTextHash } from "@/lib/buzz-harness";
 
 export const MAX_AGENT_DRAFTS = 5;
 const PLATFORM_LIMITS = { x: 280, threads: 500 } as const;
@@ -46,7 +48,11 @@ export async function createAgentDrafts(
   accountId: string,
   expectedCharacterVersion: number,
   inputs: NewDraftInput[],
+  harnessAuthorization?: BuzzHarnessAuthorization,
 ): Promise<DraftDoc[]> {
+  if (!harnessAuthorization?.runId || !/^[a-f0-9]{64}$/.test(harnessAuthorization.reportHash)) {
+    throw new Error("A passed Buzz Harness runId/reportHash is mandatory. Draft saving without an approved editorial evidence packet is blocked.");
+  }
   if (inputs.length < 1 || inputs.length > 10) throw new Error("1〜10件の下書きを指定してください。");
   const accountRef = adminDb.collection("accounts").doc(accountId);
   return adminDb.runTransaction(async (transaction) => {
@@ -105,6 +111,46 @@ export async function createAgentDrafts(
       }
       ownedContentById.set(itemId, { itemId, sourceId, canonicalUrl, sourceType });
     }
+    // The harness record is written only by submit_buzz_harness_run after live
+    // account + canonical external-post readback and all editorial gates pass.
+    // Bind this save to the exact approved text hashes; no edits after review.
+    const harnessRef = adminDb.collection("buzz_harness_runs").doc(harnessAuthorization.runId);
+    const harnessSnap = await transaction.get(harnessRef);
+    if (!harnessSnap.exists) throw new Error("Buzz Harness approval not found.");
+    const harness = harnessSnap.data() ?? {};
+    if (harness.reportHash !== harnessAuthorization.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
+    if (!["approved", "partially_consumed"].includes(String(harness.status))) throw new Error("Buzz Harness approval is not save-eligible.");
+    if (Date.parse(String(harness.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness approval expired; rerun the evidence and review stages.");
+    const consumedAccountIds = Array.isArray(harness.consumedAccountIds) ? harness.consumedAccountIds as string[] : [];
+    if (consumedAccountIds.includes(accountId)) throw new Error("This account has already consumed its drafts from the approved Buzz Harness run.");
+    const approvedDraftsByAccount = (harness.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string; candidateId: string; sourcePostIds: string[]; characterVersion: number }>>;
+    const approvedForAccount = approvedDraftsByAccount[accountId];
+    if (!Array.isArray(approvedForAccount) || approvedForAccount.length !== inputs.length) {
+      throw new Error("Draft count does not match the Buzz Harness approval for this account.");
+    }
+    const accountReceipt = Array.isArray(harness.accountReceipts)
+      ? (harness.accountReceipts as Array<{ accountId?: string; characterVersion?: number }>).find((item) => item.accountId === accountId)
+      : undefined;
+    if (!accountReceipt || accountReceipt.characterVersion !== version || version !== expectedCharacterVersion) {
+      throw new Error("Buzz Harness account/character-version receipt is stale.");
+    }
+    const expectedByHash = new Map(approvedForAccount.map((item) => [item.textHash, item]));
+    for (const input of inputs) {
+      const textHash = buzzDraftTextHash(input.text);
+      const approved = expectedByHash.get(textHash);
+      if (!approved) throw new Error("Draft text was edited after its Buzz Harness review or was not approved.");
+      if (approved.characterVersion !== version) throw new Error("Approved draft character version does not match the live account.");
+      if (input.provenance?.buzzRunId !== harnessAuthorization.runId) throw new Error("Draft provenance must reference the approving Buzz Harness run.");
+      if (input.provenance?.candidateId !== approved.candidateId) throw new Error("Draft candidateId does not match the approving Buzz Harness run.");
+      const actualSources = [...(input.provenance?.externalPostIds ?? [])].sort();
+      const approvedSources = [...approved.sourcePostIds].sort();
+      if (JSON.stringify(actualSources) !== JSON.stringify(approvedSources)) {
+        throw new Error("Draft externalPostIds do not match the research sources approved by the Buzz Harness.");
+      }
+      expectedByHash.delete(textHash);
+    }
+    if (expectedByHash.size > 0) throw new Error("One or more approved drafts were omitted from this account save.");
+
     const now = DateTime.utc().toISO()!;
     const drafts = inputs.map((input) => {
       const text = input.text.trim(); const hashtags = input.hashtags ?? [];
@@ -151,6 +197,14 @@ export async function createAgentDrafts(
       const ref = adminDb.collection("drafts").doc();
       const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(topicTag ? { topic_tag: topicTag } : {}), ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
       transaction.set(ref, draft); existing.push(draft); return draft;
+    });
+    const updatedConsumed = [...consumedAccountIds, accountId];
+    const approvedAccountIds = Object.keys(approvedDraftsByAccount);
+    const fullyConsumed = approvedAccountIds.every((id) => updatedConsumed.includes(id));
+    transaction.update(harnessRef, {
+      consumedAccountIds: updatedConsumed,
+      status: fullyConsumed ? "consumed" : "partially_consumed",
+      updatedAt: now,
     });
     return drafts;
   });
