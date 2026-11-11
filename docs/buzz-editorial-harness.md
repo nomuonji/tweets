@@ -28,23 +28,25 @@ Hard requirements:
 - Live persona/inventory snapshots match.
 - Every final text has Baka Model, Idea Resonance and Social Post Quality Gate A–G PASS notes.
 - Statistic/research-first hooks are rejected.
-- Every final text has a different declared initial reviewer identity from the writer, exact reviewed-text hash and current review time.
+- Every final text receives an exact server-side reviewer hash receipt after evidence validation; reviewer PASS is not submitted by the drafting agent.
 - Existing content and within-batch similarity checks pass.
 
 A successful submission creates a buzz_harness_runs/{runId} audit record with status awaiting_review. This is deliberately not saveable.
 
-### Stage 2 — separate blind reviewer approval
+### Stage 2 — server-executed blind Gemini review
 
-approve_buzz_harness_run requires:
-- A reviewer ID different from the writer ID.
-- A reviewer model different from the writer model.
-- blind_copy_only mode (the reviewer does not receive the author's rationale).
-- An exact PASS receipt for every final text SHA-256 hash in the pending run.
-- A substantive note and recent timestamp for each reviewed copy.
+approve_buzz_harness_run accepts only runId and reportHash. It does not accept a caller-supplied reviewer identity, model, PASS status or review notes.
 
-The server stores the reviewer receipt and transitions the run to approved, returning an approvalHash. A missing, duplicate, failed or mismatched text hash blocks approval.
+The server:
+- Chooses a configured Gemini model distinct from the writer's declared model.
+- Makes an actual Gemini API call. If no Gemini key/model is configured, the API is unavailable, or the response is malformed, approval fails closed.
+- Sends only target-account concept/platform, objective, exact final copy and raw reference-post text. It withholds author rationale, candidate explanations, mechanism notes and author gate notes.
+- Requires independent PASS/REJECT decisions and a specific note for each of seven checks: entry/understanding, specific core, reader reward, sharing/conversation reason, voice/naturalness, source transformation, and factual/rights/safety.
+- Reviews every exact final-copy hash in bounded batches; missing/duplicate/changed hashes or any failed gate prevent approval.
 
-Identity limitation: reviewer ID and model are supplied by the caller and compared against the writer declaration; they are not authenticated by a separate OAuth identity or cryptographic signature. The tool enforces a second declared reviewer stage, not independently authenticated human identity. Never describe it as cryptographically verified.
+Only a fully passing server review transitions the run to approved and produces an approvalHash. A rejection stores the result as review_rejected; it cannot be saved.
+
+Identity limitation: the independent Gemini call is a real server-side API invocation, but the writer's declared model is not authenticated by a credential. The reviewer is selected to differ from that declaration, but do not claim cryptographic authentication of the writer identity/model.
 
 ### Stage 3 — exact-copy save
 
@@ -78,7 +80,7 @@ The audit record stores:
 - Account and character-version receipts.
 - Gate results, candidate count and corpus coverage.
 - Exact approved text hashes and source attribution.
-- Reviewer identity/model assertion, exact reviewed hashes and notes.
+- Actual Gemini reviewer model, exact reviewed hashes, seven-gate findings and notes.
 - Approval hash, expiry and consumed account IDs.
 
 npm run test:buzz-harness checks acceptance and rejection cases for evidence coverage, author diversity, reaction bands, source verification, blind review identity/model, exact-copy review, statistic-first hooks and minimum divergence. The same test is included in prebuild and the dedicated GitHub Actions workflow.
@@ -86,6 +88,6 @@ npm run test:buzz-harness checks acceptance and rejection cases for evidence cov
 ## Known limitations
 
 - The harness validates only posts already stored in the canonical external_posts collection. It does not itself crawl X or authenticate that the caller read the whole source page; acquisition/sync is a separate stage.
-- The reviewer identity/model are declared values, not authenticated credentials.
+- The writer's declared identity/model is not authenticated as a credential. The reviewer is an actual server-side Gemini API call.
 - The minimum corpus and follower-relative engagement signal requirements can reject a run if the source pool is incomplete. The correct response is to collect evidence, not lower thresholds.
 - PASS is an editorial/evidence gate, not a human panel, market experiment or prediction of virality.
