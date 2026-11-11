@@ -212,6 +212,7 @@ export async function generatePosts(
   requestedCount: number,
   limit = 15,
 ): Promise<DraftDoc[]> {
+  throw new Error("Legacy generatePosts is disabled. It bypasses the Buzz Editorial Harness; use submit_buzz_harness_run then create_drafts.");
   const draftCount = Math.min(Math.max(Math.floor(requestedCount), 0), 5);
   if (!Number.isFinite(requestedCount) || draftCount === 0) return [];
 
@@ -367,6 +368,7 @@ export async function generatePosts(
 }
 
 export async function generatePost(accountId: string, platform: Platform, limit = 15): Promise<DraftDoc> {
+  throw new Error("Legacy generatePost is disabled. It bypasses the Buzz Editorial Harness; use submit_buzz_harness_run then create_drafts.");
   const payload = await preparePromptPayload(accountId, limit);
   const { account, topPosts, referencePosts, recentPosts, drafts, tips, exemplaryPosts, externalPosts, patternAnalysis, promoProduct, characterVersion } = payload;
 
