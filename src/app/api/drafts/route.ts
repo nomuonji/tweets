@@ -11,7 +11,7 @@ type CreateDraftPayload = {
   promoProductAsin?: string;
   characterVersion?: number;
   harnessRunId?: string;
-  harnessReportHash?: string;
+  harnessApprovalHash?: string;
   provenance?: {
     batchId?: string;
     externalPostIds?: string[];
@@ -41,9 +41,9 @@ export async function POST(request: Request) {
         { ok: false, message: "characterVersion は必須です。" }, { status: 400 },
       );
     }
-    if (!body.harnessRunId || !body.harnessReportHash || !body.provenance?.buzzRunId || !body.provenance?.candidateId) {
+    if (!body.harnessRunId || !body.harnessApprovalHash || !body.provenance?.buzzRunId || !body.provenance?.candidateId) {
       return NextResponse.json(
-        { ok: false, message: "A passed Buzz Harness runId/reportHash and matching candidate provenance are required." },
+        { ok: false, message: "A separately blind-reviewed Buzz Harness runId/approvalHash and matching candidate provenance are required." },
         { status: 400 },
       );
     }
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
         generatedBy: body.generatedBy ?? "agent",
         provenance: body.provenance,
       }],
-      { runId: body.harnessRunId, reportHash: body.harnessReportHash },
+      { runId: body.harnessRunId, approvalHash: body.harnessApprovalHash },
     );
 
     return NextResponse.json({ ok: true, draft });
