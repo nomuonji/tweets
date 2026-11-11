@@ -64,6 +64,10 @@ export interface DraftProvenance {
   structure?: string;
   /** One-line note on the angle, for later qualitative review. */
   rationale?: string;
+  /** Exact Buzz Harness run used to approve this copy. */
+  buzzRunId?: string;
+  /** Candidate ID from the approved idea-divergence stage. */
+  candidateId?: string;
 }
 
 export interface PatternStat {
