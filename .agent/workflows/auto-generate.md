@@ -25,7 +25,7 @@ Do not create or save posts by following this document as a checklist alone. The
 8. Submit the complete JSON packet to submit_buzz_harness_run.
    - rejected means no save permission. Fix the evidence or the copy, create a new run ID, and submit a new packet.
    - awaiting_review means the packet passed server validation but is still NOT saveable. It returns runId and reportHash.
-9. Call approve_buzz_harness_run separately with a different reviewer identity/model and one PASS receipt per exact final text hash. It returns approvalHash only if every text is covered.
+9. Call approve_buzz_harness_run with only runId/reportHash. The server invokes a configured Gemini model, chosen distinct from the writer's declared model, to review every exact final copy against seven independent gates using target-account context and raw reference text only. No caller-supplied reviewer ID/model or PASS receipt is accepted. Gemini failure, invalid JSON or any rejected gate means no approvalHash and no save.
 10. Call create_drafts with the exact reviewed text, its current character version, harnessRunId, harnessApprovalHash, and matching provenance (buzzRunId, candidateId, externalPostIds). Do not rephrase after review.
 11. Re-run get_generation_work and list_drafts to verify the saved inventory. The existing publishing scheduler remains the only publication path. Never call publish_draft as part of replenishment.
 
@@ -39,4 +39,4 @@ Do not create or save posts by following this document as a checklist alone. The
 - No lowering corpus, mechanism, candidate or gate thresholds just to fill the queue.
 - No claim that PASS predicts virality. It is an editorial/evidence gate, not an experiment.
 
-The reviewer identity and model are asserted in the review receipt; the server verifies that they differ from the writer's declared values, but it does not authenticate an external reviewer account. Do not claim cryptographic reviewer identity.
+The server-side Gemini review is an actual API invocation, but the writer's declared identity/model is not cryptographically authenticated. Do not claim an independently authenticated writer identity.
