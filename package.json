@@ -9,12 +9,12 @@
     "lint": "next lint",
     "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "sync:posts": "tsx -r dotenv/config scripts/sync.ts",
+    "sync:discovery": "tsx -r dotenv/config scripts/sync-discovery.ts",
     "capture:performance": "tsx -r dotenv/config scripts/capture-performance-snapshots.ts",
     "sync:schedules": "tsx -r dotenv/config scripts/execute-scheduled.ts",
     "sync:refresh-tokens": "tsx -r dotenv/config scripts/refresh-tokens.ts",
     "auto:sync": "tsx -r dotenv/config scripts/auto-sync.ts",
     "auto:generate": "tsx -r dotenv/config scripts/auto-generate-drafts.ts",
-    "sync:external": "tsx -r dotenv/config scripts/sync-external.ts",
     "cleanup:failed": "tsx -r dotenv/config scripts/cleanup-failed-drafts.ts",
     "recover:failed-publishes": "tsx -r dotenv/config scripts/recover-failed-publishes.ts",
     "analyze:patterns": "tsx -r dotenv/config scripts/analyze-patterns.ts",
@@ -39,7 +39,6 @@
     "analyze:legacy-cohorts": "tsx -r dotenv/config scripts/analyze-legacy-cohorts.ts",
     "test:performance-cohorts": "tsx scripts/test-performance-cohorts.ts",
     "test:buzz-harness": "tsx scripts/test-buzz-harness.ts",
-    "sync:blind": "tsx -r dotenv/config scripts/sync-blind-external.ts",
     "test:blind-discovery": "tsx scripts/test-blind-discovery.ts"
   },
   "dependencies": {

@@ -79,7 +79,6 @@ function fixture() {
 
   for (let index = 0; index < postIds.length; index += 1) {
     const clusterIndex = clusterForPost[index];
-    if (clusterIndex === 0) continue;
     const post = sourcePosts.get(postIds[index])!;
     const keyword = keywordByCluster[clusterIndex];
     const lane = laneByPost[index];
@@ -94,15 +93,17 @@ function fixture() {
       created_at: post.created_at,
       fetched_at: post.fetched_at,
       search_keyword: keyword,
-      discovery_query_id: `blind:v1:${keyword}`,
-      discovery_origin: "blind_discovery",
+      discovery_query_id: clusterIndex === 0 ? `keyword:${keyword}` : `blind:v1:${keyword}`,
+      discovery_origin: clusterIndex === 0 ? "account_keyword" : "blind_discovery",
       discovery_mode: lane,
-      source_type: "account_independent_query",
-      source_seed_id: `seed-${clusterIndex}`,
-      source_theme: "independent test theme",
-      source_language: "ja",
-      run_id: "blind_run_test_0001",
-      collector_version: "blind-discovery-v1",
+      source_type: clusterIndex === 0 ? "account_keyword_query" : "account_independent_query",
+      ...(clusterIndex === 0 ? {} : {
+        source_seed_id: `seed-${clusterIndex}`,
+        source_theme: "independent test theme",
+        source_language: "ja" as const,
+      }),
+      run_id: clusterIndex === 0 ? "external_run_test_0001" : "blind_run_test_0001",
+      collector_version: clusterIndex === 0 ? "external-discovery-v2" : "blind-discovery-v1",
       author_followers: post.author_followers,
       metrics: post.metrics,
     }]);
@@ -290,6 +291,12 @@ function main() {
   });
   assert.equal(forgedBlindDiscovery.passed, false);
   assert.ok(forgedBlindDiscovery.errors.some((error) => /immutable server-verified acquisition receipt/i.test(error)));
+
+  const missingKeywordReceipt = validate("missing-account-keyword-receipt", ({ sourceObservations }) => {
+    sourceObservations.delete("post1");
+  });
+  assert.equal(missingKeywordReceipt.passed, false);
+  assert.ok(missingKeywordReceipt.errors.some((error) => /immutable account-keyword acquisition receipt/i.test(error)));
 
   const mutableMetadataOverwrite = validate("mutable-metadata-overwrite", ({ sourcePosts }) => {
     for (const [id, post] of Array.from(sourcePosts.entries())) {

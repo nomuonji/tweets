@@ -150,7 +150,7 @@ export interface BlindDiscoveryRunResult {
 export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResult> {
   const now = DateTime.utc();
   const jstDate = now.setZone("Asia/Tokyo").toISODate()!;
-  const stateRef = adminDb.collection("external_blind_discovery_state").doc("global");
+  const stateRef = adminDb.collection("external_discovery_state").doc("global");
   const stateSnapshot = await stateRef.get();
   const state = stateSnapshot.data() ?? {};
   const cursorIndex = typeof state.next_seed_index === "number" ? state.next_seed_index : 0;
@@ -160,7 +160,7 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
   }
 
   const plan = buildBlindDiscoveryPlan(cursorIndex, jstDate);
-  const runRef = adminDb.collection("external_blind_discovery_runs").doc(plan.runId);
+  const runRef = adminDb.collection("external_discovery_runs").doc(plan.runId);
   const leaseUntilMs = now.plus({ minutes: LEASE_MINUTES }).toMillis();
 
   const claim = await adminDb.runTransaction(async (transaction) => {
@@ -365,4 +365,117 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
     await releaseLease(stateRef, plan.runId);
     throw error;
   }
+}
+
+
+export interface BlindDiscoveryWorkItem {
+  externalPostId: string;
+  platformPostId: string;
+  authorHandle: string;
+  text: string;
+  url: string;
+  createdAt: string;
+  fetchedAt: string;
+  searchKeyword: string;
+  discoveryQueryId: string;
+  discoveryMode: "Top" | "Latest";
+  authorFollowers: number | null;
+  metrics: ExternalPostDoc["metrics"];
+  sourceSeedId: string;
+  sourceTheme: string;
+  sourceLanguage: "ja" | "en";
+  runId: string;
+  receiptId: string;
+}
+
+/**
+ * Read account-independent posts with their exact immutable acquisition proof.
+ * The single-field fetched_at index keeps this bounded without introducing a
+ * second acquisition collection or a compound-index dependency.
+ */
+export async function getBlindDiscoveryWork(
+  limit = 40,
+  maxAgeDays = 30,
+): Promise<{ items: BlindDiscoveryWorkItem[]; scannedReceipts: number; asOf: string }> {
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+  const boundedAgeDays = Math.max(1, Math.min(Math.floor(maxAgeDays), 90));
+  const now = DateTime.utc();
+  const cutoff = now.minus({ days: boundedAgeDays }).toMillis();
+
+  const snapshot = await adminDb
+    .collection("external_post_observations")
+    .orderBy("fetched_at", "desc")
+    .limit(500)
+    .get();
+
+  const receipts = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() } as ExternalPostObservationDoc))
+    .filter((receipt) =>
+      receipt.discovery_origin === "blind_discovery" &&
+      receipt.source_type === "account_independent_query" &&
+      receipt.collector_version === COLLECTOR_VERSION &&
+      typeof receipt.source_seed_id === "string" &&
+      typeof receipt.source_theme === "string" &&
+      (receipt.source_language === "ja" || receipt.source_language === "en") &&
+      (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") &&
+      Number.isFinite(Date.parse(receipt.fetched_at)) &&
+      Date.parse(receipt.fetched_at) >= cutoff,
+    )
+    .sort((a, b) => Date.parse(b.fetched_at) - Date.parse(a.fetched_at));
+
+  const latestByPost = new Map<string, ExternalPostObservationDoc>();
+  for (const receipt of receipts) {
+    if (!latestByPost.has(receipt.external_post_id)) {
+      latestByPost.set(receipt.external_post_id, receipt);
+    }
+  }
+
+  const selected = Array.from(latestByPost.values()).slice(0, boundedLimit);
+  const refs = selected.map((receipt) =>
+    adminDb.collection("external_posts").doc(receipt.external_post_id),
+  );
+  const postSnapshots = refs.length ? await adminDb.getAll(...refs) : [];
+  const postsById = new Map(
+    postSnapshots
+      .filter((post) => post.exists)
+      .map((post) => [post.id, { id: post.id, ...post.data() } as ExternalPostDoc]),
+  );
+
+  const items: BlindDiscoveryWorkItem[] = [];
+  for (const receipt of selected) {
+    const post = postsById.get(receipt.external_post_id);
+    if (!post || !post.text || !post.url) continue;
+    if (
+      hashBlindSourceText(post.text) !== receipt.text_hash ||
+      post.platform_post_id !== receipt.platform_post_id ||
+      post.author_handle?.trim().toLowerCase() !== receipt.author_handle.trim().toLowerCase() ||
+      post.url !== receipt.canonical_url
+    ) continue;
+    if (receipt.discovery_mode !== "Top" && receipt.discovery_mode !== "Latest") continue;
+    items.push({
+      externalPostId: post.id,
+      platformPostId: post.platform_post_id,
+      authorHandle: receipt.author_handle,
+      text: post.text,
+      url: receipt.canonical_url,
+      createdAt: receipt.created_at,
+      fetchedAt: receipt.fetched_at,
+      searchKeyword: receipt.search_keyword,
+      discoveryQueryId: receipt.discovery_query_id,
+      discoveryMode: receipt.discovery_mode,
+      authorFollowers: receipt.author_followers ?? null,
+      metrics: receipt.metrics,
+      sourceSeedId: receipt.source_seed_id!,
+      sourceTheme: receipt.source_theme!,
+      sourceLanguage: receipt.source_language!,
+      runId: receipt.run_id,
+      receiptId: receipt.id,
+    });
+  }
+
+  return {
+    items,
+    scannedReceipts: snapshot.size,
+    asOf: now.toISO()!,
+  };
 }

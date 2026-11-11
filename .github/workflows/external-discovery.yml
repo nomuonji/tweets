@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "15 0 * * *"
 
+concurrency:
+  group: unified-external-discovery
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -16,21 +20,14 @@ jobs:
           cache: "npm"
       - name: Install dependencies
         run: npm ci
-      - name: Sync external winning posts
-        run: npm run sync:external
+      - name: Run unified external discovery
+        run: npm run sync:discovery
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
-          # Quota policy. The free BASIC plan is 1,000 requests/month (hard
-          # limit), so this spends roughly 30% and leaves headroom for retries.
-          DISCOVERY_CACHE_HOURS: "48"             # refresh each source every 2 days
-          DISCOVERY_MAX_SOURCES_PER_ACCOUNT: "2"  # rotate the stored keywords
-          RAPIDAPI_MONTHLY_BUDGET: "800"          # stop before the 1,000 ceiling
-      - name: Run independent blind discovery (one rotating query, Top + Latest)
-        run: npm run sync:blind
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-          RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
+          # One shared hard ceiling across every acquisition lane.
           RAPIDAPI_MONTHLY_BUDGET: "800"
+          # Account sources: one query per account per 48h, rotated fairly.
+          DISCOVERY_CACHE_HOURS: "48"
+          DISCOVERY_MAX_SOURCES_PER_ACCOUNT: "1"

@@ -353,6 +353,33 @@ function findBlindDiscoveryReceipt(
     .sort((a, b) => Date.parse(b.fetched_at) - Date.parse(a.fetched_at))[0];
 }
 
+
+function findAccountKeywordReceipt(
+  post: ExternalPostDoc,
+  cluster: BuzzHarnessPacket["searchClusters"][number],
+  receipts: ExternalPostObservationDoc[] | undefined,
+  nowMs: number,
+): ExternalPostObservationDoc | undefined {
+  const expectedTextHash = createHash("sha256").update(post.text).digest("hex");
+  return (receipts ?? [])
+    .filter((receipt) =>
+      receipt.discovery_origin === "account_keyword" &&
+      receipt.source_type === "account_keyword_query" &&
+      receipt.collector_version === "external-discovery-v2" &&
+      Boolean(receipt.run_id) &&
+      receipt.external_post_id === post.id &&
+      receipt.platform_post_id === post.platform_post_id &&
+      receipt.discovery_query_id === cluster.discoveryQueryId &&
+      receipt.search_keyword.trim().toLowerCase() === cluster.searchKeyword.trim().toLowerCase() &&
+      receipt.author_handle.trim().toLowerCase() === post.author_handle.trim().toLowerCase() &&
+      receipt.canonical_url === post.url &&
+      receipt.text_hash === expectedTextHash &&
+      withinDays(receipt.fetched_at, 30, nowMs) &&
+      (cluster.acquisitionLane === "mixed" || receipt.discovery_mode === cluster.acquisitionLane)
+    )
+    .sort((a, b) => Date.parse(b.fetched_at) - Date.parse(a.fetched_at))[0];
+}
+
 export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): BuzzHarnessValidationResult {
   const { packet, liveAccounts, sourcePosts, sourceObservations } = input;
   const errors: string[] = [];
@@ -411,7 +438,10 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
 
     let sourceKeyword = post.search_keyword;
     let sourceQueryId = post.discovery_query_id;
-    let sourceMode = post.discovery_mode;
+    let sourceMode: "Top" | "Latest" | undefined =
+      post.discovery_mode === "Top" || post.discovery_mode === "Latest"
+        ? post.discovery_mode
+        : undefined;
     let sourceFetchedAt = post.fetched_at;
 
     if (cluster.origin === "blind_discovery") {
@@ -428,11 +458,32 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
         blindObservationCount += 1;
         sourceKeyword = receipt.search_keyword;
         sourceQueryId = receipt.discovery_query_id;
-        sourceMode = receipt.discovery_mode;
+        if (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") {
+          sourceMode = receipt.discovery_mode;
+        } else {
+          errors.push(`Blind-discovery receipt for ${observation.externalPostId} has an invalid acquisition lane.`);
+        }
         sourceFetchedAt = receipt.fetched_at;
       }
-    } else if (post.discovery_origin !== "account_keyword") {
-      errors.push(`Seed-followup cluster ${cluster.id} is not backed by a canonical account-keyword source record.`);
+    } else {
+      const receipt = findAccountKeywordReceipt(
+        post,
+        cluster,
+        sourceObservations?.get(observation.externalPostId),
+        nowMs,
+      );
+      if (!receipt) {
+        errors.push(`Seed-followup cluster ${cluster.id} has no matching immutable account-keyword acquisition receipt.`);
+      } else {
+        sourceKeyword = receipt.search_keyword;
+        sourceQueryId = receipt.discovery_query_id;
+        if (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") {
+          sourceMode = receipt.discovery_mode;
+        } else {
+          errors.push(`Account-keyword receipt for ${observation.externalPostId} has an invalid acquisition lane.`);
+        }
+        sourceFetchedAt = receipt.fetched_at;
+      }
     }
 
     if (sourceKeyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(`External post ${observation.externalPostId} was not retrieved under its claimed search keyword.`);
@@ -492,8 +543,10 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
         );
         if (!receipt) {
           errors.push(`Search cluster ${cluster.id} contains post ${sourceId} without a matching immutable blind-discovery receipt.`);
-        } else {
+        } else if (receipt.discovery_mode === "Top" || receipt.discovery_mode === "Latest") {
           observedModes.push(receipt.discovery_mode);
+        } else {
+          errors.push(`Search cluster ${cluster.id} receipt has an invalid acquisition lane.`);
         }
       } else {
         if (sourcePost.discovery_query_id !== cluster.discoveryQueryId) {

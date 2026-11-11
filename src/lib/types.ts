@@ -549,16 +549,22 @@ export interface ExternalPostObservationDoc {
   text_hash: string;
   created_at: string;
   fetched_at: string;
+  /** Search query or canonical reference-account identifier. */
   search_keyword: string;
   discovery_query_id: string;
-  discovery_origin: "blind_discovery";
-  discovery_mode: "Top" | "Latest";
-  source_type: "account_independent_query";
-  source_seed_id: string;
-  source_theme: string;
-  source_language: "ja" | "en";
+  discovery_origin: "blind_discovery" | "account_keyword" | "reference_account";
+  discovery_mode: "Top" | "Latest" | "timeline";
+  source_type: "account_independent_query" | "account_keyword_query" | "reference_account_timeline";
+  /** Present only for the independent rotating seed deck. */
+  source_seed_id?: string;
+  source_theme?: string;
+  source_language?: "ja" | "en";
+  /** The target account whose keyword/reference list initiated the acquisition. */
+  target_account_id?: string;
+  /** The referenced author account for reference-account timeline acquisitions. */
+  source_account_id?: string;
   run_id: string;
-  collector_version: "blind-discovery-v1";
+  collector_version: string;
   author_followers?: number | null;
   metrics: PostMetrics;
 }

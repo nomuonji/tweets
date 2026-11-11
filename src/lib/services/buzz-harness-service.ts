@@ -139,10 +139,13 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   const observationReceipts = sourceIds
     .flatMap((id) => sourceObservations.get(id) ?? [])
     .filter((receipt) => packet.searchClusters.some((cluster) =>
-      cluster.origin === "blind_discovery" &&
       cluster.sourcePostIds.includes(receipt.external_post_id) &&
       cluster.discoveryQueryId === receipt.discovery_query_id &&
-      cluster.searchKeyword.trim().toLowerCase() === receipt.search_keyword.trim().toLowerCase()
+      cluster.searchKeyword.trim().toLowerCase() === receipt.search_keyword.trim().toLowerCase() &&
+      (
+        (cluster.origin === "blind_discovery" && receipt.discovery_origin === "blind_discovery") ||
+        (cluster.origin === "seed_followup" && receipt.discovery_origin === "account_keyword")
+      )
     ))
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((receipt: ExternalPostObservationDoc) => ({ ...receipt }));

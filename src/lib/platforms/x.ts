@@ -3,13 +3,15 @@ import axios from "axios";
 import { DateTime } from "luxon";
 import type { AccountDoc, MediaType, PostMetrics } from "@/lib/types";
 import type { SyncPostPayload } from "./types";
-import { incrementApiUsage } from "@/lib/services/usage-service";
+import { reserveRapidApiRequest } from "@/lib/services/usage-service";
 import { TwitterApi } from "twitter-api-v2";
 import type { PublishResult } from "./types";
 
 type FetchOptions = {
   startTime?: string;
   limit?: number;
+  /** Keep this many budget slots untouched for later pipeline stages. */
+  reserveRequests?: number;
 };
 
 const DEFAULT_RAPID_API_HOST = "twitter-api45.p.rapidapi.com";
@@ -531,6 +533,7 @@ type TimelineRequestParams = {
   params: Record<string, string>;
   page: number;
   debug: string[];
+  reserveRequests?: number;
 };
 
 async function requestTimelinePage({
@@ -539,6 +542,7 @@ async function requestTimelinePage({
   params,
   page,
   debug,
+  reserveRequests = 0,
 }: TimelineRequestParams) {
   const candidateEndpoints = ["user-tweets", "timeline.php", "timeline"];
   let lastAxiosError: unknown = null;
@@ -549,6 +553,7 @@ async function requestTimelinePage({
         `Page ${page} attempt ${attempt}/${MAX_FETCH_ATTEMPTS} ¨ /${endpoint}?${formatParams(params)}`,
       );
       try {
+        await reserveRapidApiRequest(reserveRequests);
         const response = await axios.get<unknown>(`https://${apiHost}/${endpoint}`, {
           params,
           headers: {
@@ -557,9 +562,6 @@ async function requestTimelinePage({
           },
         });
 
-        await incrementApiUsage("rapidapi_twitter").catch(() => {
-          /* ignore usage counters in non-critical paths */
-        });
 
         debug.push(
           `Success /${endpoint} (status ${response.status}) ? snippet: ${stringifyForLog(
@@ -829,6 +831,7 @@ export async function fetchRecentXPosts(
       params,
       page,
       debug,
+      reserveRequests: options.reserveRequests,
     });
 
     const pageTweets = transformResponseToTweets(data, screenName, debug);
@@ -875,7 +878,7 @@ export async function fetchRecentXPosts(
 
 export async function fetchXSearchPosts(
   query: string,
-  options: { limit?: number; searchType?: "Top" | "Latest" } = {},
+  options: { limit?: number; searchType?: "Top" | "Latest"; reserveRequests?: number } = {},
 ): Promise<SyncPostPayload[]> {
   const apiKey = process.env.RAPIDAPI_KEY;
   const apiHost = process.env.RAPIDAPI_HOST ?? DEFAULT_RAPID_API_HOST;
@@ -883,6 +886,7 @@ export async function fetchXSearchPosts(
     throw new Error("RAPIDAPI_KEY is not configured.");
   }
 
+  await reserveRapidApiRequest(options.reserveRequests ?? 0);
   const response = await axios.get<unknown>(
     `https://${apiHost}/search.php`,
     {
@@ -897,9 +901,6 @@ export async function fetchXSearchPosts(
       },
     },
   );
-  await incrementApiUsage("rapidapi_twitter").catch(() => {
-    /* Usage accounting must not make discovery fail. */
-  });
 
   const debug: string[] = [];
   const posts = extractSimpleTimeline(response.data, "search", debug);
