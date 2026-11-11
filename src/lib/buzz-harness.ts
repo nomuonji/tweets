@@ -281,14 +281,14 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   for (const profile of packet.accounts) {
     const live = liveAccounts.get(profile.accountId);
     if (!live) {
-      errors.push(\`Account \${profile.accountId} has no live readback.\`);
+      errors.push(`Account ${profile.accountId} has no live readback.`);
       continue;
     }
-    if (live.handle !== profile.handle || live.platform !== profile.platform) errors.push(\`Account \${profile.accountId} handle/platform differs from the live readback.\`);
-    if (live.characterVersion !== profile.characterVersion) errors.push(\`Account \${profile.accountId} characterVersion is stale.\`);
-    if (live.concept !== profile.concept) errors.push(\`Account \${profile.accountId} concept snapshot differs from the live account.\`);
-    if (live.neededDraftCount !== profile.neededDraftCount) errors.push(\`Account \${profile.accountId} draft inventory is stale; refresh get_generation_work.\`);
-    if (!withinDays(profile.capturedAt, 1, nowMs)) errors.push(\`Account \${profile.accountId} profile snapshot is older than 24 hours or is future-dated.\`);
+    if (live.handle !== profile.handle || live.platform !== profile.platform) errors.push(`Account ${profile.accountId} handle/platform differs from the live readback.`);
+    if (live.characterVersion !== profile.characterVersion) errors.push(`Account ${profile.accountId} characterVersion is stale.`);
+    if (live.concept !== profile.concept) errors.push(`Account ${profile.accountId} concept snapshot differs from the live account.`);
+    if (live.neededDraftCount !== profile.neededDraftCount) errors.push(`Account ${profile.accountId} draft inventory is stale; refresh get_generation_work.`);
+    if (!withinDays(profile.capturedAt, 1, nowMs)) errors.push(`Account ${profile.accountId} profile snapshot is older than 24 hours or is future-dated.`);
   }
 
   const authors: string[] = [];
@@ -300,22 +300,22 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   for (const observation of packet.observations) {
     const cluster = clusterById.get(observation.clusterId);
     if (!cluster) {
-      errors.push(\`Observation \${observation.externalPostId} references an unknown cluster.\`);
+      errors.push(`Observation ${observation.externalPostId} references an unknown cluster.`);
       continue;
     }
     const post = sourcePosts.get(observation.externalPostId);
     if (!post) {
-      errors.push(\`External post \${observation.externalPostId} is not present in the canonical external_posts collection.\`);
+      errors.push(`External post ${observation.externalPostId} is not present in the canonical external_posts collection.`);
       continue;
     }
-    if (post.platform !== "x" || !post.text?.trim() || !post.url?.startsWith("https://")) errors.push(\`External post \${observation.externalPostId} is missing a canonical X URL or text snapshot.\`);
-    if (!post.author_handle?.trim()) errors.push(\`External post \${observation.externalPostId} has no author handle.\`);
-    if (post.search_keyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(\`External post \${observation.externalPostId} was not retrieved under its claimed search keyword.\`);
-    if (!post.discovery_mode || !["Top", "Latest"].includes(post.discovery_mode)) errors.push(\`External post \${observation.externalPostId} has no verified Top/Latest acquisition lane.\`);
-    if (typeof post.engagement_rate !== "number" || !Number.isFinite(post.engagement_rate) || post.engagement_rate < 0) errors.push(\`External post \${observation.externalPostId} has no measured follower-relative engagement signal; do not invent a reaction band.\`);
+    if (post.platform !== "x" || !post.text?.trim() || !post.url?.startsWith("https://")) errors.push(`External post ${observation.externalPostId} is missing a canonical X URL or text snapshot.`);
+    if (!post.author_handle?.trim()) errors.push(`External post ${observation.externalPostId} has no author handle.`);
+    if (post.search_keyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(`External post ${observation.externalPostId} was not retrieved under its claimed search keyword.`);
+    if (!post.discovery_mode || !["Top", "Latest"].includes(post.discovery_mode)) errors.push(`External post ${observation.externalPostId} has no verified Top/Latest acquisition lane.`);
+    if (typeof post.engagement_rate !== "number" || !Number.isFinite(post.engagement_rate) || post.engagement_rate < 0) errors.push(`External post ${observation.externalPostId} has no measured follower-relative engagement signal; do not invent a reaction band.`);
     else engagementRates.push(post.engagement_rate);
-    if (!withinDays(post.fetched_at, 30, nowMs)) errors.push(\`External post \${observation.externalPostId} was not fetched within the last 30 days.\`);
-    if (!withinDays(post.created_at, 365, nowMs)) errors.push(\`External post \${observation.externalPostId} is older than 365 days; use a current sample or explicitly research a historical format separately.\`);
+    if (!withinDays(post.fetched_at, 30, nowMs)) errors.push(`External post ${observation.externalPostId} was not fetched within the last 30 days.`);
+    if (!withinDays(post.created_at, 365, nowMs)) errors.push(`External post ${observation.externalPostId} is older than 365 days; use a current sample or explicitly research a historical format separately.`);
     if (post.author_handle) authors.push(post.author_handle.toLowerCase());
     if (post.search_keyword) searchKeywords.push(post.search_keyword.toLowerCase());
     if (post.discovery_mode) discoveryModes.push(post.discovery_mode);
@@ -347,25 +347,25 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   if (packet.observations.length < 6 || packet.observations.length > 40) errors.push("The market corpus needs at least 6 actual posts.");
   if (packet.searchClusters.some((cluster) => cluster.sourcePostIds.some((id) => !observationIds.has(id)))) errors.push("A search cluster references a post that is not in the observed corpus.");
   for (const cluster of packet.searchClusters) {
-    if (!packet.observations.some((item) => item.clusterId === cluster.id)) errors.push(\`Search cluster \${cluster.id} has no linked observation.\`);
+    if (!packet.observations.some((item) => item.clusterId === cluster.id)) errors.push(`Search cluster ${cluster.id} has no linked observation.`);
   }
 
   if (packet.mechanisms.length < 3 || mechanismFamilies.length < 3) errors.push("At least 3 distinct response mechanisms must be extracted.");
   for (const mechanism of packet.mechanisms) {
-    if (mechanism.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(\`Mechanism \${mechanism.id} cites an unobserved post.\`);
+    if (mechanism.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(`Mechanism ${mechanism.id} cites an unobserved post.`);
   }
   for (const counterexample of packet.counterexamples) {
-    if (!observationIds.has(counterexample.externalPostId)) errors.push(\`Counterexample \${counterexample.externalPostId} is not backed by a captured external post.\`);
+    if (!observationIds.has(counterexample.externalPostId)) errors.push(`Counterexample ${counterexample.externalPostId} is not backed by a captured external post.`);
   }
 
   if (packet.candidates.length < 15) errors.push("The divergence stage must contain at least 15 distinct candidate concepts before selection.");
   const candidateFamilies = unique(packet.candidates.map((candidate) => candidate.mechanismId));
   if (candidateFamilies.length < 3) errors.push("Candidate concepts must come from at least 3 different mechanism families.");
   for (const candidate of packet.candidates) {
-    if (!liveAccounts.has(candidate.accountId)) errors.push(\`Candidate \${candidate.id} targets an account that was not read back live.\`);
-    if (!mechanismById.has(candidate.mechanismId)) errors.push(\`Candidate \${candidate.id} references an unknown mechanism.\`);
-    if (candidate.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(\`Candidate \${candidate.id} cites a post outside the verified corpus.\`);
-    if (candidate.surfaceCopyChecked !== true) errors.push(\`Candidate \${candidate.id} has not passed the surface-copy check.\`);
+    if (!liveAccounts.has(candidate.accountId)) errors.push(`Candidate ${candidate.id} targets an account that was not read back live.`);
+    if (!mechanismById.has(candidate.mechanismId)) errors.push(`Candidate ${candidate.id} references an unknown mechanism.`);
+    if (candidate.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(`Candidate ${candidate.id} cites a post outside the verified corpus.`);
+    if (candidate.surfaceCopyChecked !== true) errors.push(`Candidate ${candidate.id} has not passed the surface-copy check.`);
   }
 
   const draftCounts = new Map<string, number>();
@@ -373,26 +373,26 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   const draftTextsByAccount = new Map<string, string[]>();
   for (const draft of packet.drafts) {
     const profile = packet.accounts.find((item) => item.accountId === draft.accountId);
-    if (!profile) errors.push(\`Draft references account \${draft.accountId} without a current profile snapshot.\`);
+    if (!profile) errors.push(`Draft references account ${draft.accountId} without a current profile snapshot.`);
     else {
-      if (draft.characterVersion !== profile.characterVersion) errors.push(\`Draft for \${draft.accountId} uses a stale character version.\`);
+      if (draft.characterVersion !== profile.characterVersion) errors.push(`Draft for ${draft.accountId} uses a stale character version.`);
       draftCounts.set(draft.accountId, (draftCounts.get(draft.accountId) ?? 0) + 1);
     }
     const candidate = candidateById.get(draft.candidateId);
-    if (!candidate || candidate.accountId !== draft.accountId) errors.push(\`Draft \${draft.candidateId} is not linked to a candidate for the same account.\`);
-    if (usedCandidateIds.has(draft.candidateId)) errors.push(\`Candidate \${draft.candidateId} was reused by more than one final draft.\`);
+    if (!candidate || candidate.accountId !== draft.accountId) errors.push(`Draft ${draft.candidateId} is not linked to a candidate for the same account.`);
+    if (usedCandidateIds.has(draft.candidateId)) errors.push(`Candidate ${draft.candidateId} was reused by more than one final draft.`);
     usedCandidateIds.add(draft.candidateId);
-    if (draft.mechanismId !== candidate?.mechanismId || !mechanismById.has(draft.mechanismId)) errors.push(\`Draft \${draft.candidateId} has an inconsistent mechanism attribution.\`);
-    if (draft.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(\`Draft \${draft.candidateId} cites an unverified source post.\`);
-    if (draft.sourcePostIds.some((id) => !candidate?.sourcePostIds.includes(id))) errors.push(\`Draft \${draft.candidateId} uses source posts not present in its originating candidate.\`);
-    if (hasStatisticLedHook(draft.text)) errors.push(\`Draft \${draft.candidateId} leads with statistics/research. Numbers may support a post, but may not replace the human hook.\`);
-    if (!allPassedNotes(draft.bakaGate)) errors.push(\`Draft \${draft.candidateId} did not pass every Baka Model gate with a written reason.\`);
-    if (!allPassedNotes(draft.resonanceGate)) errors.push(\`Draft \${draft.candidateId} did not pass every Idea Resonance gate with a written reason.\`);
-    if (!allPassedNotes(draft.editorialGate)) errors.push(\`Draft \${draft.candidateId} did not pass every Social Post Quality Gate with a written reason.\`);
-    if (draft.review.reviewerId === packet.writerId) errors.push(\`Draft \${draft.candidateId} was self-reviewed; the reviewer must be a separate agent or human.\`);
-    if (draft.review.reviewedTextHash !== buzzDraftTextHash(draft.text)) errors.push(\`Draft \${draft.candidateId} reviewer attestation does not match the exact final text.\`);
-    if (Date.parse(draft.review.reviewedAt) < Date.parse(draft.authoredAt)) errors.push(\`Draft \${draft.candidateId} review timestamp predates authorship.\`);
-    if (!withinDays(draft.review.reviewedAt, 1, nowMs)) errors.push(\`Draft \${draft.candidateId} review is older than 24 hours or future-dated.\`);
+    if (draft.mechanismId !== candidate?.mechanismId || !mechanismById.has(draft.mechanismId)) errors.push(`Draft ${draft.candidateId} has an inconsistent mechanism attribution.`);
+    if (draft.sourcePostIds.some((id) => !observationIds.has(id))) errors.push(`Draft ${draft.candidateId} cites an unverified source post.`);
+    if (draft.sourcePostIds.some((id) => !candidate?.sourcePostIds.includes(id))) errors.push(`Draft ${draft.candidateId} uses source posts not present in its originating candidate.`);
+    if (hasStatisticLedHook(draft.text)) errors.push(`Draft ${draft.candidateId} leads with statistics/research. Numbers may support a post, but may not replace the human hook.`);
+    if (!allPassedNotes(draft.bakaGate)) errors.push(`Draft ${draft.candidateId} did not pass every Baka Model gate with a written reason.`);
+    if (!allPassedNotes(draft.resonanceGate)) errors.push(`Draft ${draft.candidateId} did not pass every Idea Resonance gate with a written reason.`);
+    if (!allPassedNotes(draft.editorialGate)) errors.push(`Draft ${draft.candidateId} did not pass every Social Post Quality Gate with a written reason.`);
+    if (draft.review.reviewerId === packet.writerId) errors.push(`Draft ${draft.candidateId} was self-reviewed; the reviewer must be a separate agent or human.`);
+    if (draft.review.reviewedTextHash !== buzzDraftTextHash(draft.text)) errors.push(`Draft ${draft.candidateId} reviewer attestation does not match the exact final text.`);
+    if (Date.parse(draft.review.reviewedAt) < Date.parse(draft.authoredAt)) errors.push(`Draft ${draft.candidateId} review timestamp predates authorship.`);
+    if (!withinDays(draft.review.reviewedAt, 1, nowMs)) errors.push(`Draft ${draft.candidateId} review is older than 24 hours or future-dated.`);
     const texts = draftTextsByAccount.get(draft.accountId) ?? [];
     texts.push(draft.text);
     draftTextsByAccount.set(draft.accountId, texts);
@@ -400,8 +400,8 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
 
   for (const profile of packet.accounts) {
     const count = draftCounts.get(profile.accountId) ?? 0;
-    if (count < 1) errors.push(\`Account \${profile.accountId} has no passing final draft; omit it from this run rather than claiming a completed batch.\`);
-    if (count > profile.neededDraftCount) errors.push(\`Account \${profile.accountId} exceeds its current draft inventory gap.\`);
+    if (count < 1) errors.push(`Account ${profile.accountId} has no passing final draft; omit it from this run rather than claiming a completed batch.`);
+    if (count > profile.neededDraftCount) errors.push(`Account ${profile.accountId} exceeds its current draft inventory gap.`);
   }
 
   for (const [accountId, newTexts] of draftTextsByAccount) {
@@ -410,11 +410,11 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     for (let i = 0; i < newTexts.length; i += 1) {
       for (const oldText of prior) {
         const similarity = trigramSimilarity(newTexts[i], oldText);
-        if (similarity >= 0.82) errors.push(\`Draft for \${accountId} is too similar to an existing post/draft (similarity \${similarity.toFixed(2)}).\`);
+        if (similarity >= 0.82) errors.push(`Draft for ${accountId} is too similar to an existing post/draft (similarity ${similarity.toFixed(2)}).`);
       }
       for (let j = i + 1; j < newTexts.length; j += 1) {
         const similarity = trigramSimilarity(newTexts[i], newTexts[j]);
-        if (similarity >= 0.82) errors.push(\`Two drafts for \${accountId} are too similar to each other (similarity \${similarity.toFixed(2)}).\`);
+        if (similarity >= 0.82) errors.push(`Two drafts for ${accountId} are too similar to each other (similarity ${similarity.toFixed(2)}).`);
       }
     }
   }
@@ -439,7 +439,7 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
 
 export function trigramSimilarity(left: string, right: string): number {
   const grams = (value: string) => {
-    const normalized = \`  \${normalizeForHash(value).toLowerCase()}  \`;
+    const normalized = `  ${normalizeForHash(value).toLowerCase()}  `;
     return new Set(Array.from({ length: Math.max(0, normalized.length - 2) }, (_, index) => normalized.slice(index, index + 3)));
   };
   const a = grams(left);
