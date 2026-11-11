@@ -1,63 +1,42 @@
 ---
-description: 自動ドラフト生成 (Auto Generate Drafts)
+description: Buzz Editorial Harness — evidence-bound Threads/X drafting
 ---
 
-# 自動ドラフト生成ワークフロー
+# Buzz Editorial Harness
 
-このスキルは、`.github/workflows/auto-generate-drafts.yml` で行われている「下書き（ドラフト）の自動生成」を **API(Gemini等)にプログラムから外部リクエストするのではなく、AIアシスタント自身（あなた）が直接考案・生成して保存する** ための手順です。
+Do not create or save posts by following this document as a checklist alone. The Tweets Operator server validates the evidence packet against its canonical Firestore records and blocks draft writes unless both stages complete.
 
-## 前提条件
-- リポジトリルートで実行すること
-- Firebase接続情報などがプロジェクトルートの `.env` に設定されていること
+## Non-negotiable order
 
-## ステップ
+1. Read get_system_health and get_generation_work for each target account. Record the current character version and exact inventory gap.
+2. Read get_generation_brief for account voice, relevant examples and source IDs. This is not market evidence by itself.
+3. Conduct independent external discovery before reading the account's past posts as idea seeds:
+   - At least 3 distinct search clusters / queries.
+   - At least 6 actual public posts from at least 4 distinct authors.
+   - Include Top and Latest acquisition lanes.
+   - At least 30% of observations must come from blind discovery beyond the initial seed.
+   - Preserve original post IDs, authors, text, URLs, search keyword, discovery lane, published/fetched timestamps and measured engagement fields in canonical external_posts.
+   - Include at least two counterexamples; one must be in the lowest quartile of the observed follower-relative engagement sample.
+   - If required source records or metrics do not exist, stop. Do not substitute summaries, guessed metrics, press releases or invented references.
+4. Extract at least 3 distinct response mechanisms. Each must state the ordinary response, audience situation, attention trigger, immediate reward, social use, counterexample, transfer mechanism and at least two distant transfer contexts.
+5. Diverge at least 15 meaningfully different candidate concepts across at least 3 mechanisms. Each candidate must specify ordinary baseline → one meaningful shift → familiar format return, an audience moment, immediate reward, share reason and source post IDs.
+6. Write the final text. Run the Baka Model and Idea Resonance gates for every post. Then run all Social Post Quality Gate A–G checks. Keep the actual reason for each PASS, not a repeated generic phrase. Reject statistics/research-first hooks unless the reader's immediate reward is the number itself and no methodological explanation is needed.
+7. Perform a blind copy-only review. Do not show the reviewer the author's rationale, intended effect, candidate mechanism or explanation. A separate reviewer identity and a different model must read every exact final text.
+8. Submit the complete JSON packet to submit_buzz_harness_run.
+   - rejected means no save permission. Fix the evidence or the copy, create a new run ID, and submit a new packet.
+   - awaiting_review means the packet passed server validation but is still NOT saveable. It returns runId and reportHash.
+9. Call approve_buzz_harness_run separately with a different reviewer identity/model and one PASS receipt per exact final text hash. It returns approvalHash only if every text is covered.
+10. Call create_drafts with the exact reviewed text, its current character version, harnessRunId, harnessApprovalHash, and matching provenance (buzzRunId, candidateId, externalPostIds). Do not rephrase after review.
+11. Re-run get_generation_work and list_drafts to verify the saved inventory. The existing publishing scheduler remains the only publication path. Never call publish_draft as part of replenishment.
 
-### 1. 対象アカウントとコンテキストの取得
-まず、ドラフトが不足している（5件未満）アカウントと、生成に必要な情報（過去の投稿、コンセプトなど）を取得します。
+## Hard stops
 
-**AI アシスタントへの指示:**
-以下のコマンドを実行し、ファイルに出力されたJSONデータを元にコンテキストを把握してください。
+- No direct Firestore writes to drafts, including My Firebase, scripts or generic helpers.
+- No save_drafts.ts legacy script, server-side prompt-generation fallback or scheduled auto-generation route.
+- No self-review; reviewer identity and model must differ from the writer's declared identity/model.
+- No reuse of a candidate, evidence post outside the captured corpus, stale persona version, stale inventory receipt or expired run.
+- No edits to harness-approved text/hashtags. Re-run the full process to change the copy.
+- No lowering corpus, mechanism, candidate or gate thresholds just to fill the queue.
+- No claim that PASS predicts virality. It is an editorial/evidence gate, not an experiment.
 
-```bash
-npx tsx -r dotenv/config .agent/workflows/scripts/get_accounts.ts > context.json
-```
-続いて `context.json` を全件読み込んでください。
-
-### 2. ドラフトの生成（あなたのタスク）
-読み込んだ `context.json` には、アカウントごとに以下の情報が含まれています。
-- `concept`: アカウントのコンセプト
-- `neededCount`: 必要なドラフト数
-- `payload`: `topPosts`, `referencePosts`, `recentPosts`, `exemplaryPosts`, `tips` などの過去の文脈・事例が含まれます。
-
-**AI アシスタントへの指示:**
-取得した各アカウントについて、`neededCount` で指定された数だけ新しいドラフト文（プラットフォームの特性に合わせて140文字推奨など）を **あなた自身の知能で考案** してください。
-- 過去の投稿 (`recentPosts`, `topPosts`) のトーン＆マナーを踏襲すること
-- `exemplaryPosts` や `tips` の書き方を参考にすること
-- **【重要】過去の投稿 (`recentPosts`) や既存の `drafts` と、文字列レベルでも内容・展開レベルでも絶対に重複（全く同じ、あるいは酷似した内容）にならないよう厳密にチェックすること。同じ言い回しやオチの使い回しを避けること。**
-
-生成したドラフトは以下の JSON フォーマットの配列にまとめ、一時ファイル `generated_drafts.json` に保存してください（ファイル出力ツールを用いてください）。
-
-```json
-[
-  {
-    "accountId": "アカウントのID",
-    "platform": "x" または "threads",
-    "text": "生成したドラフト内容のテキスト1"
-  },
-  {
-    "accountId": "アカウントのID",
-    "platform": "x" または "threads",
-    "text": "生成したドラフト内容のテキスト2"
-  }
-]
-```
-
-### 3. ドラフトの保存
-**AI アシスタントへの指示:**
-一時ファイル `generated_drafts.json` の作成が完了したら、以下のコマンドを実行してFirestoreに保存してください。
-
-```bash
-npx tsx -r dotenv/config .agent/workflows/scripts/save_drafts.ts generated_drafts.json
-```
-
-保存が無事に完了したことを確認したら、一時ファイル（`context.json`, `generated_drafts.json`）を削除し、ユーザーに完了を報告してください。
+The reviewer identity and model are asserted in the review receipt; the server verifies that they differ from the writer's declared values, but it does not authenticate an external reviewer account. Do not claim cryptographic reviewer identity.
