@@ -18,7 +18,7 @@ const TEXT_ONLY = true;
 
 /**
  * How long a keyword/reference result is reused before another paid request.
- * Default 24h. Raise it (e.g. 168) when the API plan is small.
+ * Default 48h. This is the conservative shared-budget cadence.
  */
 function cacheHours(): number {
   const parsed = Number(process.env.DISCOVERY_CACHE_HOURS ?? "");
@@ -26,9 +26,8 @@ function cacheHours(): number {
 }
 
 /**
- * How many of an account's saved sources may be paid for in one run. 0 or unset
- * means "all of them". Stored keywords are kept, so a small budget still covers
- * every keyword over time instead of deleting them.
+ * How many of an account's saved sources may be paid for in one run.
+ * Stored keywords/references are kept and rotated instead of deleted.
  */
 function maxSourcesPerRun(): number {
   const parsed = Number(process.env.DISCOVERY_MAX_SOURCES_PER_ACCOUNT ?? "");
