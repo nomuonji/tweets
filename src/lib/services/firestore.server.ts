@@ -225,8 +225,10 @@ export async function getExternalPostObservations(
       result.set(receipt.external_post_id, list);
     }
   }
-  for (const [id, receipts] of result) {
-    receipts.sort((a, b) => Date.parse(b.fetched_at) - Date.parse(a.fetched_at));
+  for (const [id, receipts] of Array.from(result.entries())) {
+    receipts.sort((a: ExternalPostObservationDoc, b: ExternalPostObservationDoc) =>
+      Date.parse(b.fetched_at) - Date.parse(a.fetched_at),
+    );
     result.set(id, receipts.slice(0, 50));
   }
   return result;
