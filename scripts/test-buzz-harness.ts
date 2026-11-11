@@ -1,0 +1,307 @@
+import assert from "node:assert/strict";
+import type { ExternalPostDoc } from "@/lib/types";
+import {
+  buzzDraftTextHash,
+  validateBuzzHarnessPacket,
+  type BuzzHarnessPacket,
+} from "@/lib/buzz-harness";
+
+const now = new Date();
+const isoNow = now.toISOString();
+const ago = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString();
+const note = { pass: true as const, note: "The copy was checked against this condition using the final text, without relying on the author's explanation." };
+const gate = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, note]));
+const bakaKeys = [
+  "instantComprehension",
+  "recognizableSituation",
+  "immediateReward",
+  "lowCognitiveCost",
+  "concreteSocialUse",
+];
+const resonanceKeys = [
+  "ordinaryBaseline",
+  "oneMeaningfulShift",
+  "familiarFormatReturn",
+  "counterexampleConsidered",
+  "notSurfaceCopied",
+];
+const editorialKeys = [
+  "A_entryAndUnderstanding",
+  "B_specificCore",
+  "C_readerReward",
+  "D_shareOrConversationReason",
+  "E_voiceAndNaturalness",
+  "F_marketMechanismTransfer",
+  "G_factsRightsAndSafety",
+];
+
+function fixture() {
+  const postIds = ["post1", "post2", "post3", "post4", "post5", "post6"];
+  const clusterIds = ["cluster1", "cluster2", "cluster3"];
+  const keywordByCluster = ["train-platform", "family-chat", "work-handoff"];
+  const laneByPost = ["Top", "Top", "Latest", "Latest", "Top", "Latest"] as const;
+  const clusterForPost = [0, 0, 1, 1, 2, 2];
+  const rates = [0.01, 0.02, 0.04, 0.06, 0.12, 0.22];
+  const sourcePosts = new Map<string, ExternalPostDoc>();
+  for (let index = 0; index < postIds.length; index += 1) {
+    const id = postIds[index];
+    sourcePosts.set(id, {
+      id,
+      platform: "x",
+      platform_post_id: String(100000 + index),
+      author_handle: \`author_\${index + 1}\`,
+      author_followers: 3000 + index * 700,
+      text: \`Observed post \${index + 1}: a concrete public situation with a specific action and a reader-visible outcome.\`,
+      created_at: ago(60 * 24 * (index + 2)),
+      url: \`https://x.com/author_\${index + 1}/status/\${100000 + index}\`,
+      metrics: {
+        impressions: 1000 + index * 500,
+        likes: 10 + index * 10,
+        replies: index,
+        reposts_or_rethreads: Math.max(0, index - 1),
+        quotes: 0,
+        link_clicks: null,
+      },
+      search_keyword: keywordByCluster[clusterForPost[index]],
+      discovery_mode: laneByPost[index],
+      fetched_at: ago(5 + index),
+      engagement_rate: rates[index],
+    });
+  }
+
+  const clusters = clusterIds.map((id, index) => {
+    const ids = postIds.filter((_, postIndex) => clusterForPost[postIndex] === index);
+    const modes = ids.map((postId) => sourcePosts.get(postId)!.discovery_mode);
+    return {
+      id,
+      searchKeyword: keywordByCluster[index],
+      query: \`site:x.com public posts about \${keywordByCluster[index]} lang:ja\`,
+      acquisitionLane: modes.includes("Top") && modes.includes("Latest")
+        ? "mixed" as const
+        : modes[0]!,
+      origin: index === 0 ? "seed_followup" as const : "blind_discovery" as const,
+      sourcePostIds: ids,
+      observation: \`A separate discovery cluster about \${keywordByCluster[index]} with observable posts and a documented reason for looking at it.\`,
+    };
+  });
+
+  const observations = postIds.map((externalPostId, index) => ({
+    externalPostId,
+    clusterId: clusterIds[clusterForPost[index]],
+    whyItMatters: \`This post shows a specific audience situation and an observable reaction path in sample position \${index + 1}.\`,
+  }));
+
+  const mechanisms = [
+    {
+      id: "mechanism-1",
+      sourcePostIds: ["post1", "post2"],
+      audienceSituation: "A reader encounters a small but recognizable interruption in a normal day.",
+      ordinaryReaction: "The ordinary response is to keep scrolling or retell the incident literally.",
+      attentionTrigger: "A highly specific detail changes the expected meaning of the situation.",
+      immediateReward: "The reader recognizes the scene and notices one unexpected consequence.",
+      socialUse: "A reader can send it to a friend who knows the same everyday situation.",
+      counterexample: "A similar post with no specific detail does not create a comparable moment to retell.",
+      transferableMechanism: "specific-scene-one-shift",
+      transferContexts: ["A family coordination problem.", "A public-service interaction."],
+      confidence: "medium" as const,
+    },
+    {
+      id: "mechanism-2",
+      sourcePostIds: ["post3", "post4"],
+      audienceSituation: "A person has to interpret a short message with missing social context.",
+      ordinaryReaction: "The ordinary response is to infer intent from the words alone.",
+      attentionTrigger: "One small contextual clue changes the most plausible interpretation.",
+      immediateReward: "The reader gets a more accurate reading of the interaction.",
+      socialUse: "The post can be shared with someone who often misreads the same situation.",
+      counterexample: "Without the surrounding action the phrase is ambiguous and no single reading is justified.",
+      transferableMechanism: "context-reframes-short-message",
+      transferContexts: ["English pragmatics.", "Japanese politeness."],
+      confidence: "medium" as const,
+    },
+    {
+      id: "mechanism-3",
+      sourcePostIds: ["post5", "post6"],
+      audienceSituation: "A group must decide who owns the next action when a process stalls.",
+      ordinaryReaction: "The ordinary response is to send another reminder.",
+      attentionTrigger: "The actual missing element is the next decision owner, not another update.",
+      immediateReward: "The reader sees a concrete fix to a familiar coordination problem.",
+      socialUse: "The post can be sent to a team that keeps repeating the same meeting.",
+      counterexample: "No amount of assigning an owner fixes a genuine lack of authority or capacity.",
+      transferableMechanism: "hidden-owner-of-next-action",
+      transferContexts: ["Work handoffs.", "Household planning."],
+      confidence: "medium" as const,
+    },
+  ];
+
+  const candidates = Array.from({ length: 15 }, (_, index) => {
+    const mechanismId = mechanisms[index % mechanisms.length].id;
+    const sourcePostIdsForCandidate = mechanisms[index % mechanisms.length].sourcePostIds;
+    return {
+      id: \`candidate-\${index + 1}\`,
+      accountId: "account-1",
+      mechanismId,
+      audienceMoment: \`A reader is in a recognizable situation \${index + 1} and needs one clear point of attention.\`,
+      ordinaryIdea: \`The normal treatment would explain the situation \${index + 1} in general terms.\`,
+      meaningfulShift: \`Move one expectation in the scene \${index + 1} and preserve the recognizable setting.\`,
+      familiarFormat: \`Return to a normal short social post format for scene \${index + 1}.\`,
+      hook: \`A concrete hook for scenario \${index + 1}.\`,
+      immediateReward: \`The reader gets one useful or entertaining recognition in scenario \${index + 1}.\`,
+      shareReason: \`A person can send scenario \${index + 1} to a colleague or friend who knows it.\`,
+      sourcePostIds: sourcePostIdsForCandidate,
+      surfaceCopyChecked: true as const,
+    };
+  });
+
+  const draftText = "会議の最後に担当者だけ決めても、次に判断する人が決まっていないと、同じ話が次の会議に戻ってくる。";
+  const packet: BuzzHarnessPacket = {
+    schemaVersion: 1,
+    runId: "buzz_run_test_0001",
+    writerId: "writer-agent-alpha",
+    model: "writer-model-alpha",
+    createdAt: isoNow,
+    initialSeed: "why some short public posts are shared by ordinary readers",
+    accounts: [{
+      accountId: "account-1",
+      handle: "sample_handle",
+      platform: "threads",
+      characterVersion: 2,
+      concept: "A focused account that observes specific work and everyday situations and explains them without generic advice.",
+      capturedAt: isoNow,
+      neededDraftCount: 1,
+    }],
+    searchClusters: clusters,
+    observations,
+    mechanisms,
+    counterexamples: [
+      {
+        externalPostId: "post1",
+        whyThisContradictsOrLimitsThePattern: "This low-reaction example uses a related everyday theme but does not contain a specific turning detail, limiting the claim that the topic alone explains response.",
+      },
+      {
+        externalPostId: "post2",
+        whyThisContradictsOrLimitsThePattern: "This second lower-quartile example has a familiar subject but little visible response, so topic similarity is not sufficient evidence.",
+      },
+    ],
+    candidates,
+    drafts: [{
+      accountId: "account-1",
+      characterVersion: 2,
+      candidateId: "candidate-1",
+      mechanismId: "mechanism-1",
+      sourcePostIds: ["post1", "post2"],
+      objective: "sharing",
+      text: draftText,
+      authoredAt: isoNow,
+      bakaGate: gate(bakaKeys) as BuzzHarnessPacket["drafts"][number]["bakaGate"],
+      resonanceGate: gate(resonanceKeys) as BuzzHarnessPacket["drafts"][number]["resonanceGate"],
+      editorialGate: gate(editorialKeys) as BuzzHarnessPacket["drafts"][number]["editorialGate"],
+      review: {
+        reviewerId: "reviewer-agent-beta",
+        reviewerMode: "blind_copy_only",
+        decision: "PASS",
+        reviewedAt: isoNow,
+        reviewedTextHash: buzzDraftTextHash(draftText),
+        note: "The final copy was assessed without the author rationale and each quality gate was checked against the exact text.",
+      },
+    }],
+  };
+
+  const liveAccounts = new Map([["account-1", {
+    id: "account-1",
+    handle: "sample_handle",
+    platform: "threads" as const,
+    characterVersion: 2,
+    concept: packet.accounts[0].concept,
+    neededDraftCount: 1,
+  }]]);
+
+  return { packet, sourcePosts, liveAccounts };
+}
+
+function validate(testName: string, mutate?: (value: ReturnType<typeof fixture>) => void) {
+  const value = fixture();
+  mutate?.(value);
+  return validateBuzzHarnessPacket({
+    packet: value.packet,
+    liveAccounts: value.liveAccounts,
+    sourcePosts: value.sourcePosts,
+    existingTextsByAccount: new Map([["account-1", []]]),
+  });
+}
+
+function main() {
+  const valid = validate("valid");
+  assert.equal(valid.passed, true, valid.errors.join("\n"));
+  assert.equal(valid.metrics.postsObserved, 6);
+  assert.equal(valid.metrics.uniqueAuthors, 6);
+  assert.equal(valid.metrics.mechanismFamilies, 3);
+
+  const tooFewPosts = validate("too-few-posts", ({ packet }) => {
+    packet.observations = packet.observations.slice(0, 5);
+  });
+  assert.equal(tooFewPosts.passed, false);
+  assert.ok(tooFewPosts.errors.some((error) => /at least 6 actual posts/i.test(error)));
+
+  const tooFewAuthors = validate("too-few-authors", ({ sourcePosts }) => {
+    const post = sourcePosts.get("post6")!;
+    sourcePosts.set("post6", { ...post, author_handle: "author_1" });
+  });
+  assert.equal(tooFewAuthors.passed, false);
+  assert.ok(tooFewAuthors.errors.some((error) => /4 distinct authors/i.test(error)));
+
+  const statisticHook = validate("statistic-hook", ({ packet }) => {
+    const draft = packet.drafts[0];
+    draft.text = "調査では48%の人がそう答えた。これには理由がある。";
+    draft.review.reviewedTextHash = buzzDraftTextHash(draft.text);
+  });
+  assert.equal(statisticHook.passed, false);
+  assert.ok(statisticHook.errors.some((error) => /leads with statistics\/research/i.test(error)));
+
+  const selfReview = validate("self-review", ({ packet }) => {
+    packet.drafts[0].review.reviewerId = packet.writerId;
+  });
+  assert.equal(selfReview.passed, false);
+  assert.ok(selfReview.errors.some((error) => /self-reviewed/i.test(error)));
+
+  const fakeCounterexample = validate("fake-counterexample", ({ packet }) => {
+    packet.counterexamples = [
+      { externalPostId: "post6", whyThisContradictsOrLimitsThePattern: "This is a deliberately weak counterexample selection from the highest measured reaction band and cannot represent low-response control evidence." },
+      { externalPostId: "post5", whyThisContradictsOrLimitsThePattern: "This is a deliberately weak counterexample selection from the upper response band and cannot represent low-response control evidence." },
+    ];
+  });
+  assert.equal(fakeCounterexample.passed, false);
+  assert.ok(fakeCounterexample.errors.some((error) => /lowest quartile/i.test(error)));
+
+  const staleCharacter = validate("stale-character", ({ liveAccounts }) => {
+    liveAccounts.set("account-1", {
+      ...liveAccounts.get("account-1")!,
+      characterVersion: 1,
+    });
+  });
+  assert.equal(staleCharacter.passed, false);
+  assert.ok(staleCharacter.errors.some((error) => /characterVersion is stale/i.test(error)));
+
+  const insufficientDivergence = validate("insufficient-divergence", ({ packet }) => {
+    packet.candidates = packet.candidates.slice(0, 14);
+  });
+  assert.equal(insufficientDivergence.passed, false);
+  assert.ok(insufficientDivergence.errors.some((error) => /at least 15 distinct candidate concepts/i.test(error)));
+
+  const unverifiedSource = validate("unverified-source", ({ packet }) => {
+    packet.drafts[0].sourcePostIds = ["not-in-db"];
+  });
+  assert.equal(unverifiedSource.passed, false);
+  assert.ok(unverifiedSource.errors.some((error) => /source post/i.test(error)));
+
+  const latestLaneLie = validate("latest-lane-lie", ({ sourcePosts }) => {
+    for (const [id, post] of sourcePosts.entries()) {
+      sourcePosts.set(id, { ...post, discovery_mode: "Top" });
+    }
+  });
+  assert.equal(latestLaneLie.passed, false);
+  assert.ok(latestLaneLie.errors.some((error) => /Top and Latest acquisition lanes/i.test(error)));
+
+  console.log("Buzz Editorial Harness tests passed (10 scenarios).");
+}
+
+main();
