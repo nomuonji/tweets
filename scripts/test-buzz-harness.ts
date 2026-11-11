@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import type { ExternalPostDoc } from "@/lib/types";
+import type { ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
+import { hashBlindSourceText } from "@/lib/blind-discovery";
 import {
   buzzDraftTextHash,
   validateBuzzHarnessPacket,
@@ -47,6 +48,7 @@ function fixture() {
   const clusterForPost = [0, 0, 1, 1, 2, 2];
   const rates = [0.01, 0.02, 0.04, 0.06, 0.12, 0.22];
   const sourcePosts = new Map<string, ExternalPostDoc>();
+  const sourceObservations = new Map<string, ExternalPostObservationDoc[]>();
   for (let index = 0; index < postIds.length; index += 1) {
     const id = postIds[index];
     sourcePosts.set(id, {
@@ -75,13 +77,44 @@ function fixture() {
     });
   }
 
+  for (let index = 0; index < postIds.length; index += 1) {
+    const clusterIndex = clusterForPost[index];
+    if (clusterIndex === 0) continue;
+    const post = sourcePosts.get(postIds[index])!;
+    const keyword = keywordByCluster[clusterIndex];
+    const lane = laneByPost[index];
+    sourceObservations.set(post.id, [{
+      id: `immutable-${post.id}-${lane}`,
+      external_post_id: post.id,
+      platform: "x",
+      platform_post_id: post.platform_post_id,
+      author_handle: post.author_handle,
+      canonical_url: post.url!,
+      text_hash: hashBlindSourceText(post.text),
+      created_at: post.created_at,
+      fetched_at: post.fetched_at,
+      search_keyword: keyword,
+      discovery_query_id: `blind:v1:${keyword}`,
+      discovery_origin: "blind_discovery",
+      discovery_mode: lane,
+      source_type: "account_independent_query",
+      source_seed_id: `seed-${clusterIndex}`,
+      source_theme: "independent test theme",
+      source_language: "ja",
+      run_id: "blind_run_test_0001",
+      collector_version: "blind-discovery-v1",
+      author_followers: post.author_followers,
+      metrics: post.metrics,
+    }]);
+  }
+
   const clusters = clusterIds.map((id, index) => {
     const ids = postIds.filter((_, postIndex) => clusterForPost[postIndex] === index);
     const modes = ids.map((postId) => sourcePosts.get(postId)!.discovery_mode);
     return {
       id,
       searchKeyword: keywordByCluster[index],
-      discoveryQueryId: `keyword:${keywordByCluster[index]}`,
+      discoveryQueryId: index === 0 ? `keyword:${keywordByCluster[index]}` : `blind:v1:${keywordByCluster[index]}`,
       query: `site:x.com public posts about ${keywordByCluster[index]} lang:ja`,
       acquisitionLane: modes.includes("Top") && modes.includes("Latest")
         ? "mixed" as const
@@ -230,7 +263,7 @@ function fixture() {
     neededDraftCount: 1,
   }]]);
 
-  return { packet, sourcePosts, liveAccounts };
+  return { packet, sourcePosts, sourceObservations, liveAccounts };
 }
 
 function validate(testName: string, mutate?: (value: ReturnType<typeof fixture>) => void) {
@@ -240,6 +273,7 @@ function validate(testName: string, mutate?: (value: ReturnType<typeof fixture>)
     packet: value.packet,
     liveAccounts: value.liveAccounts,
     sourcePosts: value.sourcePosts,
+    sourceObservations: value.sourceObservations,
     existingTextsByAccount: new Map([["account-1", []]]),
   });
 }
@@ -251,15 +285,27 @@ function main() {
   assert.equal(valid.metrics.uniqueAuthors, 6);
   assert.equal(valid.metrics.mechanismFamilies, 3);
 
-  const forgedBlindDiscovery = validate("forged-blind-discovery", ({ sourcePosts }) => {
+  const forgedBlindDiscovery = validate("forged-blind-discovery", ({ sourceObservations }) => {
+    sourceObservations.clear();
+  });
+  assert.equal(forgedBlindDiscovery.passed, false);
+  assert.ok(forgedBlindDiscovery.errors.some((error) => /immutable server-verified acquisition receipt/i.test(error)));
+
+  const mutableMetadataOverwrite = validate("mutable-metadata-overwrite", ({ sourcePosts }) => {
     for (const [id, post] of Array.from(sourcePosts.entries())) {
       if (post.discovery_origin === "blind_discovery") {
-        sourcePosts.set(id, { ...post, discovery_origin: "account_keyword" });
+        sourcePosts.set(id, {
+          ...post,
+          search_keyword: "later-account-keyword-sync",
+          discovery_query_id: "keyword:changed",
+          discovery_origin: "account_keyword",
+          discovery_mode: "Top",
+          fetched_at: ago(24 * 60),
+        });
       }
     }
   });
-  assert.equal(forgedBlindDiscovery.passed, false);
-  assert.ok(forgedBlindDiscovery.errors.some((error) => /canonical server-verified blind discovery receipt/i.test(error)));
+  assert.equal(mutableMetadataOverwrite.passed, true, mutableMetadataOverwrite.errors.join("\n"));
 
   const tooFewPosts = validate("too-few-posts", ({ packet }) => {
     packet.observations = packet.observations.slice(0, 5);
@@ -314,9 +360,12 @@ function main() {
   assert.equal(unverifiedSource.passed, false);
   assert.ok(unverifiedSource.errors.some((error) => /source post/i.test(error)));
 
-  const latestLaneLie = validate("latest-lane-lie", ({ sourcePosts }) => {
+  const latestLaneLie = validate("latest-lane-lie", ({ sourcePosts, sourceObservations }) => {
     for (const [id, post] of Array.from(sourcePosts.entries())) {
       sourcePosts.set(id, { ...post, discovery_mode: "Top" });
+    }
+    for (const [id, receipts] of Array.from(sourceObservations.entries())) {
+      sourceObservations.set(id, receipts.map((receipt) => ({ ...receipt, discovery_mode: "Top" })));
     }
   });
   assert.equal(latestLaneLie.passed, false);
@@ -445,7 +494,7 @@ function main() {
   });
   assert.ok(missingReview.some((error) => /every unique final text/i.test(error)));
 
-  console.log("Buzz Editorial Harness tests passed (16 scenarios).");
+  console.log("Buzz Editorial Harness tests passed (18 scenarios).");
 }
 
 main();
