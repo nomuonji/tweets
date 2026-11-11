@@ -427,6 +427,7 @@ export async function getBuzzHarnessRun(runId: string) {
     candidateId: string;
     sourcePostIds: string[];
     characterVersion: number;
+    topicTag?: string | null;
   }>>;
   return {
     found: true as const,
