@@ -50,8 +50,8 @@ export async function createAgentDrafts(
   inputs: NewDraftInput[],
   harnessAuthorization?: BuzzHarnessAuthorization,
 ): Promise<DraftDoc[]> {
-  if (!harnessAuthorization?.runId || !/^[a-f0-9]{64}$/.test(harnessAuthorization.reportHash)) {
-    throw new Error("A passed Buzz Harness runId/reportHash is mandatory. Draft saving without an approved editorial evidence packet is blocked.");
+  if (!harnessAuthorization?.runId || !/^[a-f0-9]{64}$/.test(harnessAuthorization.approvalHash)) {
+    throw new Error("A separate blind-review approvalHash is mandatory. Submitting an evidence packet alone does not authorize draft saving.");
   }
   if (inputs.length < 1 || inputs.length > 10) throw new Error("1〜10件の下書きを指定してください。");
   const accountRef = adminDb.collection("accounts").doc(accountId);
@@ -118,8 +118,8 @@ export async function createAgentDrafts(
     const harnessSnap = await transaction.get(harnessRef);
     if (!harnessSnap.exists) throw new Error("Buzz Harness approval not found.");
     const harness = harnessSnap.data() ?? {};
-    if (harness.reportHash !== harnessAuthorization.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
-    if (!["approved", "partially_consumed"].includes(String(harness.status))) throw new Error("Buzz Harness approval is not save-eligible.");
+    if (harness.approvalHash !== harnessAuthorization.approvalHash) throw new Error("Buzz Harness approvalHash mismatch.");
+    if (!["approved", "partially_consumed"].includes(String(harness.status))) throw new Error("Buzz Harness run has not passed the separate blind-review stage.");
     if (Date.parse(String(harness.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness approval expired; rerun the evidence and review stages.");
     const consumedAccountIds = Array.isArray(harness.consumedAccountIds) ? harness.consumedAccountIds as string[] : [];
     if (consumedAccountIds.includes(accountId)) throw new Error("This account has already consumed its drafts from the approved Buzz Harness run.");
