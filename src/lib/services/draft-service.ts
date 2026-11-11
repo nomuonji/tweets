@@ -129,10 +129,17 @@ export async function createAgentDrafts(
       throw new Error("Draft count does not match the Buzz Harness approval for this account.");
     }
     const accountReceipt = Array.isArray(harness.accountReceipts)
-      ? (harness.accountReceipts as Array<{ accountId?: string; characterVersion?: number }>).find((item) => item.accountId === accountId)
+      ? (harness.accountReceipts as Array<{ accountId?: string; handle?: string; platform?: string; characterVersion?: number; conceptHash?: string }>).find((item) => item.accountId === accountId)
       : undefined;
-    if (!accountReceipt || accountReceipt.characterVersion !== version || version !== expectedCharacterVersion) {
-      throw new Error("Buzz Harness account/character-version receipt is stale.");
+    if (
+      !accountReceipt ||
+      accountReceipt.characterVersion !== version ||
+      version !== expectedCharacterVersion ||
+      accountReceipt.handle !== account.handle ||
+      accountReceipt.platform !== account.platform ||
+      accountReceipt.conceptHash !== buzzDraftTextHash(String(account.concept ?? ""))
+    ) {
+      throw new Error("Buzz Harness account/character receipt is stale or the live persona changed. Rerun research and review.");
     }
     const expectedByHash = new Map(approvedForAccount.map((item) => [item.textHash, item]));
     for (const input of inputs) {
