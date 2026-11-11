@@ -196,14 +196,6 @@ function fixture() {
       bakaGate: gate(bakaKeys) as BuzzHarnessPacket["drafts"][number]["bakaGate"],
       resonanceGate: gate(resonanceKeys) as BuzzHarnessPacket["drafts"][number]["resonanceGate"],
       editorialGate: gate(editorialKeys) as BuzzHarnessPacket["drafts"][number]["editorialGate"],
-      review: {
-        reviewerId: "reviewer-agent-beta",
-        reviewerMode: "blind_copy_only",
-        decision: "PASS",
-        reviewedAt: isoNow,
-        reviewedTextHash: buzzDraftTextHash(draftText),
-        note: "The final copy was assessed without the author rationale and each quality gate was checked against the exact text.",
-      },
     }],
   };
 
@@ -256,7 +248,6 @@ function main() {
   const statisticHook = validate("statistic-hook", ({ packet }) => {
     const draft = packet.drafts[0];
     draft.text = "調査では48%の人がそう答えた。これには理由がある。";
-    draft.review.reviewedTextHash = buzzDraftTextHash(draft.text);
   });
   assert.equal(statisticHook.passed, false);
   assert.ok(statisticHook.errors.some((error) => /leads with statistics\/research/i.test(error)));
