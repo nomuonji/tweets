@@ -93,7 +93,7 @@ function fixture() {
       created_at: post.created_at,
       fetched_at: post.fetched_at,
       search_keyword: keyword,
-      discovery_query_id: `blind:v1:${keyword}`,
+      discovery_query_id: clusterIndex === 0 ? `keyword:${keyword}` : `blind:v1:${keyword}`,
       discovery_origin: clusterIndex === 0 ? "account_keyword" : "blind_discovery",
       discovery_mode: lane,
       source_type: clusterIndex === 0 ? "account_keyword_query" : "account_independent_query",
