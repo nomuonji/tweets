@@ -216,53 +216,98 @@ export async function approveBuzzHarnessRun(args: {
   }>;
 }) {
   const runRef = adminDb.collection("buzz_harness_runs").doc(args.runId);
-  const snap = await runRef.get();
-  if (!snap.exists) throw new Error("Buzz Harness run not found.");
-  const run = snap.data() ?? {};
-  if (run.status !== "awaiting_review") throw new Error("Buzz Harness run is not awaiting blind review.");
-  if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
-  if (Date.parse(String(run.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness run expired. Submit a fresh evidence packet.");
-  const manifest = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>;
-  const expectedHashes = Object.values(manifest).flat().map((item) => item.textHash);
-  const reviewErrors = validateBlindReviewReceipt({
-    writerId: String(run.writerId ?? ""),
-    writerModel: String(run.model ?? ""),
-    reviewerId: args.reviewerId,
-    reviewerModel: args.reviewerModel,
-    reviewerMode: args.reviewerMode,
-    expectedTextHashes: expectedHashes,
-    reviews: args.reviews,
-  });
-  if (reviewErrors.length > 0) throw new Error(reviewErrors.join(" "));
-  const reviews = [...args.reviews].sort((a, b) => a.textHash.localeCompare(b.textHash));
+  let result: {
+    status: "approved";
+    runId: string;
+    approvalHash: string;
+    reviewedDraftCount: number;
+    nextAction: string;
+  } | null = null;
 
-  const approvalHash = buzzPacketHash({
-    runId: args.runId,
-    reportHash: args.reportHash,
-    reviewerId: args.reviewerId,
-    reviewerModel: args.reviewerModel,
-    reviewerMode: args.reviewerMode,
-    reviews,
-  });
-  await runRef.update({
-    status: "approved",
-    approvalHash,
-    reviewerReceipt: {
+  await adminDb.runTransaction(async (transaction) => {
+    const snap = await transaction.get(runRef);
+    if (!snap.exists) throw new Error("Buzz Harness run not found.");
+    const run = snap.data() ?? {};
+    if (run.status !== "awaiting_review") throw new Error("Buzz Harness run is not awaiting blind review.");
+    if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
+    if (Date.parse(String(run.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness run expired. Submit a fresh evidence packet.");
+
+    const manifest = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>;
+    const expectedHashes = Object.values(manifest).flat().map((item) => item.textHash);
+    const reviewErrors = validateBlindReviewReceipt({
+      writerId: String(run.writerId ?? ""),
+      writerModel: String(run.model ?? ""),
       reviewerId: args.reviewerId,
       reviewerModel: args.reviewerModel,
       reviewerMode: args.reviewerMode,
-      reviewedDraftCount: reviews.length,
+      expectedTextHashes: expectedHashes,
+      reviews: args.reviews,
+    });
+    if (reviewErrors.length > 0) throw new Error(reviewErrors.join(" "));
+
+    const reviews = [...args.reviews].sort((left, right) => left.textHash.localeCompare(right.textHash));
+    const approvalHash = buzzPacketHash({
+      runId: args.runId,
+      reportHash: args.reportHash,
+      reviewerId: args.reviewerId,
+      reviewerModel: args.reviewerModel,
+      reviewerMode: args.reviewerMode,
       reviews,
-    },
-    updatedAt: DateTime.utc().toISO(),
+    });
+    transaction.update(runRef, {
+      status: "approved",
+      approvalHash,
+      reviewerReceipt: {
+        reviewerId: args.reviewerId,
+        reviewerModel: args.reviewerModel,
+        reviewerMode: args.reviewerMode,
+        reviewedDraftCount: reviews.length,
+        reviews,
+      },
+      updatedAt: DateTime.utc().toISO(),
+    });
+    result = {
+      status: "approved",
+      runId: args.runId,
+      approvalHash,
+      reviewedDraftCount: reviews.length,
+      nextAction: "Call create_drafts with this approvalHash and the exact reviewed copy. Saving consumes this run once per account; it never publishes.",
+    };
   });
 
+  if (!result) throw new Error("Blind-review approval did not produce a result.");
+  return result;
+}
+
+export async function getBuzzHarnessRun(runId: string) {
+  const snap = await adminDb.collection("buzz_harness_runs").doc(runId).get();
+  if (!snap.exists) return { found: false as const, runId };
+  const run = snap.data() ?? {};
+  const manifests = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{
+    textHash: string;
+    candidateId: string;
+    sourcePostIds: string[];
+    characterVersion: number;
+  }>>;
   return {
-    status: "approved" as const,
-    runId: args.runId,
-    approvalHash,
-    reviewedDraftCount: reviews.length,
-    nextAction: "Call create_drafts with this approvalHash and the exact reviewed copy. Saving consumes this run once per account; it never publishes.",
+    found: true as const,
+    runId,
+    status: run.status ?? "unknown",
+    reportHash: run.reportHash ?? null,
+    approvalHash: run.approvalHash ?? null,
+    writerId: run.writerId ?? null,
+    model: run.model ?? null,
+    createdAt: run.createdAt ?? null,
+    expiresAt: run.expiresAt ?? null,
+    errors: Array.isArray(run.errors) ? run.errors : [],
+    warnings: Array.isArray(run.warnings) ? run.warnings : [],
+    metrics: run.metrics ?? null,
+    accountReceipts: Array.isArray(run.accountReceipts) ? run.accountReceipts : [],
+    sourceReceipts: Array.isArray(run.sourceReceipts) ? run.sourceReceipts : [],
+    approvedDraftsByAccount: manifests,
+    reviewerReceipt: run.reviewerReceipt ?? null,
+    consumedAccountIds: Array.isArray(run.consumedAccountIds) ? run.consumedAccountIds : [],
+    updatedAt: run.updatedAt ?? null,
   };
 }
 
