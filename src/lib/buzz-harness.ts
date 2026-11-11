@@ -103,6 +103,7 @@ const draftSchema = z.object({
   bakaGate: gateSetSchema,
   resonanceGate: resonanceSetSchema,
   editorialGate: editorialGateSchema,
+  review: reviewSchema,
 });
 
 export const BuzzHarnessPacketSchema = z.object({
