@@ -61,7 +61,7 @@ const candidateSchema = z.object({
   hook: z.string().trim().min(8).max(300),
   immediateReward: shortText,
   shareReason: shortText,
-  sourcePostIds,
+  sourcePostIds: sourceIds,
   surfaceCopyChecked: z.literal(true),
 });
 
