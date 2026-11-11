@@ -3,6 +3,7 @@ import type { ExternalPostDoc } from "@/lib/types";
 import {
   buzzDraftTextHash,
   validateBuzzHarnessPacket,
+  validateBlindReviewReceipt,
   type BuzzHarnessPacket,
 } from "@/lib/buzz-harness";
 
@@ -304,7 +305,72 @@ function main() {
   assert.equal(latestLaneLie.passed, false);
   assert.ok(latestLaneLie.errors.some((error) => /Top and Latest acquisition lanes/i.test(error)));
 
-  console.log("Buzz Editorial Harness tests passed (10 scenarios).");
+  const expectedTextHashes = [buzzDraftTextHash(fixture().packet.drafts[0].text)];
+  const validBlindReview = validateBlindReviewReceipt({
+    writerId: "writer-agent-alpha",
+    writerModel: "writer-model-alpha",
+    reviewerId: "reviewer-agent-beta",
+    reviewerModel: "reviewer-model-beta",
+    reviewerMode: "blind_copy_only",
+    expectedTextHashes,
+    reviews: [{
+      textHash: expectedTextHashes[0],
+      decision: "PASS",
+      reviewedAt: isoNow,
+      note: "The reviewer checked the final copy alone and recorded why each mandatory gate passed.",
+    }],
+  });
+  assert.deepEqual(validBlindReview, []);
+
+  const sameReviewer = validateBlindReviewReceipt({
+    writerId: "writer-agent-alpha",
+    writerModel: "writer-model-alpha",
+    reviewerId: "writer-agent-alpha",
+    reviewerModel: "reviewer-model-beta",
+    reviewerMode: "blind_copy_only",
+    expectedTextHashes,
+    reviews: [{
+      textHash: expectedTextHashes[0],
+      decision: "PASS",
+      reviewedAt: isoNow,
+      note: "This text has a separate review note but uses the same writer identity.",
+    }],
+  });
+  assert.ok(sameReviewer.some((error) => /identity must differ/i.test(error)));
+
+  const sameModel = validateBlindReviewReceipt({
+    writerId: "writer-agent-alpha",
+    writerModel: "same-model",
+    reviewerId: "reviewer-agent-beta",
+    reviewerModel: "same-model",
+    reviewerMode: "blind_copy_only",
+    expectedTextHashes,
+    reviews: [{
+      textHash: expectedTextHashes[0],
+      decision: "PASS",
+      reviewedAt: isoNow,
+      note: "The reviewer identity differs, but the model is identical to the writing model.",
+    }],
+  });
+  assert.ok(sameModel.some((error) => /model must differ/i.test(error)));
+
+  const missingReview = validateBlindReviewReceipt({
+    writerId: "writer-agent-alpha",
+    writerModel: "writer-model-alpha",
+    reviewerId: "reviewer-agent-beta",
+    reviewerModel: "reviewer-model-beta",
+    reviewerMode: "blind_copy_only",
+    expectedTextHashes: [...expectedTextHashes, "a".repeat(64)],
+    reviews: [{
+      textHash: expectedTextHashes[0],
+      decision: "PASS",
+      reviewedAt: isoNow,
+      note: "A review was written for only one of the two final texts.",
+    }],
+  });
+  assert.ok(missingReview.some((error) => /every unique final text/i.test(error)));
+
+  console.log("Buzz Editorial Harness tests passed (14 scenarios).");
 }
 
 main();
