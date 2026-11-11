@@ -171,7 +171,7 @@ export const blindReviewGateKeys = [
 
 const blindReviewCheckSchema = z.object({
   pass: z.boolean(),
-  note: z.string().trim().min(30).max(700),
+  note: z.string().trim().min(40).max(700),
 }).strict();
 
 export const blindReviewItemSchema = z.object({
@@ -233,8 +233,14 @@ export function validateBlindReviewReceipt(
       errors.push("Every review timestamp must be valid, recent and not future-dated.");
     }
     const failedChecks = blindReviewGateKeys.filter((key) => !review.checks[key].pass);
+    const checkNotes = blindReviewGateKeys.map((key) => normalizeForHash(review.checks[key].note).toLowerCase());
+    const weakCheckNotes = checkNotes.some((note) => note.length < 40);
+    const repeatedCheckNotes = unique(checkNotes).length !== checkNotes.length;
     if (review.decision !== "PASS" || failedChecks.length > 0 || review.note.trim().length < 30) {
       errors.push(`Final copy ${review.textHash} did not pass the independent blind review: ${failedChecks.join(", ") || "reviewer decision REJECT"}.`);
+    }
+    if (weakCheckNotes || repeatedCheckNotes) {
+      errors.push(`Final copy ${review.textHash} does not contain seven distinct, copy-specific reviewer explanations.`);
     }
   }
   return unique(errors);
