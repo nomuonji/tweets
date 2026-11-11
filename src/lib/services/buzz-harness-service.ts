@@ -353,21 +353,54 @@ export async function approveBuzzHarnessRun(args: {
   reportHash: string;
 }) {
   const runRef = adminDb.collection("buzz_harness_runs").doc(args.runId);
-  const snap = await runRef.get();
-  if (!snap.exists) throw new Error("Buzz Harness run not found.");
-  const run = snap.data() ?? {};
-  if (run.status !== "awaiting_review") throw new Error("Buzz Harness run is not awaiting independent blind review.");
-  if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
-  if (Date.parse(String(run.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness run expired. Submit a fresh evidence packet.");
 
-  const queue = Array.isArray(run.blindReviewQueue) ? run.blindReviewQueue as BlindReviewQueueItem[] : [];
-  if (queue.length === 0) throw new Error("The pending run has no blind-review queue; no approval was issued.");
-  const review = await runServerSideBlindReview(queue, String(run.writerId ?? ""), String(run.model ?? ""));
-  const manifest = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>;
-  const expectedHashes = Object.values(manifest).flat().map((item) => item.textHash);
+  // Claim the review in a transaction before calling Gemini. Concurrent
+  // callers cannot launch multiple independent reviews against one run.
+  const claimed = await adminDb.runTransaction(async (transaction) => {
+    const snap = await transaction.get(runRef);
+    if (!snap.exists) throw new Error("Buzz Harness run not found.");
+    const run = snap.data() ?? {};
+    if (run.status !== "awaiting_review") {
+      throw new Error("Buzz Harness run is not awaiting independent blind review; review may already be running or completed.");
+    }
+    if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
+    if (Date.parse(String(run.expiresAt ?? "")) <= Date.now()) {
+      throw new Error("Buzz Harness run expired. Submit a fresh evidence packet.");
+    }
+    const queue = Array.isArray(run.blindReviewQueue) ? run.blindReviewQueue as BlindReviewQueueItem[] : [];
+    if (queue.length === 0) throw new Error("The pending run has no blind-review queue; no approval was issued.");
+    transaction.update(runRef, {
+      status: "reviewing",
+      reviewStartedAt: DateTime.utc().toISO(),
+      updatedAt: DateTime.utc().toISO(),
+    });
+    return {
+      queue,
+      writerId: String(run.writerId ?? ""),
+      writerModel: String(run.model ?? ""),
+      manifest: (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>,
+    };
+  });
+
+  let review: Awaited<ReturnType<typeof runServerSideBlindReview>>;
+  try {
+    review = await runServerSideBlindReview(claimed.queue, claimed.writerId, claimed.writerModel);
+  } catch (error) {
+    // Fail closed. An interrupted or unavailable reviewer cannot leave a
+    // pending run saveable or allow a second caller to race the review.
+    await runRef.update({
+      status: "review_failed",
+      reviewFailure: String((error as Error)?.message ?? error).slice(0, 1200),
+      reviewCompletedAt: DateTime.utc().toISO(),
+      updatedAt: DateTime.utc().toISO(),
+    });
+    throw error;
+  }
+
+  const expectedHashes = Object.values(claimed.manifest).flat().map((item) => item.textHash);
   const reviewErrors = validateBlindReviewReceipt({
-    writerId: String(run.writerId ?? ""),
-    writerModel: String(run.model ?? ""),
+    writerId: claimed.writerId,
+    writerModel: claimed.writerModel,
     reviewerId: review.reviewerId,
     reviewerModel: review.reviewerModel,
     reviewerMode: review.reviewerMode,
@@ -385,19 +418,33 @@ export async function approveBuzzHarnessRun(args: {
     reviews: review.reviews,
   }) : null;
 
-  await runRef.update({
-    status: allPass ? "approved" : "review_rejected",
-    ...(approvalHash ? { approvalHash } : {}),
-    reviewerReceipt: {
-      reviewerProvider: "gemini",
-      reviewerId: review.reviewerId,
-      reviewerModel: review.reviewerModel,
-      reviewerMode: review.reviewerMode,
-      reviewedDraftCount: review.reviews.length,
-      reviews: review.reviews,
-      errors: reviewErrors,
-    },
-    updatedAt: DateTime.utc().toISO(),
+  // Finalize only the run that this caller successfully claimed. A stale or
+  // unexpected state must not be overwritten with an approval.
+  await adminDb.runTransaction(async (transaction) => {
+    const snap = await transaction.get(runRef);
+    if (!snap.exists) throw new Error("Buzz Harness run disappeared during blind review.");
+    const current = snap.data() ?? {};
+    if (current.status !== "reviewing" || current.reportHash !== args.reportHash) {
+      throw new Error("Buzz Harness review claim was lost; no approval was issued.");
+    }
+    if (Date.parse(String(current.expiresAt ?? "")) <= Date.now()) {
+      throw new Error("Buzz Harness run expired during blind review; no approval was issued.");
+    }
+    transaction.update(runRef, {
+      status: allPass ? "approved" : "review_rejected",
+      ...(approvalHash ? { approvalHash } : {}),
+      reviewerReceipt: {
+        reviewerProvider: "gemini",
+        reviewerId: review.reviewerId,
+        reviewerModel: review.reviewerModel,
+        reviewerMode: review.reviewerMode,
+        reviewedDraftCount: review.reviews.length,
+        reviews: review.reviews,
+        errors: reviewErrors,
+      },
+      reviewCompletedAt: DateTime.utc().toISO(),
+      updatedAt: DateTime.utc().toISO(),
+    });
   });
 
   return {
