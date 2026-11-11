@@ -5,7 +5,7 @@ import { getCharacterVersion } from "@/lib/character-version";
 import { isPublishingEnabled } from "@/lib/account-gates";
 import { getExternalPostObservations, getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
 import { getConfiguredGeminiApiKeys, getConfiguredGeminiModels, requestGemini } from "@/lib/gemini/client";
-import type { AccountDoc, DraftDoc, ExternalPostDoc, PostDoc } from "@/lib/types";
+import type { AccountDoc, DraftDoc, ExternalPostDoc, ExternalPostObservationDoc, PostDoc } from "@/lib/types";
 import {
   BuzzHarnessPacketSchema,
   blindReviewItemSchema,
