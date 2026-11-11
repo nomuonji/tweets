@@ -4,7 +4,7 @@ import {
   buzzDraftTextHash,
   validateBuzzHarnessPacket,
   validateBlindReviewReceipt,
-  blindReviewGateKeys,
+  type BlindReviewItem,
   type BuzzHarnessPacket,
 } from "@/lib/buzz-harness";
 
@@ -302,7 +302,7 @@ function main() {
   assert.ok(unverifiedSource.errors.some((error) => /source post/i.test(error)));
 
   const latestLaneLie = validate("latest-lane-lie", ({ sourcePosts }) => {
-    for (const [id, post] of sourcePosts.entries()) {
+    for (const [id, post] of Array.from(sourcePosts.entries())) {
       sourcePosts.set(id, { ...post, discovery_mode: "Top" });
     }
   });
@@ -316,10 +316,15 @@ function main() {
   assert.ok(falseClusterLane.errors.some((error) => /claims Latest but its canonical posts contain no Latest result/i.test(error)));
 
   const expectedTextHashes = [buzzDraftTextHash(fixture().packet.drafts[0].text)];
-  const reviewChecks = () => Object.fromEntries(blindReviewGateKeys.map((key) => [
-    key,
-    { pass: true, note: `${key}: the reviewer independently inspected the exact displayed copy and found a concrete reason this condition passes.` },
-  ]));
+  const reviewChecks = (): BlindReviewItem["checks"] => ({
+    A_entryAndUnderstanding: { pass: true, note: "The opening identifies the concrete situation without needing the author's rationale." },
+    B_specificCore: { pass: true, note: "The exact wording contains a distinct observation that is not a generic statement." },
+    C_readerReward: { pass: true, note: "The final copy gives the reader an immediate and intelligible recognition reward." },
+    D_shareOrConversationReason: { pass: true, note: "A reader can identify a real person or conversation where this copy is useful to send." },
+    E_voiceAndNaturalness: { pass: true, note: "The rhythm and wording sound natural for the account and do not imitate a reference post." },
+    F_marketMechanismTransfer: { pass: true, note: "The copy transfers a reader-response mechanism rather than copying the source post's surface." },
+    G_factsRightsAndSafety: { pass: true, note: "The text contains no unsupported factual claim, rights issue or apparent safety concern." },
+  });
   const validBlindReview = validateBlindReviewReceipt({
     writerId: "writer-agent-alpha",
     writerModel: "writer-model-alpha",
