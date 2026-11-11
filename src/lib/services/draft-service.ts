@@ -5,7 +5,8 @@ import { extractPattern } from "@/lib/pattern";
 import { normalizeThreadsTopicTag } from "@/lib/threads-topic-tag";
 import type { DraftDoc, DraftProvenance } from "@/lib/types";
 import type { BuzzHarnessAuthorization } from "@/lib/services/buzz-harness-service";
-import { buzzDraftTextHash, buzzPacketHash, buzzSourceReceipt } from "@/lib/buzz-harness";
+import { buzzDraftTextHash, buzzFinalCopy, buzzPacketHash, buzzSourceReceipt } from "@/lib/buzz-harness";
+import { isPublishingEnabled } from "@/lib/account-gates";
 import type { ExternalPostDoc } from "@/lib/types";
 
 export const MAX_AGENT_DRAFTS = 5;
@@ -60,6 +61,7 @@ export async function createAgentDrafts(
     const accountSnap = await transaction.get(accountRef);
     if (!accountSnap.exists) throw new Error("Account not found.");
     const account = accountSnap.data() ?? {};
+    if (!isPublishingEnabled(account)) throw new Error("Account is not currently publishing-enabled; refusing draft replenishment.");
     const version = getCharacterVersion(account);
     if (version !== expectedCharacterVersion) throw new Error("character_version conflict: regenerate from current account guidance.");
     const draftSnap = await transaction.get(adminDb.collection("drafts").where("target_account_id", "==", accountId));
@@ -124,7 +126,7 @@ export async function createAgentDrafts(
     if (Date.parse(String(harness.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness approval expired; rerun the evidence and review stages.");
     const consumedAccountIds = Array.isArray(harness.consumedAccountIds) ? harness.consumedAccountIds as string[] : [];
     if (consumedAccountIds.includes(accountId)) throw new Error("This account has already consumed its drafts from the approved Buzz Harness run.");
-    const approvedDraftsByAccount = (harness.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string; candidateId: string; sourcePostIds: string[]; characterVersion: number }>>;
+    const approvedDraftsByAccount = (harness.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string; candidateId: string; sourcePostIds: string[]; characterVersion: number; topicTag?: string | null }>>;
     const approvedForAccount = approvedDraftsByAccount[accountId];
     if (!Array.isArray(approvedForAccount) || approvedForAccount.length !== inputs.length) {
       throw new Error("Draft count does not match the Buzz Harness approval for this account.");
@@ -151,7 +153,6 @@ export async function createAgentDrafts(
       ? harness.sourceReceipts as Array<Record<string, unknown> & { id?: string }>
       : [];
     const accountSourceIds = Array.from(new Set(approvedForAccount.flatMap((item) => item.sourcePostIds))).sort();
-    const verifiedSourceIds = new Set<string>();
     for (const sourceId of accountSourceIds) {
       const expectedReceipt = expectedSourceReceipts.find((receipt) => receipt.id === sourceId);
       if (!expectedReceipt) throw new Error("Buzz Harness source receipt is missing; rerun research and review.");
@@ -161,15 +162,16 @@ export async function createAgentDrafts(
       if (buzzPacketHash(buzzSourceReceipt(currentSource)) !== buzzPacketHash(expectedReceipt)) {
         throw new Error("A reviewed external source changed after review; rerun research and review.");
       }
-      verifiedSourceIds.add(sourceId);
     }
 
     const expectedByHash = new Map(approvedForAccount.map((item) => [item.textHash, item]));
     for (const input of inputs) {
-      const textHash = buzzDraftTextHash(input.text);
+      if (input.overwriteSimilar === true) throw new Error("overwriteSimilar is prohibited for Buzz Harness-approved drafts.");
+      const textHash = buzzDraftTextHash(buzzFinalCopy(input.text, input.hashtags ?? []));
       const approved = expectedByHash.get(textHash);
-      if (!approved) throw new Error("Draft text was edited after its Buzz Harness review or was not approved.");
+      if (!approved) throw new Error("Final copy or hashtags were edited after Buzz Harness review, or were not approved.");
       if (approved.characterVersion !== version) throw new Error("Approved draft character version does not match the live account.");
+      if ((approved.topicTag ?? null) !== (input.topicTag ?? null)) throw new Error("Threads topicTag differs from the reviewed draft metadata.");
       if (input.provenance?.buzzRunId !== harnessAuthorization.runId) throw new Error("Draft provenance must reference the approving Buzz Harness run.");
       if (input.provenance?.candidateId !== approved.candidateId) throw new Error("Draft candidateId does not match the approving Buzz Harness run.");
       const actualSources = [...(input.provenance?.externalPostIds ?? [])].sort();
@@ -188,7 +190,7 @@ export async function createAgentDrafts(
       .map((doc) => String(doc.data().text ?? ""))
       .filter(Boolean);
     for (const input of inputs) {
-      const normalizedInput = draftTextWithHashtags(input.text, input.hashtags);
+      const normalizedInput = buzzFinalCopy(input.text, input.hashtags ?? []);
       for (const priorText of latestPostTexts) {
         if (trigramSimilarity(normalizedInput, priorText) >= 0.82) {
           throw new Error("A published post became too similar to this approved copy after review. Rerun the harness.");
