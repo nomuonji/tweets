@@ -4,6 +4,7 @@ import {
   buzzDraftTextHash,
   validateBuzzHarnessPacket,
   validateBlindReviewReceipt,
+  blindReviewGateKeys,
   type BuzzHarnessPacket,
 } from "@/lib/buzz-harness";
 
@@ -315,6 +316,10 @@ function main() {
   assert.ok(falseClusterLane.errors.some((error) => /claims Latest but its canonical posts contain no Latest result/i.test(error)));
 
   const expectedTextHashes = [buzzDraftTextHash(fixture().packet.drafts[0].text)];
+  const reviewChecks = () => Object.fromEntries(blindReviewGateKeys.map((key) => [
+    key,
+    { pass: true, note: `${key}: the reviewer independently inspected the exact displayed copy and found a concrete reason this condition passes.` },
+  ]));
   const validBlindReview = validateBlindReviewReceipt({
     writerId: "writer-agent-alpha",
     writerModel: "writer-model-alpha",
@@ -326,10 +331,31 @@ function main() {
       textHash: expectedTextHashes[0],
       decision: "PASS",
       reviewedAt: isoNow,
+      checks: reviewChecks(),
       note: "The reviewer checked the final copy alone and recorded why each mandatory gate passed.",
     }],
   });
   assert.deepEqual(validBlindReview, []);
+
+  const rejectedGateReview = validateBlindReviewReceipt({
+    writerId: "writer-agent-alpha",
+    writerModel: "writer-model-alpha",
+    reviewerId: "reviewer-agent-beta",
+    reviewerModel: "reviewer-model-beta",
+    reviewerMode: "blind_copy_only",
+    expectedTextHashes,
+    reviews: [{
+      textHash: expectedTextHashes[0],
+      decision: "REJECT",
+      reviewedAt: isoNow,
+      checks: {
+        ...reviewChecks(),
+        C_readerReward: { pass: false, note: "C_readerReward: the copy does not deliver a concrete reader reward without an explanation." },
+      },
+      note: "The final copy was rejected because one of the mandatory reader-side gates did not pass.",
+    }],
+  });
+  assert.ok(rejectedGateReview.some((error) => /did not pass the independent blind review/i.test(error)));
 
   const sameReviewer = validateBlindReviewReceipt({
     writerId: "writer-agent-alpha",
@@ -342,6 +368,7 @@ function main() {
       textHash: expectedTextHashes[0],
       decision: "PASS",
       reviewedAt: isoNow,
+      checks: reviewChecks(),
       note: "This text has a separate review note but uses the same writer identity.",
     }],
   });
@@ -358,6 +385,7 @@ function main() {
       textHash: expectedTextHashes[0],
       decision: "PASS",
       reviewedAt: isoNow,
+      checks: reviewChecks(),
       note: "The reviewer identity differs, but the model is identical to the writing model.",
     }],
   });
@@ -374,12 +402,13 @@ function main() {
       textHash: expectedTextHashes[0],
       decision: "PASS",
       reviewedAt: isoNow,
+      checks: reviewChecks(),
       note: "A review was written for only one of the two final texts.",
     }],
   });
   assert.ok(missingReview.some((error) => /every unique final text/i.test(error)));
 
-  console.log("Buzz Editorial Harness tests passed (13 scenarios).");
+  console.log("Buzz Editorial Harness tests passed (14 scenarios).");
 }
 
 main();
