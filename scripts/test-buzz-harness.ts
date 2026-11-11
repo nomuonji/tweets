@@ -50,11 +50,11 @@ function fixture() {
       id,
       platform: "x",
       platform_post_id: String(100000 + index),
-      author_handle: \`author_\${index + 1}\`,
+      author_handle: `author_${index + 1}`,
       author_followers: 3000 + index * 700,
-      text: \`Observed post \${index + 1}: a concrete public situation with a specific action and a reader-visible outcome.\`,
+      text: `Observed post ${index + 1}: a concrete public situation with a specific action and a reader-visible outcome.`,
       created_at: ago(60 * 24 * (index + 2)),
-      url: \`https://x.com/author_\${index + 1}/status/\${100000 + index}\`,
+      url: `https://x.com/author_${index + 1}/status/${100000 + index}`,
       metrics: {
         impressions: 1000 + index * 500,
         likes: 10 + index * 10,
@@ -76,20 +76,20 @@ function fixture() {
     return {
       id,
       searchKeyword: keywordByCluster[index],
-      query: \`site:x.com public posts about \${keywordByCluster[index]} lang:ja\`,
+      query: `site:x.com public posts about ${keywordByCluster[index]} lang:ja`,
       acquisitionLane: modes.includes("Top") && modes.includes("Latest")
         ? "mixed" as const
         : modes[0]!,
       origin: index === 0 ? "seed_followup" as const : "blind_discovery" as const,
       sourcePostIds: ids,
-      observation: \`A separate discovery cluster about \${keywordByCluster[index]} with observable posts and a documented reason for looking at it.\`,
+      observation: `A separate discovery cluster about ${keywordByCluster[index]} with observable posts and a documented reason for looking at it.`,
     };
   });
 
   const observations = postIds.map((externalPostId, index) => ({
     externalPostId,
     clusterId: clusterIds[clusterForPost[index]],
-    whyItMatters: \`This post shows a specific audience situation and an observable reaction path in sample position \${index + 1}.\`,
+    whyItMatters: `This post shows a specific audience situation and an observable reaction path in sample position ${index + 1}.`,
   }));
 
   const mechanisms = [
@@ -138,16 +138,16 @@ function fixture() {
     const mechanismId = mechanisms[index % mechanisms.length].id;
     const sourcePostIdsForCandidate = mechanisms[index % mechanisms.length].sourcePostIds;
     return {
-      id: \`candidate-\${index + 1}\`,
+      id: `candidate-${index + 1}`,
       accountId: "account-1",
       mechanismId,
-      audienceMoment: \`A reader is in a recognizable situation \${index + 1} and needs one clear point of attention.\`,
-      ordinaryIdea: \`The normal treatment would explain the situation \${index + 1} in general terms.\`,
-      meaningfulShift: \`Move one expectation in the scene \${index + 1} and preserve the recognizable setting.\`,
-      familiarFormat: \`Return to a normal short social post format for scene \${index + 1}.\`,
-      hook: \`A concrete hook for scenario \${index + 1}.\`,
-      immediateReward: \`The reader gets one useful or entertaining recognition in scenario \${index + 1}.\`,
-      shareReason: \`A person can send scenario \${index + 1} to a colleague or friend who knows it.\`,
+      audienceMoment: `A reader is in a recognizable situation ${index + 1} and needs one clear point of attention.`,
+      ordinaryIdea: `The normal treatment would explain the situation ${index + 1} in general terms.`,
+      meaningfulShift: `Move one expectation in the scene ${index + 1} and preserve the recognizable setting.`,
+      familiarFormat: `Return to a normal short social post format for scene ${index + 1}.`,
+      hook: `A concrete hook for scenario ${index + 1}.`,
+      immediateReward: `The reader gets one useful or entertaining recognition in scenario ${index + 1}.`,
+      shareReason: `A person can send scenario ${index + 1} to a colleague or friend who knows it.`,
       sourcePostIds: sourcePostIdsForCandidate,
       surfaceCopyChecked: true as const,
     };
