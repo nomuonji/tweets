@@ -402,6 +402,17 @@ function mapSimpleTimelineEntry(
     hasUrls(toRecord(retweetedTweet?.entities), text) ||
     hasUrls(toRecord(quotedTweet?.entities), text);
 
+  const author = toRecord(entry.user_info) ?? toRecord(entry.author) ?? toRecord(entry.user);
+  const actualHandle = [
+    author?.screen_name,
+    author?.username,
+    entry.screen_name,
+    entry.username,
+  ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const canonicalUrl = actualHandle
+    ? `https://x.com/${actualHandle.replace(/^@/, "")}/status/${tweetId}`
+    : `https://x.com/i/web/status/${tweetId}`;
+
   return {
     platform: "x",
     platform_post_id: tweetId,
@@ -412,7 +423,7 @@ function mapSimpleTimelineEntry(
     metrics,
     raw: entry as Record<string, unknown>,
     raw_gcs_url: undefined,
-    url: `https://twitter.com/${screenName}/status/${tweetId}`,
+    url: canonicalUrl,
   };
 }
 

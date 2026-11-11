@@ -3,9 +3,9 @@ import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { getCharacterVersion } from "@/lib/character-version";
 import { isPublishingEnabled } from "@/lib/account-gates";
-import { getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
+import { getExternalPostObservations, getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
 import { getConfiguredGeminiApiKeys, getConfiguredGeminiModels, requestGemini } from "@/lib/gemini/client";
-import type { AccountDoc, DraftDoc, ExternalPostDoc, PostDoc } from "@/lib/types";
+import type { AccountDoc, DraftDoc, ExternalPostDoc, ExternalPostObservationDoc, PostDoc } from "@/lib/types";
 import {
   BuzzHarnessPacketSchema,
   blindReviewItemSchema,
@@ -101,11 +101,13 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
     const snap = await adminDb.collection("external_posts").doc(id).get();
     if (snap.exists) sourcePosts.set(id, { id: snap.id, ...snap.data() } as ExternalPostDoc);
   }));
+  const sourceObservations = await getExternalPostObservations(sourceIds);
 
   const validation = validateBuzzHarnessPacket({
     packet,
     liveAccounts,
     sourcePosts,
+    sourceObservations,
     existingTextsByAccount,
   });
 
@@ -134,6 +136,16 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
     .filter((post): post is ExternalPostDoc => Boolean(post))
     .map(buzzSourceReceipt)
     .sort((a, b) => a.id.localeCompare(b.id));
+  const observationReceipts = sourceIds
+    .flatMap((id) => sourceObservations.get(id) ?? [])
+    .filter((receipt) => packet.searchClusters.some((cluster) =>
+      cluster.origin === "blind_discovery" &&
+      cluster.sourcePostIds.includes(receipt.external_post_id) &&
+      cluster.discoveryQueryId === receipt.discovery_query_id &&
+      cluster.searchKeyword.trim().toLowerCase() === receipt.search_keyword.trim().toLowerCase()
+    ))
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((receipt: ExternalPostObservationDoc) => ({ ...receipt }));
   const accountReceipts = Array.from(liveAccounts.values())
     .map((account) => ({
       accountId: account.id,
@@ -148,6 +160,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
   const reportHash = buzzPacketHash({
     packetHash,
     sourceReceipts,
+    observationReceipts,
     accountReceipts,
     metrics: validation.metrics,
     errors: validation.errors,
@@ -187,6 +200,7 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
     metrics: validation.metrics,
     accountReceipts,
     sourceReceipts,
+    observationReceipts,
     approvedDraftsByAccount,
     blindReviewQueue: validation.passed
       ? packet.drafts.map((draft) => {

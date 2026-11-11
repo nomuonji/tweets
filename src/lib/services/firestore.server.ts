@@ -7,6 +7,7 @@ import {
   Tip,
   RankingFilter,
   ExternalPostDoc,
+  ExternalPostObservationDoc,
   ReferenceAccountDoc,
   PatternAnalysis,
 } from "@/lib/types";
@@ -196,6 +197,41 @@ export async function upsertExternalPost(post: ExternalPostDoc): Promise<void> {
   await adminDb.collection("external_posts").doc(post.id).set(post, {
     merge: true,
   });
+}
+
+/**
+ * Read append-only acquisition receipts for a bounded set of external posts.
+ * Firestore "in" queries are chunked to its ten-value limit.
+ */
+export async function getExternalPostObservations(
+  externalPostIds: string[],
+): Promise<Map<string, ExternalPostObservationDoc[]>> {
+  const uniqueIds = Array.from(new Set(externalPostIds)).filter(Boolean);
+  const groups = Array.from(
+    { length: Math.ceil(uniqueIds.length / 10) },
+    (_, index) => uniqueIds.slice(index * 10, (index + 1) * 10),
+  );
+  const snapshots = await Promise.all(groups.map((group) =>
+    adminDb.collection("external_post_observations")
+      .where("external_post_id", "in", group)
+      .get(),
+  ));
+  const result = new Map<string, ExternalPostObservationDoc[]>();
+  for (const snapshot of snapshots) {
+    for (const doc of snapshot.docs) {
+      const receipt = { id: doc.id, ...doc.data() } as ExternalPostObservationDoc;
+      const list = result.get(receipt.external_post_id) ?? [];
+      list.push(receipt);
+      result.set(receipt.external_post_id, list);
+    }
+  }
+  for (const [id, receipts] of Array.from(result.entries())) {
+    receipts.sort((a: ExternalPostObservationDoc, b: ExternalPostObservationDoc) =>
+      Date.parse(b.fetched_at) - Date.parse(a.fetched_at),
+    );
+    result.set(id, receipts.slice(0, 50));
+  }
+  return result;
 }
 
 export async function getPatternStats(

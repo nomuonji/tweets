@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - "src/lib/buzz-harness.ts"
+      - "src/lib/blind-discovery.ts"
+      - "src/lib/services/blind-discovery-service.ts"
+      - "src/lib/services/external-discovery-service.ts"
+      - "src/lib/services/firestore.server.ts"
+      - "src/lib/platforms/x.ts"
+      - "src/lib/services/usage-service.ts"
       - "src/lib/services/buzz-harness-service.ts"
       - "src/lib/services/draft-service.ts"
       - "src/lib/services/prompt-service.ts"
@@ -15,6 +21,9 @@ on:
       - "scripts/auto-generate-drafts.ts"
       - "src/lib/mcp/server.ts"
       - "scripts/test-buzz-harness.ts"
+      - "scripts/test-blind-discovery.ts"
+      - "scripts/sync-blind-external.ts"
+      - ".github/workflows/external-discovery.yml"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/buzz-editorial-harness.yml"
@@ -22,6 +31,12 @@ on:
     branches: [main]
     paths:
       - "src/lib/buzz-harness.ts"
+      - "src/lib/blind-discovery.ts"
+      - "src/lib/services/blind-discovery-service.ts"
+      - "src/lib/services/external-discovery-service.ts"
+      - "src/lib/services/firestore.server.ts"
+      - "src/lib/platforms/x.ts"
+      - "src/lib/services/usage-service.ts"
       - "src/lib/services/buzz-harness-service.ts"
       - "src/lib/services/draft-service.ts"
       - "src/lib/mcp/server.ts"
@@ -39,6 +54,8 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
+      - name: Test independent Blind Discovery planner
+        run: npm run test:blind-discovery
       - name: Run meaningful harness gate tests
         run: npm run test:buzz-harness
       - name: TypeScript check

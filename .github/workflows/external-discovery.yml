@@ -27,3 +27,10 @@ jobs:
           DISCOVERY_CACHE_HOURS: "48"             # refresh each source every 2 days
           DISCOVERY_MAX_SOURCES_PER_ACCOUNT: "2"  # rotate the stored keywords
           RAPIDAPI_MONTHLY_BUDGET: "800"          # stop before the 1,000 ceiling
+      - name: Run independent blind discovery (one rotating query, Top + Latest)
+        run: npm run sync:blind
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
+          RAPIDAPI_MONTHLY_BUDGET: "800"

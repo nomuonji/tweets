@@ -88,7 +88,7 @@ npm run test:buzz-harness checks acceptance and rejection cases for evidence cov
 
 ## Known limitations
 
-- The harness validates only posts already stored in the canonical external_posts collection. It does not itself crawl X or authenticate that the caller read the whole source page; acquisition/sync is a separate stage. Blind discovery is counted only when the canonical source record carries collector-written provenance. The current account-scoped collector cannot create blind-discovery records, so new submissions remain blocked until a separate independent-discovery collector is implemented and deployed.
+- The harness validates only posts already stored in the canonical `external_posts` collection. It does not itself crawl X or authenticate that the caller read the whole source page; acquisition/sync is a separate stage. Independent Blind Discovery is implemented as a separate account-independent X search collector; it writes append-only acquisition receipts to `external_post_observations`. The Harness validates the exact receipt rather than mutable fields on `external_posts`. The collector is scheduled through GitHub Actions after merge; do not treat it as operationally verified until a successful run and receipt readback are confirmed.
 - The writer's declared identity/model is not authenticated as a credential. The reviewer is an actual server-side Gemini API call.
 - The minimum corpus and follower-relative engagement signal requirements can reject a run if the source pool is incomplete. The correct response is to collect evidence, not lower thresholds.
 - PASS is an editorial/evidence gate, not a human panel, market experiment or prediction of virality.

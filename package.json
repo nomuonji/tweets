@@ -34,11 +34,13 @@
     "test:affiliate-distribution": "tsx scripts/test-affiliate-distribution.ts",
     "test:affiliate-placement": "tsx scripts/test-affiliate-placement.ts",
     "test:amazon-associates": "tsx scripts/test-amazon-associates.ts",
-    "prebuild": "npm run test:mcp-auth && npm run test:buzz-harness && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates && npm run test:threads-publish-reliability && npm run test:performance-learning && npm run test:performance-cohorts && npm run test:threads-insights && npm run test:threads-topic-tag",
+    "prebuild": "npm run test:mcp-auth && npm run test:buzz-harness && npm run test:blind-discovery && npm run test:affiliate-tracking && npm run test:affiliate-distribution && npm run test:affiliate-placement && npm run test:amazon-associates && npm run test:threads-publish-reliability && npm run test:performance-learning && npm run test:performance-cohorts && npm run test:threads-insights && npm run test:threads-topic-tag",
     "test:mcp-auth": "tsx scripts/test-mcp-auth.ts",
     "analyze:legacy-cohorts": "tsx -r dotenv/config scripts/analyze-legacy-cohorts.ts",
     "test:performance-cohorts": "tsx scripts/test-performance-cohorts.ts",
-    "test:buzz-harness": "tsx scripts/test-buzz-harness.ts"
+    "test:buzz-harness": "tsx scripts/test-buzz-harness.ts",
+    "sync:blind": "tsx -r dotenv/config scripts/sync-blind-external.ts",
+    "test:blind-discovery": "tsx scripts/test-blind-discovery.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.53",
