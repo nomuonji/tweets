@@ -167,6 +167,57 @@ export interface BuzzHarnessValidationResult {
   };
 }
 
+export interface BlindReviewReceiptInput {
+  writerId: string;
+  writerModel: string;
+  reviewerId: string;
+  reviewerModel: string;
+  reviewerMode: "blind_copy_only";
+  expectedTextHashes: string[];
+  reviews: Array<{
+    textHash: string;
+    decision: "PASS";
+    reviewedAt: string;
+    note: string;
+  }>;
+}
+
+export function validateBlindReviewReceipt(
+  input: BlindReviewReceiptInput,
+  nowMs = Date.now(),
+): string[] {
+  const errors: string[] = [];
+  if (input.reviewerId.trim() === input.writerId.trim()) {
+    errors.push("The blind reviewer identity must differ from the writer.");
+  }
+  if (input.reviewerModel.trim().toLowerCase() === input.writerModel.trim().toLowerCase()) {
+    errors.push("The blind reviewer model must differ from the writer model.");
+  }
+  if (input.reviewerMode !== "blind_copy_only") {
+    errors.push("The final review must be performed without the author's rationale.");
+  }
+  const expected = [...input.expectedTextHashes].sort();
+  const reviews = [...input.reviews].sort((a, b) => a.textHash.localeCompare(b.textHash));
+  const received = reviews.map((item) => item.textHash);
+  if (expected.length === 0) errors.push("There are no final texts to review.");
+  if (expected.length !== reviews.length || new Set(expected).size !== expected.length || new Set(received).size !== received.length) {
+    errors.push("Every unique final text must receive exactly one independent review.");
+  }
+  if (JSON.stringify(expected) !== JSON.stringify(received)) {
+    errors.push("The review receipt does not cover the exact final-copy hashes.");
+  }
+  for (const review of reviews) {
+    const reviewedAt = Date.parse(review.reviewedAt);
+    if (!Number.isFinite(reviewedAt) || reviewedAt > nowMs || nowMs - reviewedAt > 24 * 60 * 60 * 1000) {
+      errors.push("Every review timestamp must be valid, recent and not future-dated.");
+    }
+    if (review.decision !== "PASS" || review.note.trim().length < 30) {
+      errors.push("Every final text needs an explicit PASS and a substantive blind-review note.");
+    }
+  }
+  return unique(errors);
+}
+
 export function normalizeForHash(value: string): string {
   return value.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
