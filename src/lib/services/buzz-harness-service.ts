@@ -444,8 +444,8 @@ export async function getBuzzHarnessRun(runId: string) {
     accountReceipts: Array.isArray(run.accountReceipts) ? run.accountReceipts : [],
     sourceReceipts: Array.isArray(run.sourceReceipts) ? run.sourceReceipts : [],
     approvedDraftsByAccount: manifests,
-    // Deliberately expose only raw copy/objective to the blind reviewer.
-    // No author rationale, candidate explanation, mechanism notes or gate notes.
+    // Expose neutral account context, raw reference posts, objective and exact copy.
+    // Never expose author rationale, candidate explanation, mechanism notes or gate notes.
     blindReviewQueue: Array.isArray(run.blindReviewQueue) ? run.blindReviewQueue : [],
     reviewerReceipt: run.reviewerReceipt ?? null,
     consumedAccountIds: Array.isArray(run.consumedAccountIds) ? run.consumedAccountIds : [],
