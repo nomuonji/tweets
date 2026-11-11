@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import type { ExternalPostDoc } from "@/lib/types";
+import type { ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
 
 const isoDate = z.string().datetime({ offset: true });
 const shortText = z.string().trim().min(8).max(1200);
@@ -141,6 +141,8 @@ export interface BuzzHarnessValidationInput {
     neededDraftCount: number;
   }>;
   sourcePosts: Map<string, ExternalPostDoc>;
+  /** Immutable collector receipts; blind proof never depends on mutable external_posts metadata. */
+  sourceObservations?: Map<string, ExternalPostObservationDoc[]>;
   existingTextsByAccount?: Map<string, string[]>;
 }
 
@@ -325,8 +327,34 @@ function withinDays(value: string | undefined, days: number, nowMs: number): boo
   return Number.isFinite(time) && time <= nowMs && nowMs - time <= days * 86400000;
 }
 
+function findBlindDiscoveryReceipt(
+  post: ExternalPostDoc,
+  cluster: BuzzHarnessPacket["searchClusters"][number],
+  receipts: ExternalPostObservationDoc[] | undefined,
+  nowMs: number,
+): ExternalPostObservationDoc | undefined {
+  const expectedTextHash = createHash("sha256").update(post.text).digest("hex");
+  return (receipts ?? [])
+    .filter((receipt) =>
+      receipt.discovery_origin === "blind_discovery" &&
+      receipt.source_type === "account_independent_query" &&
+      receipt.collector_version === "blind-discovery-v1" &&
+      Boolean(receipt.run_id) &&
+      receipt.external_post_id === post.id &&
+      receipt.platform_post_id === post.platform_post_id &&
+      receipt.discovery_query_id === cluster.discoveryQueryId &&
+      receipt.search_keyword.trim().toLowerCase() === cluster.searchKeyword.trim().toLowerCase() &&
+      receipt.author_handle.trim().toLowerCase() === post.author_handle.trim().toLowerCase() &&
+      receipt.canonical_url === post.url &&
+      receipt.text_hash === expectedTextHash &&
+      withinDays(receipt.fetched_at, 30, nowMs) &&
+      (cluster.acquisitionLane === "mixed" || receipt.discovery_mode === cluster.acquisitionLane)
+    )
+    .sort((a, b) => Date.parse(b.fetched_at) - Date.parse(a.fetched_at))[0];
+}
+
 export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): BuzzHarnessValidationResult {
-  const { packet, liveAccounts, sourcePosts } = input;
+  const { packet, liveAccounts, sourcePosts, sourceObservations } = input;
   const errors: string[] = [];
   const warnings: string[] = [];
   const nowMs = Date.now();
@@ -380,26 +408,43 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     }
     if (post.platform !== "x" || !post.text?.trim() || !post.url?.startsWith("https://")) errors.push(`External post ${observation.externalPostId} is missing a canonical X URL or text snapshot.`);
     if (!post.author_handle?.trim()) errors.push(`External post ${observation.externalPostId} has no author handle.`);
-    if (post.search_keyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(`External post ${observation.externalPostId} was not retrieved under its claimed search keyword.`);
-    if (post.discovery_query_id !== cluster.discoveryQueryId) errors.push(`External post ${observation.externalPostId} does not match the collector-recorded query identity for cluster ${cluster.id}.`);
+
+    let sourceKeyword = post.search_keyword;
+    let sourceQueryId = post.discovery_query_id;
+    let sourceMode = post.discovery_mode;
+    let sourceFetchedAt = post.fetched_at;
+
     if (cluster.origin === "blind_discovery") {
-      if (post.discovery_origin !== "blind_discovery" || !post.discovery_query_id) {
-        errors.push(`Blind-discovery cluster ${cluster.id} has no canonical server-verified blind discovery receipt; a packet label is insufficient.`);
+      const receipt = findBlindDiscoveryReceipt(
+        post,
+        cluster,
+        sourceObservations?.get(observation.externalPostId),
+        nowMs,
+      );
+      if (!receipt) {
+        errors.push(`Blind-discovery cluster ${cluster.id} has no matching immutable server-verified acquisition receipt; a packet label is insufficient.`);
       } else {
         verifiedBlindClusters.add(cluster.id);
         blindObservationCount += 1;
+        sourceKeyword = receipt.search_keyword;
+        sourceQueryId = receipt.discovery_query_id;
+        sourceMode = receipt.discovery_mode;
+        sourceFetchedAt = receipt.fetched_at;
       }
     } else if (post.discovery_origin !== "account_keyword") {
       errors.push(`Seed-followup cluster ${cluster.id} is not backed by a canonical account-keyword source record.`);
     }
-    if (!post.discovery_mode || !["Top", "Latest"].includes(post.discovery_mode)) errors.push(`External post ${observation.externalPostId} has no verified Top/Latest acquisition lane.`);
+
+    if (sourceKeyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(`External post ${observation.externalPostId} was not retrieved under its claimed search keyword.`);
+    if (sourceQueryId !== cluster.discoveryQueryId) errors.push(`External post ${observation.externalPostId} does not match the collector-recorded query identity for cluster ${cluster.id}.`);
+    if (!sourceMode || !["Top", "Latest"].includes(sourceMode)) errors.push(`External post ${observation.externalPostId} has no verified Top/Latest acquisition lane.`);
     if (typeof post.engagement_rate !== "number" || !Number.isFinite(post.engagement_rate) || post.engagement_rate < 0) errors.push(`External post ${observation.externalPostId} has no measured follower-relative engagement signal; do not invent a reaction band.`);
     else engagementRates.push({ id: observation.externalPostId, rate: post.engagement_rate });
-    if (!withinDays(post.fetched_at, 30, nowMs)) errors.push(`External post ${observation.externalPostId} was not fetched within the last 30 days.`);
+    if (!withinDays(sourceFetchedAt, 30, nowMs)) errors.push(`External post ${observation.externalPostId} was not fetched within the last 30 days.`);
     if (!withinDays(post.created_at, 365, nowMs)) errors.push(`External post ${observation.externalPostId} is older than 365 days; use a current sample or explicitly research a historical format separately.`);
     if (post.author_handle) authors.push(post.author_handle.toLowerCase());
-    if (post.search_keyword) searchKeywords.push(post.search_keyword.toLowerCase());
-    if (post.discovery_mode) discoveryModes.push(post.discovery_mode);
+    if (sourceKeyword) searchKeywords.push(sourceKeyword.toLowerCase());
+    if (sourceMode) discoveryModes.push(sourceMode);
   }
 
   if (authors.length < 4 || unique(authors).length < 4) errors.push("The corpus must contain at least 6 posts from at least 4 distinct authors.");
@@ -429,25 +474,40 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
   if (packet.searchClusters.some((cluster) => cluster.sourcePostIds.some((id) => !observationIds.has(id)))) errors.push("A search cluster references a post that is not in the observed corpus.");
   for (const cluster of packet.searchClusters) {
     if (!packet.observations.some((item) => item.clusterId === cluster.id)) errors.push(`Search cluster ${cluster.id} has no linked observation.`);
+    const observedModes: Array<"Top" | "Latest"> = [];
     for (const sourceId of cluster.sourcePostIds) {
       const observation = packet.observations.find((item) => item.externalPostId === sourceId);
       if (observation && observation.clusterId !== cluster.id) {
         errors.push(`Search cluster ${cluster.id} claims post ${sourceId}, but its observation is assigned to ${observation.clusterId}.`);
       }
       const sourcePost = sourcePosts.get(sourceId);
-      if (sourcePost && sourcePost.discovery_query_id !== cluster.discoveryQueryId) {
-        errors.push(`Search cluster ${cluster.id} contains post ${sourceId} from a different collector query.`);
-      }
-      if (cluster.origin === "blind_discovery" && sourcePost?.discovery_origin !== "blind_discovery") {
-        errors.push(`Search cluster ${cluster.id} contains a post without canonical blind-discovery provenance.`);
-      }
-      if (cluster.origin === "seed_followup" && sourcePost?.discovery_origin !== "account_keyword") {
-        errors.push(`Search cluster ${cluster.id} contains a post outside the canonical account-keyword seed lane.`);
+      if (!sourcePost) continue;
+
+      if (cluster.origin === "blind_discovery") {
+        const receipt = findBlindDiscoveryReceipt(
+          sourcePost,
+          cluster,
+          sourceObservations?.get(sourceId),
+          nowMs,
+        );
+        if (!receipt) {
+          errors.push(`Search cluster ${cluster.id} contains post ${sourceId} without a matching immutable blind-discovery receipt.`);
+        } else {
+          observedModes.push(receipt.discovery_mode);
+        }
+      } else {
+        if (sourcePost.discovery_query_id !== cluster.discoveryQueryId) {
+          errors.push(`Search cluster ${cluster.id} contains post ${sourceId} from a different collector query.`);
+        }
+        if (sourcePost.discovery_origin !== "account_keyword") {
+          errors.push(`Search cluster ${cluster.id} contains a post outside the canonical account-keyword seed lane.`);
+        }
+        if (sourcePost.discovery_mode === "Top" || sourcePost.discovery_mode === "Latest") {
+          observedModes.push(sourcePost.discovery_mode);
+        }
       }
     }
-    const observedModes = cluster.sourcePostIds
-      .map((id) => sourcePosts.get(id)?.discovery_mode)
-      .filter((mode): mode is "Top" | "Latest" => mode === "Top" || mode === "Latest");
+
     if (cluster.acquisitionLane === "Top" && !observedModes.includes("Top")) {
       errors.push(`Search cluster ${cluster.id} claims Top but its canonical posts contain no Top result.`);
     }
