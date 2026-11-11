@@ -172,7 +172,7 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
       : 0;
     if (
       typeof current.lease_run_id === "string" &&
-      current.lease_run_id !== plan.runId &&
+      current.lease_run_id.length > 0 &&
       Number.isFinite(activeLease) &&
       activeLease > now.toMillis()
     ) return "locked" as const;
