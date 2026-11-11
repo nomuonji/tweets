@@ -99,11 +99,12 @@ const draftSchema = z.object({
   sourcePostIds: sourceIds,
   objective: z.enum(["reach", "sharing", "entertainment", "conversation", "utility"]),
   text: z.string().trim().min(20).max(500),
+  hashtags: z.array(z.string().trim().min(1).max(100)).max(10).optional(),
+  topicTag: z.string().trim().min(1).max(50).optional(),
   authoredAt: isoDate,
   bakaGate: gateSetSchema,
   resonanceGate: resonanceSetSchema,
   editorialGate: editorialGateSchema,
-  review: reviewSchema,
 });
 
 export const BuzzHarnessPacketSchema = z.object({
@@ -215,6 +216,11 @@ export function normalizeForHash(value: string): string {
 
 export function buzzDraftTextHash(value: string): string {
   return createHash("sha256").update(normalizeForHash(value)).digest("hex");
+}
+
+export function buzzFinalCopy(text: string, hashtags: string[] = []): string {
+  const tags = hashtags.map((tag) => tag.startsWith("#") ? tag : `#${tag}`);
+  return [text.trim(), ...tags].filter(Boolean).join(" ");
 }
 
 function canonicalize(value: unknown): unknown {
