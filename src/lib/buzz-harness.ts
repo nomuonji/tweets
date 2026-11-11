@@ -495,7 +495,7 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (count > profile.neededDraftCount) errors.push(`Account ${profile.accountId} exceeds its current draft inventory gap.`);
   }
 
-  for (const [accountId, newTexts] of draftTextsByAccount) {
+  for (const [accountId, newTexts] of Array.from(draftTextsByAccount.entries())) {
     const existing = input.existingTextsByAccount?.get(accountId) ?? [];
     const prior = [...existing];
     for (let i = 0; i < newTexts.length; i += 1) {
