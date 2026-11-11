@@ -451,6 +451,7 @@ export async function getBlindDiscoveryWork(
       post.author_handle?.trim().toLowerCase() !== receipt.author_handle.trim().toLowerCase() ||
       post.url !== receipt.canonical_url
     ) continue;
+    if (receipt.discovery_mode !== "Top" && receipt.discovery_mode !== "Latest") continue;
     items.push({
       externalPostId: post.id,
       platformPostId: post.platform_post_id,
