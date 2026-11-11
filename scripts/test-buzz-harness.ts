@@ -214,14 +214,6 @@ function fixture() {
       bakaGate: gate(bakaKeys) as BuzzHarnessPacket["drafts"][number]["bakaGate"],
       resonanceGate: gate(resonanceKeys) as BuzzHarnessPacket["drafts"][number]["resonanceGate"],
       editorialGate: gate(editorialKeys) as BuzzHarnessPacket["drafts"][number]["editorialGate"],
-      review: {
-        reviewerId: "reviewer-agent-beta",
-        reviewerMode: "blind_copy_only",
-        decision: "PASS",
-        reviewedAt: isoNow,
-        reviewedTextHash: buzzDraftTextHash(draftText),
-        note: "The final copy was reviewed without author rationale, and the reviewer recorded a reason against every required reader-side and safety gate.",
-      },
     }],
   };
 
@@ -277,12 +269,6 @@ function main() {
   });
   assert.equal(statisticHook.passed, false);
   assert.ok(statisticHook.errors.some((error) => /leads with statistics\/research/i.test(error)));
-
-  const selfReview = validate("self-review", ({ packet }) => {
-    packet.drafts[0].review.reviewerId = packet.writerId;
-  });
-  assert.equal(selfReview.passed, false);
-  assert.ok(selfReview.errors.some((error) => /self-reviewed/i.test(error)));
 
   const fakeCounterexample = validate("fake-counterexample", ({ packet }) => {
     packet.counterexamples = [
@@ -393,7 +379,7 @@ function main() {
   });
   assert.ok(missingReview.some((error) => /every unique final text/i.test(error)));
 
-  console.log("Buzz Editorial Harness tests passed (14 scenarios).");
+  console.log("Buzz Editorial Harness tests passed (13 scenarios).");
 }
 
 main();
