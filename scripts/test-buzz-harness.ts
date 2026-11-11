@@ -292,6 +292,12 @@ function main() {
   assert.equal(forgedBlindDiscovery.passed, false);
   assert.ok(forgedBlindDiscovery.errors.some((error) => /immutable server-verified acquisition receipt/i.test(error)));
 
+  const missingKeywordReceipt = validate("missing-account-keyword-receipt", ({ sourceObservations }) => {
+    sourceObservations.delete("post1");
+  });
+  assert.equal(missingKeywordReceipt.passed, false);
+  assert.ok(missingKeywordReceipt.errors.some((error) => /immutable account-keyword acquisition receipt/i.test(error)));
+
   const mutableMetadataOverwrite = validate("mutable-metadata-overwrite", ({ sourcePosts }) => {
     for (const [id, post] of Array.from(sourcePosts.entries())) {
       if (post.discovery_origin === "blind_discovery") {
