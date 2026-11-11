@@ -100,6 +100,11 @@ async function main() {
     try {
       blindResult = await runBlindExternalDiscovery();
       console.log("[Discovery] Blind lane:", JSON.stringify(blindResult));
+      const blindStatus = (blindResult as { status?: string; reason?: string } | null)?.status;
+      const blindReason = (blindResult as { status?: string; reason?: string } | null)?.reason ?? "";
+      if (blindStatus === "skipped" && /budget/i.test(blindReason)) {
+        errors.push(`blind_discovery_budget: ${blindReason}`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(`blind_discovery: ${message}`);
@@ -126,8 +131,10 @@ async function main() {
         throw new Error("Unified discovery lease changed before completion.");
       }
       tx.set(stateRef, {
-        last_completed_jst_date: jstDate,
-        last_completed_run_id: runId,
+        ...(errors.length === 0 ? {
+          last_completed_jst_date: jstDate,
+          last_completed_run_id: runId,
+        } : {}),
         lease_run_id: null,
         lease_until: null,
         updated_at: completedAt,
