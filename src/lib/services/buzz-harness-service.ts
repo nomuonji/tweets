@@ -8,6 +8,7 @@ import {
   buzzDraftTextHash,
   buzzPacketHash,
   trigramSimilarity,
+  validateBlindReviewReceipt,
   validateBuzzHarnessPacket,
 } from "@/lib/buzz-harness";
 
@@ -221,30 +222,19 @@ export async function approveBuzzHarnessRun(args: {
   if (run.status !== "awaiting_review") throw new Error("Buzz Harness run is not awaiting blind review.");
   if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
   if (Date.parse(String(run.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness run expired. Submit a fresh evidence packet.");
-  if (args.reviewerId.trim() === String(run.writerId ?? "").trim()) throw new Error("The reviewer must be a different identity from the writer.");
-  if (args.reviewerModel.trim().toLowerCase() === String(run.model ?? "").trim().toLowerCase()) throw new Error("The reviewer must use a different model from the writer.");
-  if (args.reviewerMode !== "blind_copy_only") throw new Error("The final review must be performed without the author's rationale.");
-
   const manifest = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>;
-  const expectedHashes = Object.values(manifest).flat().map((item) => item.textHash).sort();
+  const expectedHashes = Object.values(manifest).flat().map((item) => item.textHash);
+  const reviewErrors = validateBlindReviewReceipt({
+    writerId: String(run.writerId ?? ""),
+    writerModel: String(run.model ?? ""),
+    reviewerId: args.reviewerId,
+    reviewerModel: args.reviewerModel,
+    reviewerMode: args.reviewerMode,
+    expectedTextHashes: expectedHashes,
+    reviews: args.reviews,
+  });
+  if (reviewErrors.length > 0) throw new Error(reviewErrors.join(" "));
   const reviews = [...args.reviews].sort((a, b) => a.textHash.localeCompare(b.textHash));
-  const receivedHashes = reviews.map((item) => item.textHash);
-  if (expectedHashes.length === 0) throw new Error("The submitted run has no save-eligible final drafts.");
-  if (receivedHashes.length !== expectedHashes.length || new Set(receivedHashes).size !== receivedHashes.length) {
-    throw new Error("The independent reviewer must review every exact final text exactly once.");
-  }
-  if (JSON.stringify(receivedHashes) !== JSON.stringify(expectedHashes)) {
-    throw new Error("The independent reviewer receipt does not cover the exact final-copy hashes in this run.");
-  }
-  for (const review of reviews) {
-    const reviewedAt = Date.parse(review.reviewedAt);
-    if (!Number.isFinite(reviewedAt) || reviewedAt > Date.now() || Date.now() - reviewedAt > 24 * 60 * 60 * 1000) {
-      throw new Error("Each review timestamp must be valid, recent and not future-dated.");
-    }
-    if (review.decision !== "PASS" || review.note.trim().length < 30) {
-      throw new Error("Every final text needs an explicit PASS and a substantive blind-review note.");
-    }
-  }
 
   const approvalHash = buzzPacketHash({
     runId: args.runId,
