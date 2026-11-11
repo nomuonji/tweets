@@ -243,8 +243,11 @@ function main() {
   assert.ok(tooFewPosts.errors.some((error) => /at least 6 actual posts/i.test(error)));
 
   const tooFewAuthors = validate("too-few-authors", ({ sourcePosts }) => {
-    const post = sourcePosts.get("post6")!;
-    sourcePosts.set("post6", { ...post, author_handle: "author_1" });
+    for (let index = 2; index < 6; index += 1) {
+      const id = `post${index + 1}`;
+      const post = sourcePosts.get(id)!;
+      sourcePosts.set(id, { ...post, author_handle: "author_1" });
+    }
   });
   assert.equal(tooFewAuthors.passed, false);
   assert.ok(tooFewAuthors.errors.some((error) => /4 distinct authors/i.test(error)));
