@@ -296,6 +296,12 @@ function main() {
   assert.equal(latestLaneLie.passed, false);
   assert.ok(latestLaneLie.errors.some((error) => /Top and Latest acquisition lanes/i.test(error)));
 
+  const falseClusterLane = validate("false-cluster-lane", ({ packet }) => {
+    packet.searchClusters[0].acquisitionLane = "Latest";
+  });
+  assert.equal(falseClusterLane.passed, false);
+  assert.ok(falseClusterLane.errors.some((error) => /claims Latest but its canonical posts contain no Latest result/i.test(error)));
+
   const expectedTextHashes = [buzzDraftTextHash(fixture().packet.drafts[0].text)];
   const validBlindReview = validateBlindReviewReceipt({
     writerId: "writer-agent-alpha",
