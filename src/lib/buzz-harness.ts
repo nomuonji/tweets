@@ -332,7 +332,7 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (post.search_keyword?.trim().toLowerCase() !== cluster.searchKeyword.trim().toLowerCase()) errors.push(`External post ${observation.externalPostId} was not retrieved under its claimed search keyword.`);
     if (!post.discovery_mode || !["Top", "Latest"].includes(post.discovery_mode)) errors.push(`External post ${observation.externalPostId} has no verified Top/Latest acquisition lane.`);
     if (typeof post.engagement_rate !== "number" || !Number.isFinite(post.engagement_rate) || post.engagement_rate < 0) errors.push(`External post ${observation.externalPostId} has no measured follower-relative engagement signal; do not invent a reaction band.`);
-    else engagementRates.push(post.engagement_rate);
+    else engagementRates.push({ id: observation.externalPostId, rate: post.engagement_rate });
     if (!withinDays(post.fetched_at, 30, nowMs)) errors.push(`External post ${observation.externalPostId} was not fetched within the last 30 days.`);
     if (!withinDays(post.created_at, 365, nowMs)) errors.push(`External post ${observation.externalPostId} is older than 365 days; use a current sample or explicitly research a historical format separately.`);
     if (post.author_handle) authors.push(post.author_handle.toLowerCase());
