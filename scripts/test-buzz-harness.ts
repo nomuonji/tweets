@@ -252,7 +252,7 @@ function main() {
   assert.equal(valid.metrics.mechanismFamilies, 3);
 
   const forgedBlindDiscovery = validate("forged-blind-discovery", ({ sourcePosts }) => {
-    for (const [id, post] of sourcePosts.entries()) {
+    for (const [id, post] of Array.from(sourcePosts.entries())) {
       if (post.discovery_origin === "blind_discovery") {
         sourcePosts.set(id, { ...post, discovery_origin: "account_keyword" });
       }
