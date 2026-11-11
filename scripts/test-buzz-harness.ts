@@ -10,8 +10,10 @@ import {
 const now = new Date();
 const isoNow = now.toISOString();
 const ago = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString();
-const note = { pass: true as const, note: "The copy was checked against this condition using the final text, without relying on the author's explanation." };
-const gate = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, note]));
+const gate = (keys: string[]) => Object.fromEntries(keys.map((key) => [
+  key,
+  { pass: true as const, note: `For ${key}, the final copy was checked independently against this reader-visible condition, and the exact wording provides a distinct reason for PASS.` },
+]));
 const bakaKeys = [
   "instantComprehension",
   "recognizableSituation",
