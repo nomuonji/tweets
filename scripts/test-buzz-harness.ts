@@ -68,6 +68,8 @@ function fixture() {
       },
       search_keyword: keywordByCluster[clusterForPost[index]],
       discovery_mode: laneByPost[index],
+      discovery_origin: clusterForPost[index] === 0 ? "account_keyword" : "blind_discovery",
+      discovery_query_id: `keyword:${keywordByCluster[clusterForPost[index]]}`,
       fetched_at: ago(5 + index),
       engagement_rate: rates[index],
     });
@@ -79,6 +81,7 @@ function fixture() {
     return {
       id,
       searchKeyword: keywordByCluster[index],
+      discoveryQueryId: `keyword:${keywordByCluster[index]}`,
       query: `site:x.com public posts about ${keywordByCluster[index]} lang:ja`,
       acquisitionLane: modes.includes("Top") && modes.includes("Latest")
         ? "mixed" as const
@@ -247,6 +250,16 @@ function main() {
   assert.equal(valid.metrics.postsObserved, 6);
   assert.equal(valid.metrics.uniqueAuthors, 6);
   assert.equal(valid.metrics.mechanismFamilies, 3);
+
+  const forgedBlindDiscovery = validate("forged-blind-discovery", ({ sourcePosts }) => {
+    for (const [id, post] of sourcePosts.entries()) {
+      if (post.discovery_origin === "blind_discovery") {
+        sourcePosts.set(id, { ...post, discovery_origin: "account_keyword" });
+      }
+    }
+  });
+  assert.equal(forgedBlindDiscovery.passed, false);
+  assert.ok(forgedBlindDiscovery.errors.some((error) => /canonical server-verified blind discovery receipt/i.test(error)));
 
   const tooFewPosts = validate("too-few-posts", ({ packet }) => {
     packet.observations = packet.observations.slice(0, 5);
@@ -432,7 +445,7 @@ function main() {
   });
   assert.ok(missingReview.some((error) => /every unique final text/i.test(error)));
 
-  console.log("Buzz Editorial Harness tests passed (15 scenarios).");
+  console.log("Buzz Editorial Harness tests passed (16 scenarios).");
 }
 
 main();
