@@ -342,6 +342,25 @@ function main() {
   });
   assert.deepEqual(validBlindReview, []);
 
+  const repeatedReviewerNotes = reviewChecks();
+  repeatedReviewerNotes.B_specificCore.note = repeatedReviewerNotes.A_entryAndUnderstanding.note;
+  const repeatedNoteReview = validateBlindReviewReceipt({
+    writerId: "writer-agent-alpha",
+    writerModel: "writer-model-alpha",
+    reviewerId: "reviewer-agent-beta",
+    reviewerModel: "reviewer-model-beta",
+    reviewerMode: "blind_copy_only",
+    expectedTextHashes,
+    reviews: [{
+      textHash: expectedTextHashes[0],
+      decision: "PASS",
+      reviewedAt: isoNow,
+      checks: repeatedReviewerNotes,
+      note: "The reviewer attempted to reuse the same explanation for multiple independent editorial dimensions.",
+    }],
+  });
+  assert.ok(repeatedNoteReview.some((error) => /seven distinct, copy-specific reviewer explanations/i.test(error)));
+
   const rejectedGateReview = validateBlindReviewReceipt({
     writerId: "writer-agent-alpha",
     writerModel: "writer-model-alpha",
@@ -413,7 +432,7 @@ function main() {
   });
   assert.ok(missingReview.some((error) => /every unique final text/i.test(error)));
 
-  console.log("Buzz Editorial Harness tests passed (14 scenarios).");
+  console.log("Buzz Editorial Harness tests passed (15 scenarios).");
 }
 
 main();
