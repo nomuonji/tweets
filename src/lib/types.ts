@@ -64,6 +64,10 @@ export interface DraftProvenance {
   structure?: string;
   /** One-line note on the angle, for later qualitative review. */
   rationale?: string;
+  /** Exact Buzz Harness run used to approve this copy. */
+  buzzRunId?: string;
+  /** Candidate ID from the approved idea-divergence stage. */
+  candidateId?: string;
 }
 
 export interface PatternStat {
@@ -516,8 +520,12 @@ export interface ExternalPostDoc {
   metrics: PostMetrics;
   search_keyword?: string;
   source_account_id?: string;
-  /** Search acquisition lane; Top and Latest alternate within the existing request budget. */
+  /** Search acquisition lane written by the canonical collector, not by the harness packet. */
   discovery_mode?: "Top" | "Latest";
+  /** Search origin assigned by the server-side collector; only blind_discovery may count toward blind coverage. */
+  discovery_origin?: "account_keyword" | "reference_account" | "blind_discovery";
+  /** Stable identity of the actual server-side search source/query. */
+  discovery_query_id?: string;
   fetched_at: string;
   engagement_rate?: number | null;
   pattern?: {

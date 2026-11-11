@@ -33,6 +33,12 @@ export async function PUT(
 
     const body = await request.json();
     const { text, status } = body;
+    const current = await adminDb.collection("drafts").doc(id).get();
+    if (!current.exists) return NextResponse.json({ ok: false, message: "Draft not found." }, { status: 404 });
+    const currentData = current.data() ?? {};
+    if (currentData.provenance?.buzzRunId && typeof text === "string") {
+      return NextResponse.json({ ok: false, message: "Harness-approved copy is immutable. Re-run the full Buzz Editorial Harness to change text." }, { status: 409 });
+    }
 
     const updateData: Record<string, unknown> = {
       updated_at: DateTime.utc().toISO(),
@@ -71,6 +77,12 @@ type RouteParams = {
 export async function PATCH(request: Request, { params }: RouteParams) {
   try {
     const body = await request.json();
+    const current = await adminDb.collection("drafts").doc(params.id).get();
+    if (!current.exists) return NextResponse.json({ ok: false, message: "Draft not found." }, { status: 404 });
+    const currentData = current.data() ?? {};
+    if (currentData.provenance?.buzzRunId && (typeof body.text === "string" || Array.isArray(body.hashtags))) {
+      return NextResponse.json({ ok: false, message: "Harness-approved copy is immutable. Re-run the full Buzz Editorial Harness to change text or hashtags." }, { status: 409 });
+    }
     const updates: Record<string, unknown> = {
       updated_at: DateTime.utc().toISO(),
     };

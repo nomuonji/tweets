@@ -1,0 +1,45 @@
+name: Buzz Editorial Harness
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/buzz-harness.ts"
+      - "src/lib/services/buzz-harness-service.ts"
+      - "src/lib/services/draft-service.ts"
+      - "src/lib/services/prompt-service.ts"
+      - "src/lib/types.ts"
+      - "src/app/api/drafts/route.ts"
+      - "src/app/api/drafts/[id]/route.ts"
+      - ".agent/workflows/auto-generate.md"
+      - ".agent/workflows/scripts/save_drafts.ts"
+      - "scripts/auto-generate-drafts.ts"
+      - "src/lib/mcp/server.ts"
+      - "scripts/test-buzz-harness.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/buzz-editorial-harness.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/buzz-harness.ts"
+      - "src/lib/services/buzz-harness-service.ts"
+      - "src/lib/services/draft-service.ts"
+      - "src/lib/mcp/server.ts"
+      - "scripts/test-buzz-harness.ts"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Run meaningful harness gate tests
+        run: npm run test:buzz-harness
+      - name: TypeScript check
+        run: npx tsc --noEmit

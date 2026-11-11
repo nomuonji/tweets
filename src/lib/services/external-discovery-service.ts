@@ -98,7 +98,13 @@ function toExternalPost(
     raw?: Record<string, unknown>;
   },
   now: string,
-  source: { keyword?: string; accountId?: string; discoveryMode?: "Top" | "Latest" },
+  source: {
+    keyword?: string;
+    accountId?: string;
+    discoveryMode?: "Top" | "Latest";
+    discoveryOrigin: "account_keyword" | "reference_account";
+    discoveryQueryId: string;
+  },
 ): ExternalPostDoc {
   // Firestore rejects `undefined`, and only one of keyword/accountId is ever
   // set. Writing both unconditionally made every keyword-sourced upsert throw,
@@ -116,6 +122,8 @@ function toExternalPost(
     ...(source.keyword ? { search_keyword: source.keyword } : {}),
     ...(source.accountId ? { source_account_id: source.accountId } : {}),
     ...(source.discoveryMode ? { discovery_mode: source.discoveryMode } : {}),
+    discovery_origin: source.discoveryOrigin,
+    discovery_query_id: source.discoveryQueryId,
     fetched_at: now,
   } satisfies ExternalPostDoc;
   return {
@@ -193,6 +201,8 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
         await upsertExternalPost(toExternalPost(post, now.toISO()!, {
           keyword: source.key,
           discoveryMode,
+          discoveryOrigin: "account_keyword",
+          discoveryQueryId: `keyword:${source.key}`,
         }));
       }
       await saveDiscoveryState(account.id, source.key, now.toISO()!);
@@ -214,7 +224,11 @@ export async function syncExternalDiscovery(account: AccountDoc): Promise<{
     for (const post of posts.posts) {
       if (TEXT_ONLY && post.media_type !== "text") continue;
       await upsertExternalPost(
-        toExternalPost(post, now.toISO()!, { accountId: reference.id }),
+        toExternalPost(post, now.toISO()!, {
+          accountId: reference.id,
+          discoveryOrigin: "reference_account",
+          discoveryQueryId: `reference:${reference.id}`,
+        }),
       );
     }
     await saveDiscoveryState(account.id, source.key, now.toISO()!);

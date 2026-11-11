@@ -10,6 +10,17 @@ type CreateDraftPayload = {
   promoProductId?: string;
   promoProductAsin?: string;
   characterVersion?: number;
+  harnessRunId?: string;
+  harnessApprovalHash?: string;
+  provenance?: {
+    batchId?: string;
+    externalPostIds?: string[];
+    netaKeys?: string[];
+    structure?: string;
+    rationale?: string;
+    buzzRunId?: string;
+    candidateId?: string;
+  };
 };
 
 export async function POST(request: Request) {
@@ -30,7 +41,23 @@ export async function POST(request: Request) {
         { ok: false, message: "characterVersion は必須です。" }, { status: 400 },
       );
     }
-    const [draft] = await createAgentDrafts(accountId, body.characterVersion, [{ text, createdBy: body.createdBy ?? "gemini", generatedBy: body.generatedBy ?? "gemini" }]);
+    if (!body.harnessRunId || !body.harnessApprovalHash || !body.provenance?.buzzRunId || !body.provenance?.candidateId) {
+      return NextResponse.json(
+        { ok: false, message: "A separately blind-reviewed Buzz Harness runId/approvalHash and matching candidate provenance are required." },
+        { status: 400 },
+      );
+    }
+    const [draft] = await createAgentDrafts(
+      accountId,
+      body.characterVersion,
+      [{
+        text,
+        createdBy: body.createdBy ?? "agent",
+        generatedBy: body.generatedBy ?? "agent",
+        provenance: body.provenance,
+      }],
+      { runId: body.harnessRunId, approvalHash: body.harnessApprovalHash },
+    );
 
     return NextResponse.json({ ok: true, draft });
   } catch (error) {
