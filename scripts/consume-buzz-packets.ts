@@ -98,7 +98,7 @@ async function processPacket(item: Claimed): Promise<void> {
 
     const savedAccounts: Array<{ accountId: string; count: number }> = [];
     for (const account of packet.accounts) {
-      if (run.consumedAccountIds.includes(account.accountId)) continue;
+      if (run.consumedAccountIds?.includes(account.accountId)) continue;
       const drafts = packet.drafts.filter(d => d.accountId === account.accountId);
       if (drafts.length === 0) throw new Error(`No reviewed drafts for ${account.accountId}`);
       const saved = await createAgentDrafts(account.accountId, account.characterVersion, drafts.map(d => ({
