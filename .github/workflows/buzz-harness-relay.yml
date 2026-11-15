@@ -1,0 +1,37 @@
+name: Agent HQ Buzz Harness Relay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/consume-buzz-packets.ts"
+      - ".github/workflows/buzz-harness-relay.yml"
+  schedule:
+    # Hourly check of privately staged Agent HQ packets. No new ChatGPT task.
+    - cron: "0 * * * *"
+
+concurrency:
+  group: agent-hq-buzz-harness-relay
+  cancel-in-progress: false
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Validate, independently review and save approved Threads drafts
+        run: npx tsx scripts/consume-buzz-packets.ts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
