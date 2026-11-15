@@ -7,7 +7,7 @@ Collect public X posts from a discovery path that is independent of account pers
 ## Acquisition policy
 
 - A fixed 20-query seed deck alternates Japanese and English everyday-language observations across several broad themes.
-- One seed is selected per JST calendar day using a persistent round-robin cursor. The next seed is selected only after both acquisition lanes complete successfully.
+- Up to six distinct seeds are selected per JST calendar day using a persistent round-robin cursor; each seed advances only after both acquisition lanes complete successfully. A transactional completed-runs counter makes retries idempotent and prevents reusing the same seed for the same day.
 - Each seed is searched independently through X search in both `Top` and `Latest` lanes, requesting at most 20 text posts per lane.
 - The collector does not read account documents, personas, reference accounts, account keywords, drafts, performance stats, or the Buzz Harness packet when selecting a query.
 - Retweets, replies, media posts, entries without text, and entries without an identifiable author are not used as text observations.
