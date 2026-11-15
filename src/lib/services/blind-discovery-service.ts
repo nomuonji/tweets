@@ -154,9 +154,18 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
   const stateSnapshot = await stateRef.get();
   const state = stateSnapshot.data() ?? {};
   const cursorIndex = typeof state.next_seed_index === "number" ? state.next_seed_index : 0;
+  // The old single-seed-per-day throttle starved the independent evidence lane.
+  // Keep a hard cap even if an Actions variable is accidentally raised.
+  const configuredTarget = Number(process.env.BLIND_DAILY_SEED_TARGET ?? "1");
+  const dailyTarget = Number.isInteger(configuredTarget)
+    ? Math.max(1, Math.min(6, configuredTarget))
+    : 1;
+  const completedToday = state.last_completed_jst_date === jstDate
+    ? Math.max(1, Number(state.completed_runs_today ?? 1))
+    : 0;
 
-  if (state.last_completed_jst_date === jstDate) {
-    return { status: "skipped", reason: "The independent discovery run for this JST date is already complete." };
+  if (completedToday >= dailyTarget) {
+    return { status: "skipped", reason: "The independent discovery quota for this JST date is already complete." };
   }
 
   const plan = buildBlindDiscoveryPlan(cursorIndex, jstDate);
@@ -166,7 +175,14 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
   const claim = await adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(stateRef);
     const current = snapshot.data() ?? {};
-    if (current.last_completed_jst_date === jstDate) return "completed" as const;
+    const completedInTransaction = current.last_completed_jst_date === jstDate
+      ? Math.max(1, Number(current.completed_runs_today ?? 1))
+      : 0;
+    if (completedInTransaction >= dailyTarget) return "completed" as const;
+    // A different worker may have advanced the cursor after our first read.
+    if ((typeof current.next_seed_index === "number" ? current.next_seed_index : 0) !== cursorIndex) {
+      return "locked" as const;
+    }
     const activeLease = typeof current.lease_until === "string"
       ? DateTime.fromISO(current.lease_until).toMillis()
       : 0;
@@ -321,9 +337,13 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
       if (snapshot.get("lease_run_id") !== plan.runId) {
         throw new Error("Blind discovery lease changed before completion; refusing to advance the seed cursor.");
       }
+      const countBefore = snapshot.get("last_completed_jst_date") === jstDate
+        ? Math.max(1, Number(snapshot.get("completed_runs_today") ?? 1))
+        : 0;
       transaction.set(stateRef, {
         next_seed_index: plan.nextCursorIndex,
         last_completed_jst_date: jstDate,
+        completed_runs_today: countBefore + 1,
         last_completed_run_id: plan.runId,
         lease_run_id: null,
         lease_until: null,

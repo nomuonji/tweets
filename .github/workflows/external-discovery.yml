@@ -2,6 +2,12 @@ name: External Discovery
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/services/blind-discovery-service.ts"
+      - "scripts/sync-discovery.ts"
+      - ".github/workflows/external-discovery.yml"
   schedule:
     - cron: "15 0 * * *"
 
@@ -28,6 +34,9 @@ jobs:
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
           # One shared hard ceiling across every acquisition lane.
           RAPIDAPI_MONTHLY_BUDGET: "800"
+          # Six independent themes per day use at most 12 search calls/day,
+          # within the existing 800/month shared ceiling; never bypass quota.
+          BLIND_DAILY_SEED_TARGET: "6"
           # Account sources: one query per account per 48h, rotated fairly.
           DISCOVERY_CACHE_HOURS: "48"
           DISCOVERY_MAX_SOURCES_PER_ACCOUNT: "1"

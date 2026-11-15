@@ -59,9 +59,33 @@ async function main() {
 
   const accountResults: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
-  let blindResult: unknown = null;
+  const blindResults: unknown[] = [];
 
   try {
+    // Independent sources first: account-specific searches must never exhaust
+    // the shared RapidAPI allowance before the Blind Discovery evidence lane.
+    const configuredTarget = Number(process.env.BLIND_DAILY_SEED_TARGET ?? "1");
+    const dailyTarget = Number.isInteger(configuredTarget)
+      ? Math.max(1, Math.min(6, configuredTarget))
+      : 1;
+    for (let i = 0; i < dailyTarget; i += 1) {
+      try {
+        const result = await runBlindExternalDiscovery();
+        blindResults.push(result);
+        console.log(`[Discovery] Blind lane ${i + 1}/${dailyTarget}:`, JSON.stringify(result));
+        if (result.status === "completed") continue;
+        if (result.status === "locked" || /budget/i.test(result.reason ?? "")) {
+          errors.push(`blind_discovery: ${result.reason ?? result.status}`);
+        }
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`blind_discovery: ${message}`);
+        console.error("[Discovery] Independent acquisition failed:", error);
+        break;
+      }
+    }
+
     const accounts = await getAccounts();
     for (const account of accounts) {
       if (!isDiscoveryEnabled(account)) continue;
@@ -94,23 +118,6 @@ async function main() {
       }
     }
 
-    // Always attempt the independent lane after account-scoped work. Each
-    // account request reserved two slots, and this collector independently
-    // requires both Top and Latest budget slots before it starts.
-    try {
-      blindResult = await runBlindExternalDiscovery();
-      console.log("[Discovery] Blind lane:", JSON.stringify(blindResult));
-      const blindStatus = (blindResult as { status?: string; reason?: string } | null)?.status;
-      const blindReason = (blindResult as { status?: string; reason?: string } | null)?.reason ?? "";
-      if (blindStatus === "skipped" && /budget/i.test(blindReason)) {
-        errors.push(`blind_discovery_budget: ${blindReason}`);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      errors.push(`blind_discovery: ${message}`);
-      console.error("[Discovery] Blind lane failed:", error);
-    }
-
     const budget = await getRapidApiBudgetState();
     const completedAt = DateTime.utc().toISO()!;
     const status = errors.length > 0 ? "partial" : "completed";
@@ -118,7 +125,7 @@ async function main() {
       status,
       account_results: accountResults,
       account_count: accountResults.length,
-      blind_result: blindResult,
+      blind_result: blindResults,
       errors,
       budget,
       completed_at: completedAt,
