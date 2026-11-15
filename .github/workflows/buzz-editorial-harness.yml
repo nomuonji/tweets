@@ -19,6 +19,8 @@ on:
       - ".agent/workflows/auto-generate.md"
       - ".agent/workflows/scripts/save_drafts.ts"
       - "scripts/auto-generate-drafts.ts"
+      - "scripts/consume-buzz-packets.ts"
+      - ".github/workflows/buzz-harness-relay.yml"
       - "src/lib/mcp/server.ts"
       - "scripts/test-buzz-harness.ts"
       - "scripts/test-blind-discovery.ts"
@@ -41,6 +43,8 @@ on:
       - "src/lib/services/draft-service.ts"
       - "src/lib/mcp/server.ts"
       - "scripts/test-buzz-harness.ts"
+      - "scripts/consume-buzz-packets.ts"
+      - ".github/workflows/buzz-harness-relay.yml"
       - "package.json"
       - "package-lock.json"
 
