@@ -21,7 +21,7 @@ const CHUNK = 80;
 async function collectEvidence() {
   const receiptSnapshots = await adminDb.collection("external_post_observations").get();
   const receipts = receiptSnapshots.docs.map(x => x.data() as ExternalPostObservationDoc);
-  const refs = [...new Set(receipts.map(x => x.external_post_id).filter(Boolean))]
+  const refs = Array.from(new Set(receipts.map(x => x.external_post_id).filter(Boolean)))
     .map(id => adminDb.collection("external_posts").doc(id));
   const posts = new Map<string, ExternalPostDoc>();
   for (let i = 0; i < refs.length; i += CHUNK) {
@@ -85,7 +85,7 @@ async function main() {
     .sort((a, b) => String(a.account.lastPostExecutedAt ?? "").localeCompare(String(b.account.lastPostExecutedAt ?? "")));
 
   const result = { eligibleAccounts: current.length, prepared: 0, preserved: 0, skipped: 0, blocked: 0, ...research.guard };
-  for (const [index, item] of current.entries()) {
+  for (const [index, item] of Array.from(current.entries())) {
     const { account, version, needed } = item;
     const ref = adminDb.collection(COLLECTION).doc(account.id);
     // Read only a bounded window; account-auth credentials are NEVER copied
