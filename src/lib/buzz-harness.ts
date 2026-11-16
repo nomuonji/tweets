@@ -7,7 +7,7 @@ const shortText = z.string().trim().min(8).max(1200);
 const sourceIds = z.array(z.string().trim().min(1).max(160)).min(1).max(12);
 const passNote = z.object({
   pass: z.literal(true),
-  note: z.string().trim().min(20).max(800),
+  note: z.string().trim().min(40).max(800),
 });
 
 const accountSchema = z.object({
