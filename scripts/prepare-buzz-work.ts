@@ -118,8 +118,14 @@ async function main() {
     const action = await adminDb.runTransaction(async tx => {
       const snapshot = await tx.get(ref);
       const existing = snapshot.data() ?? {};
-      if (["concepts_ready", "copy_ready", "staged", "processing"].includes(String(existing.status)) &&
-          existing.characterVersion === version) {
+      // Preserve user-authored intermediate research across routine wake-ups;
+      // refresh an abandoned draft after 7 days so a stale corpus cannot
+      // remain in the queue indefinitely. Staged packets are handled by Relay.
+      const authored = ["research_in_progress", "concepts_ready", "copy_ready"].includes(String(existing.status));
+      const ageMs = Date.now() - Date.parse(String(existing.preparedAt ?? ""));
+      if (existing.characterVersion === version &&
+          ((authored && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 7 * 86_400_000) ||
+           ["staged", "processing"].includes(String(existing.status)))) {
         return "preserved" as const;
       }
       if (existing.fingerprint === fingerprint && existing.status === status) {
