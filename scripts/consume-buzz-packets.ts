@@ -13,7 +13,7 @@ import { createAgentDrafts } from "@/lib/services/draft-service";
 
 const COLLECTION = "buzz_fallback_packets";
 const LEASE_MINUTES = 45;
-const MAX_PACKETS_PER_RUN = 2;
+const MAX_PACKETS_PER_RUN = 3;
 
 type Claimed = { id: string; packet: unknown };
 
@@ -118,25 +118,63 @@ async function processPacket(item: Claimed): Promise<void> {
       run = await getBuzzHarnessRun(packet.runId);
     }
 
-    await ref.update({
-      status: "completed",
-      completed_at: DateTime.utc().toISO(),
-      lease_until: null,
-      approved_run_id: packet.runId,
-      saved_accounts: savedAccounts,
-      updated_at: DateTime.utc().toISO(),
+    // Atomically complete the isolated packet and its corresponding
+    // per-account authoring work. A later research preparation may then
+    // replenish the *remaining* inventory gap (including partial 1-post runs).
+    const completedAt = DateTime.utc().toISO()!;
+    const workRefs = packet.accounts.map(account =>
+      adminDb.collection("buzz_replenishment_work").doc(account.accountId));
+    await adminDb.runTransaction(async tx => {
+      const [packetSnapshot, ...workSnapshots] = await Promise.all([
+        tx.get(ref), ...workRefs.map(workRef => tx.get(workRef)),
+      ]);
+      if (packetSnapshot.get("status") !== "processing") {
+        throw new Error("Packet completion claim was lost; refuse to overwrite a newer status.");
+      }
+      tx.update(ref, {
+        status: "completed",
+        completed_at: completedAt,
+        lease_until: null,
+        approved_run_id: packet.runId,
+        saved_accounts: savedAccounts,
+        updated_at: completedAt,
+      });
+      workSnapshots.forEach((snapshot, index) => {
+        if (snapshot.get("stagedRunId") !== packet.runId || snapshot.get("status") !== "staged") return;
+        tx.update(workRefs[index], {
+          status: "completed",
+          completedAt,
+          savedDraftCount: savedAccounts.find(x => x.accountId === packet.accounts[index].accountId)?.count ?? 0,
+          updatedAt: completedAt,
+        });
+      });
     });
     console.log("[Buzz Relay] Approved and saved", JSON.stringify({ packetId: item.id, runId: packet.runId, savedAccounts }));
   } catch (error) {
     // Permanent state keeps ambiguous review states visible for investigation,
     // instead of blindly recreating a run or publishing unchecked content.
     const state = await ref.get();
+    const reason = String(error instanceof Error ? error.message : error).slice(0, 1400);
     if (state.data()?.status === "processing") {
       await ref.update({
         status: "needs_attention",
         lease_until: null,
-        last_error: String(error instanceof Error ? error.message : error).slice(0, 1400),
+        last_error: reason,
         updated_at: DateTime.utc().toISO(),
+      });
+    }
+    // Record the failed review in the research queue, never turn a rejected
+    // packet into a draft or retry the same final copy without a new review.
+    for (const account of packet.accounts) {
+      const workRef = adminDb.collection("buzz_replenishment_work").doc(account.accountId);
+      await adminDb.runTransaction(async tx => {
+        const work = await tx.get(workRef);
+        if (work.get("status") !== "staged" || work.get("stagedRunId") !== packet.runId) return;
+        tx.update(workRef, {
+          status: "review_blocked",
+          reviewError: reason,
+          updatedAt: DateTime.utc().toISO(),
+        });
       });
     }
     throw error;
