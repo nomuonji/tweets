@@ -13,7 +13,7 @@ import { createAgentDrafts } from "@/lib/services/draft-service";
 
 const COLLECTION = "buzz_fallback_packets";
 const LEASE_MINUTES = 45;
-const MAX_PACKETS_PER_RUN = 2;
+const MAX_PACKETS_PER_RUN = 3;
 
 type Claimed = { id: string; packet: unknown };
 
