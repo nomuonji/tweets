@@ -109,7 +109,7 @@ export function selectResearchEvidence(
     grouped.set(id, [...(grouped.get(id) ?? []), item]);
   }
   // Prioritize real corpus breadth, separate authors and both acquisition modes.
-  const ranked = [...grouped.values()].sort((a, b) => {
+  const ranked = Array.from(grouped.values()).sort((a, b) => {
     const score = (items: VerifiedEvidence[]) =>
       new Set(items.map(x => x.post.author_handle.toLowerCase())).size * 3 +
       (new Set(items.map(x => x.receipt.discovery_mode)).size === 2 ? 6 : 0) +
