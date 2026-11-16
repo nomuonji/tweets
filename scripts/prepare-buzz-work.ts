@@ -73,7 +73,7 @@ async function main() {
     },
   };
   const sourceDigest = digest(sample.sources.map(x => [x.post.id, x.receipt.id, x.receipt.text_hash]).sort());
-  const current = accounts
+  const eligible = accounts
     .filter(x => x.platform === "threads" && isPublishingEnabled(x))
     .map(account => {
       const version = getCharacterVersion(account);
@@ -81,17 +81,13 @@ async function main() {
         .filter(draft => belongsToCharacterVersion(draft, version)).length;
       return { account, version, needed: Math.max(0, 5 - available) };
     })
-    .filter(x => x.needed > 0)
-    .sort((a, b) => String(a.account.lastPostExecutedAt ?? "").localeCompare(String(b.account.lastPostExecutedAt ?? "")));
+    .filter(x => x.needed > 0);
 
-  const result = { eligibleAccounts: current.length, prepared: 0, preserved: 0, skipped: 0, blocked: 0, ...research.guard };
-  for (const [index, item] of Array.from(current.entries())) {
-    const { account, version, needed } = item;
-    const ref = adminDb.collection(COLLECTION).doc(account.id);
-    // Read only a bounded window; account-auth credentials are NEVER copied
-    // into these work items or printed in logs.
+  const current = await Promise.all(eligible.map(async item => {
+    // Prioritize actual last publication, NOT lastPostExecutedAt: the scheduler
+    // updates the latter even when it skips a slot for missing drafts.
     const postsSnapshot = await adminDb.collection("posts")
-      .where("account_id", "==", account.id).limit(25).get();
+      .where("account_id", "==", item.account.id).limit(25).get();
     const recentPosts = postsSnapshot.docs
       .map(doc => ({
         text: String(doc.get("text") ?? "").slice(0, 500),
@@ -99,6 +95,16 @@ async function main() {
       }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, 12);
+    return { ...item, recentPosts };
+  }));
+  current.sort((a, b) =>
+    String(a.recentPosts[0]?.createdAt ?? "").localeCompare(String(b.recentPosts[0]?.createdAt ?? "")) ||
+    a.account.id.localeCompare(b.account.id));
+
+  const result = { eligibleAccounts: current.length, prepared: 0, preserved: 0, skipped: 0, blocked: 0, ...research.guard };
+  for (const [index, item] of Array.from(current.entries())) {
+    const { account, version, needed, recentPosts } = item;
+    const ref = adminDb.collection(COLLECTION).doc(account.id);
     const safeAccount = {
       accountId: account.id, handle: account.handle, platform: "threads" as const,
       characterVersion: version, neededDraftCount: needed,
