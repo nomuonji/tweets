@@ -84,11 +84,19 @@ async function main() {
     .filter(x => x.needed > 0);
 
   const current = await Promise.all(eligible.map(async item => {
-    // Prioritize actual last publication, NOT lastPostExecutedAt: the scheduler
-    // updates the latter even when it skips a slot for missing drafts.
-    const postsSnapshot = await adminDb.collection("posts")
-      .where("account_id", "==", item.account.id).limit(25).get();
-    const recentPosts = postsSnapshot.docs
+    // A bare .limit() without ordering picks *arbitrary* Firestore documents;
+    // that previously ranked July posts ahead of the account's November posts.
+    // Prefer the indexed newest-first query, falling back to a COMPLETE account
+    // scan (never a bounded, unordered sample) only when index is missing.
+    const query = adminDb.collection("posts").where("account_id", "==", item.account.id);
+    let snapshots;
+    try {
+      snapshots = await query.orderBy("created_at", "desc").limit(12).get();
+    } catch (error) {
+      if (!String((error as Error).message ?? error).includes("requires an index")) throw error;
+      snapshots = await query.get();
+    }
+    const recentPosts = snapshots.docs
       .map(doc => ({
         text: String(doc.get("text") ?? "").slice(0, 500),
         createdAt: String(doc.get("created_at") ?? ""),
@@ -128,13 +136,16 @@ async function main() {
            ["staged", "processing"].includes(String(existing.status)))) {
         return "preserved" as const;
       }
-      if (existing.fingerprint === fingerprint && existing.status === status) {
+      if (existing.fingerprint === fingerprint && existing.status === status &&
+          existing.preflightVersion === 2 && existing.priority === index &&
+          existing.recentPosts?.[0]?.createdAt === recentPosts[0]?.createdAt) {
         return "skipped" as const;
       }
       tx.set(ref, {
         accountId: account.id,
         characterVersion: version,
         fingerprint,
+        preflightVersion: 2,
         status,
         priority: index,
         account: safeAccount,
