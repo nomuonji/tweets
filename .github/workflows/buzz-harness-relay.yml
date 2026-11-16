@@ -9,7 +9,8 @@ on:
       - ".github/workflows/buzz-harness-relay.yml"
   schedule:
     # Hourly check of privately staged Agent HQ packets. No new ChatGPT task.
-    - cron: "0 * * * *"
+    # Avoid minute 0, where GitHub scheduled workflows are frequently delayed.
+    - cron: "23 * * * *"
 
 concurrency:
   group: agent-hq-buzz-harness-relay
