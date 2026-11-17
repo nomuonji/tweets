@@ -34,6 +34,16 @@ function transportCode(error: unknown): string | null {
   return null;
 }
 
+/** Capacity/transport outages are not editorial rejections. Legacy 503 messages
+ * are included only to recover the existing audited run. */
+export function isGeminiReviewAvailabilityFailure(error: unknown): boolean {
+  if (isGeminiTransportFailure(error)) return true;
+  if (error instanceof GeminiUnavailableError) return error.reason === "capacity";
+  const message = error instanceof Error ? error.message : String(error);
+  return /^Gemini remained unavailable after \d+ attempt\(s\): .*?(?:high demand|currently experiencing)/i.test(message)
+    || message === "Gemini review availability failure";
+}
+
 type GeminiApiError = {
   error?: {
     message?: string;
@@ -124,7 +134,7 @@ function getCapacityRetryDelayMs(retryNumber: number): number {
 export async function requestGemini(
   prompt: string,
   model = getConfiguredGeminiModels()[0],
-  options: { transportRetries?: number; timeoutMs?: number } = {},
+  options: { transportRetries?: number; timeoutMs?: number; maxDemandRetries?: number } = {},
 ): Promise<unknown> {
   let transportRetries = 0;
   const keys = getConfiguredGeminiApiKeys();
@@ -148,7 +158,7 @@ export async function requestGemini(
 
     // Capacity failures are often brief. Retry the same request four times in
     // total with exponential backoff; changing API keys does not help a 503.
-    const MAX_DEMAND_RETRIES = 3;
+    const MAX_DEMAND_RETRIES = options.maxDemandRetries ?? 3;
     let demandRetries = 0;
 
     while (demandRetries <= MAX_DEMAND_RETRIES) {
