@@ -4,7 +4,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { getCharacterVersion } from "@/lib/character-version";
 import { isPublishingEnabled } from "@/lib/account-gates";
 import { getExternalPostObservations, getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
-import { getConfiguredGeminiApiKeys, getConfiguredGeminiModels, requestGemini } from "@/lib/gemini/client";
+import { getConfiguredGeminiApiKeys, getConfiguredGeminiModels, requestGemini, isGeminiTransportFailure } from "@/lib/gemini/client";
 import type { AccountDoc, DraftDoc, ExternalPostDoc, ExternalPostObservationDoc, PostDoc } from "@/lib/types";
 import {
   BuzzHarnessPacketSchema,
@@ -323,7 +323,7 @@ async function runServerSideBlindReview(
   // schema failure aborts approval instead of silently skipping a reviewer.
   for (let start = 0; start < queue.length; start += 3) {
     const batch = queue.slice(start, start + 3);
-    const raw = await requestGemini(buildBlindReviewPrompt(batch), reviewerModel);
+    const raw = await requestGemini(buildBlindReviewPrompt(batch), reviewerModel, { timeoutMs: 90_000, transportRetries: 1 });
     const candidate = raw as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
@@ -368,6 +368,8 @@ async function runServerSideBlindReview(
 export async function approveBuzzHarnessRun(args: {
   runId: string;
   reportHash: string;
+  retryTransportFailure?: boolean;
+  expectedPacketHash?: string;
 }) {
   const runRef = adminDb.collection("buzz_harness_runs").doc(args.runId);
 
@@ -377,7 +379,14 @@ export async function approveBuzzHarnessRun(args: {
     const snap = await transaction.get(runRef);
     if (!snap.exists) throw new Error("Buzz Harness run not found.");
     const run = snap.data() ?? {};
-    if (run.status !== "awaiting_review") {
+    const retry = args.retryTransportFailure === true &&
+      run.status === "review_failed" &&
+      isGeminiTransportFailure(run.reviewFailure) &&
+      Number(run.transportReviewRetries ?? 0) < 1 &&
+      !!args.expectedPacketHash && args.expectedPacketHash === run.packetHash &&
+      !run.approvalHash &&
+      Array.isArray(run.consumedAccountIds) && run.consumedAccountIds.length === 0;
+    if (run.status !== "awaiting_review" && !retry) {
       throw new Error("Buzz Harness run is not awaiting independent blind review; review may already be running or completed.");
     }
     if (run.reportHash !== args.reportHash) throw new Error("Buzz Harness reportHash mismatch.");
@@ -388,6 +397,13 @@ export async function approveBuzzHarnessRun(args: {
     if (queue.length === 0) throw new Error("The pending run has no blind-review queue; no approval was issued.");
     transaction.update(runRef, {
       status: "reviewing",
+      ...(retry ? {
+        transportReviewRetries: Number(run.transportReviewRetries ?? 0) + 1,
+        previousTransportReviewFailure: {
+          reason: run.reviewFailure,
+          completedAt: run.reviewCompletedAt ?? null,
+        },
+      } : {}),
       reviewStartedAt: DateTime.utc().toISO(),
       updatedAt: DateTime.utc().toISO(),
     });
@@ -509,6 +525,9 @@ export async function getBuzzHarnessRun(runId: string) {
     // Never expose author rationale, candidate explanation, mechanism notes or gate notes.
     blindReviewQueue: Array.isArray(run.blindReviewQueue) ? run.blindReviewQueue : [],
     reviewerReceipt: run.reviewerReceipt ?? null,
+    reviewFailure: run.reviewFailure ?? null,
+    packetHash: run.packetHash ?? null,
+    transportReviewRetries: Number(run.transportReviewRetries ?? 0),
     consumedAccountIds: Array.isArray(run.consumedAccountIds) ? run.consumedAccountIds : [],
     updatedAt: run.updatedAt ?? null,
   };
