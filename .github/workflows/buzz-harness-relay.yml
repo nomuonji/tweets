@@ -7,6 +7,8 @@ on:
     paths:
       - "scripts/consume-buzz-packets.ts"
       - ".github/workflows/buzz-harness-relay.yml"
+      # Explicit, content-free wake-up written only after a packet is staged.
+      - ".github/relay-wake/buzz.json"
   schedule:
     # Hourly check of privately staged Agent HQ packets. No new ChatGPT task.
     # Avoid minute 0, where GitHub scheduled workflows are frequently delayed.
