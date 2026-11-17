@@ -4,7 +4,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { getCharacterVersion } from "@/lib/character-version";
 import { isPublishingEnabled } from "@/lib/account-gates";
 import { getExternalPostObservations, getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
-import { getConfiguredGeminiApiKeys, getConfiguredGeminiModels, requestGemini, isGeminiTransportFailure } from "@/lib/gemini/client";
+import { getConfiguredGeminiApiKeys, getConfiguredGeminiModels, requestGemini, isGeminiReviewAvailabilityFailure } from "@/lib/gemini/client";
 import type { AccountDoc, DraftDoc, ExternalPostDoc, ExternalPostObservationDoc, PostDoc } from "@/lib/types";
 import {
   BuzzHarnessPacketSchema,
@@ -272,17 +272,17 @@ function normalizeModelId(value: string): string {
   return value.trim().toLowerCase().replace(/^models\//, "").replace(/^google\//, "");
 }
 
-function getBlindReviewerModel(writerModel: string): string {
+function getBlindReviewerModels(writerModel: string): string[] {
   if (getConfiguredGeminiApiKeys().length === 0) {
     throw new Error("Independent blind review is unavailable: no Gemini API key is configured. Draft saving remains blocked.");
   }
-  const distinct = getConfiguredGeminiModels().find((model) =>
+  const distinct = getConfiguredGeminiModels().filter((model) =>
     normalizeModelId(model) !== normalizeModelId(writerModel),
   );
-  if (!distinct) {
+  if (!distinct.length) {
     throw new Error("Independent blind review is unavailable: no configured Gemini model differs from the writer's declared model.");
   }
-  return distinct;
+  return distinct.slice(0, 3);
 }
 
 function buildBlindReviewPrompt(items: BlindReviewQueueItem[]): string {
@@ -307,13 +307,12 @@ function buildBlindReviewPrompt(items: BlindReviewQueueItem[]): string {
   ].join("\n\n");
 }
 
-async function runServerSideBlindReview(
+async function runBlindReviewWithModel(
   queue: BlindReviewQueueItem[],
   writerId: string,
-  writerModel: string,
+  reviewerModel: string,
 ) {
   const reviewerId = "tweets-server-gemini-blind-reviewer";
-  const reviewerModel = getBlindReviewerModel(writerModel);
   if (reviewerId === writerId.trim()) {
     throw new Error("The writer identity conflicts with the reserved server-side reviewer identity. No approval was issued.");
   }
@@ -323,7 +322,7 @@ async function runServerSideBlindReview(
   // schema failure aborts approval instead of silently skipping a reviewer.
   for (let start = 0; start < queue.length; start += 3) {
     const batch = queue.slice(start, start + 3);
-    const raw = await requestGemini(buildBlindReviewPrompt(batch), reviewerModel, { timeoutMs: 90_000, transportRetries: 1 });
+    const raw = await requestGemini(buildBlindReviewPrompt(batch), reviewerModel, { timeoutMs: 90_000, transportRetries: 0, maxDemandRetries: 0 });
     const candidate = raw as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
@@ -365,10 +364,30 @@ async function runServerSideBlindReview(
   };
 }
 
+/** An unavailable model may be replaced with another configured independent
+ * model. Restart the entire blind review; never mix partial model receipts or
+ * retry a model's editorial verdict to shop for a PASS. */
+async function runServerSideBlindReview(
+  queue: BlindReviewQueueItem[],
+  writerId: string,
+  writerModel: string,
+) {
+  const models = getBlindReviewerModels(writerModel);
+  for (const model of models) {
+    try {
+      return await runBlindReviewWithModel(queue, writerId, model);
+    } catch (error) {
+      if (!isGeminiReviewAvailabilityFailure(error)) throw error;
+      console.warn(`[Buzz Harness] Independent reviewer ${model} unavailable; trying next configured model if any.`);
+    }
+  }
+  throw new Error("Gemini review availability failure");
+}
+
 export async function approveBuzzHarnessRun(args: {
   runId: string;
   reportHash: string;
-  retryTransportFailure?: boolean;
+  retryAvailabilityFailure?: boolean;
   expectedPacketHash?: string;
 }) {
   const runRef = adminDb.collection("buzz_harness_runs").doc(args.runId);
@@ -379,10 +398,10 @@ export async function approveBuzzHarnessRun(args: {
     const snap = await transaction.get(runRef);
     if (!snap.exists) throw new Error("Buzz Harness run not found.");
     const run = snap.data() ?? {};
-    const retry = args.retryTransportFailure === true &&
+    const retry = args.retryAvailabilityFailure === true &&
       run.status === "review_failed" &&
-      isGeminiTransportFailure(run.reviewFailure) &&
-      Number(run.transportReviewRetries ?? 0) < 1 &&
+      isGeminiReviewAvailabilityFailure(run.reviewFailure) &&
+      Number(run.transportReviewRetries ?? 0) < 2 &&
       !!args.expectedPacketHash && args.expectedPacketHash === run.packetHash &&
       !run.approvalHash &&
       Array.isArray(run.consumedAccountIds) && run.consumedAccountIds.length === 0;
