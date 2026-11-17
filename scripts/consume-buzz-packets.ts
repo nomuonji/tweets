@@ -28,7 +28,7 @@ async function claim(id: string): Promise<Claimed | null> {
     if (data.status === "processing" && Number.isFinite(lockUntil) && lockUntil > Date.now()) return null;
     const retry = data.status === "needs_attention" &&
       isGeminiReviewAvailabilityFailure(data.last_error) &&
-      Number(data.attempt_count ?? 0) < 3;
+      Number(data.attempt_count ?? 0) < 4;
     if (data.status !== "ready_for_harness" && data.status !== "processing" && !retry) return null;
     // A packet must be explicitly staged by the scheduled Agent HQ worker.
     if (data.staged_by !== "chatgpt-routine-worker") return null;
@@ -87,7 +87,7 @@ async function processPacket(item: Claimed): Promise<void> {
       throw new Error("Existing Harness packet hash mismatch; no draft write attempted.");
     }
     const retry = run.status === "review_failed" && isGeminiReviewAvailabilityFailure(run.reviewFailure) &&
-      run.transportReviewRetries < 2;
+      run.transportReviewRetries < 3 && run.reviewAvailabilityGroup !== 1;
     if (run.status === "awaiting_review" || retry) {
       if (!run.reportHash) throw new Error("Harness has no reportHash.");
       const reviewed = await approveBuzzHarnessRun({
@@ -182,7 +182,7 @@ async function processPacket(item: Claimed): Promise<void> {
     // packet into a draft or retry the same final copy without a new review.
     for (const account of packet.accounts) {
       // The work stays staged while the exact packet can be retried.
-      if (isGeminiReviewAvailabilityFailure(reason) && Number(state.data()?.attempt_count ?? 0) < 3) continue;
+      if (isGeminiReviewAvailabilityFailure(reason) && Number(state.data()?.attempt_count ?? 0) < 4) continue;
       const workRef = adminDb.collection("buzz_replenishment_work").doc(account.accountId);
       await adminDb.runTransaction(async tx => {
         const work = await tx.get(workRef);
@@ -211,7 +211,7 @@ async function main() {
   let failed = 0;
   // Recover previously blocked packets before consuming newly staged work.
   for (const doc of [...retrySnapshot.docs.filter(doc =>
-    isGeminiReviewAvailabilityFailure(doc.get("last_error")) && Number(doc.get("attempt_count") ?? 0) < 3
+    isGeminiReviewAvailabilityFailure(doc.get("last_error")) && Number(doc.get("attempt_count") ?? 0) < 4
   ), ...snapshot.docs]) {
     if (processed >= MAX_PACKETS_PER_RUN) break;
     const item = await claim(doc.id);
