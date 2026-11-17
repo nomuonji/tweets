@@ -272,7 +272,7 @@ function normalizeModelId(value: string): string {
   return value.trim().toLowerCase().replace(/^models\//, "").replace(/^google\//, "");
 }
 
-function getBlindReviewerModels(writerModel: string): string[] {
+function getBlindReviewerModels(writerModel: string, alternateGroup: boolean): string[] {
   if (getConfiguredGeminiApiKeys().length === 0) {
     throw new Error("Independent blind review is unavailable: no Gemini API key is configured. Draft saving remains blocked.");
   }
@@ -282,7 +282,10 @@ function getBlindReviewerModels(writerModel: string): string[] {
   if (!distinct.length) {
     throw new Error("Independent blind review is unavailable: no configured Gemini model differs from the writer's declared model.");
   }
-  return distinct.slice(0, 3);
+  // A later availability recovery uses models not tried in the first group.
+  // With a shorter configured list, allow only one bounded retry of that group.
+  const alternate = distinct.slice(3, 6);
+  return alternateGroup && alternate.length ? alternate : distinct.slice(0, 3);
 }
 
 function buildBlindReviewPrompt(items: BlindReviewQueueItem[]): string {
@@ -371,8 +374,9 @@ async function runServerSideBlindReview(
   queue: BlindReviewQueueItem[],
   writerId: string,
   writerModel: string,
+  alternateGroup: boolean,
 ) {
-  const models = getBlindReviewerModels(writerModel);
+  const models = getBlindReviewerModels(writerModel, alternateGroup);
   for (const model of models) {
     try {
       return await runBlindReviewWithModel(queue, writerId, model);
@@ -381,7 +385,8 @@ async function runServerSideBlindReview(
       console.warn(`[Buzz Harness] Independent reviewer ${model} unavailable; trying next configured model if any.`);
     }
   }
-  throw new Error("Gemini review availability failure");
+  // The alternate group is terminal for this immutable packet. Do not reopen it indefinitely.
+  throw new Error(alternateGroup ? "Gemini alternate review availability failure" : "Gemini review availability failure");
 }
 
 export async function approveBuzzHarnessRun(args: {
@@ -401,7 +406,8 @@ export async function approveBuzzHarnessRun(args: {
     const retry = args.retryAvailabilityFailure === true &&
       run.status === "review_failed" &&
       isGeminiReviewAvailabilityFailure(run.reviewFailure) &&
-      Number(run.transportReviewRetries ?? 0) < 2 &&
+      Number(run.transportReviewRetries ?? 0) < 3 &&
+      run.reviewAvailabilityGroup !== 1 &&
       !!args.expectedPacketHash && args.expectedPacketHash === run.packetHash &&
       !run.approvalHash &&
       Array.isArray(run.consumedAccountIds) && run.consumedAccountIds.length === 0;
@@ -416,6 +422,7 @@ export async function approveBuzzHarnessRun(args: {
     if (queue.length === 0) throw new Error("The pending run has no blind-review queue; no approval was issued.");
     transaction.update(runRef, {
       status: "reviewing",
+      reviewAvailabilityGroup: retry ? 1 : 0,
       ...(retry ? {
         transportReviewRetries: Number(run.transportReviewRetries ?? 0) + 1,
         previousTransportReviewFailure: {
@@ -428,6 +435,7 @@ export async function approveBuzzHarnessRun(args: {
     });
     return {
       queue,
+      alternateGroup: retry,
       writerId: String(run.writerId ?? ""),
       writerModel: String(run.model ?? ""),
       manifest: (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>,
@@ -436,7 +444,7 @@ export async function approveBuzzHarnessRun(args: {
 
   let review: Awaited<ReturnType<typeof runServerSideBlindReview>>;
   try {
-    review = await runServerSideBlindReview(claimed.queue, claimed.writerId, claimed.writerModel);
+    review = await runServerSideBlindReview(claimed.queue, claimed.writerId, claimed.writerModel, claimed.alternateGroup);
   } catch (error) {
     // Fail closed. An interrupted or unavailable reviewer cannot leave a
     // pending run saveable or allow a second caller to race the review.
@@ -547,6 +555,7 @@ export async function getBuzzHarnessRun(runId: string) {
     reviewFailure: run.reviewFailure ?? null,
     packetHash: run.packetHash ?? null,
     transportReviewRetries: Number(run.transportReviewRetries ?? 0),
+    reviewAvailabilityGroup: run.reviewAvailabilityGroup ?? null,
     consumedAccountIds: Array.isArray(run.consumedAccountIds) ? run.consumedAccountIds : [],
     updatedAt: run.updatedAt ?? null,
   };
