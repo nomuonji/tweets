@@ -18,6 +18,22 @@ const GENERATION_CONFIG = {
   responseMimeType: "application/json",
 };
 
+/** Only transport failures are eligible for a fresh independent review. */
+export function isGeminiTransportFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === "fetch failed" || /^Gemini transport failure \([A-Z0-9_]+\)$/.test(message);
+}
+
+function transportCode(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  if (error.name === "TimeoutError" || error.name === "AbortError") return "TIMEOUT";
+  if (error instanceof TypeError && error.message === "fetch failed") {
+    const code = (error.cause as {code?: unknown} | undefined)?.code;
+    return typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? code : "FETCH_FAILED";
+  }
+  return null;
+}
+
 type GeminiApiError = {
   error?: {
     message?: string;
@@ -108,7 +124,9 @@ function getCapacityRetryDelayMs(retryNumber: number): number {
 export async function requestGemini(
   prompt: string,
   model = getConfiguredGeminiModels()[0],
+  options: { transportRetries?: number; timeoutMs?: number } = {},
 ): Promise<unknown> {
+  let transportRetries = 0;
   const keys = getConfiguredGeminiApiKeys();
 
   if (keys.length === 0) {
@@ -139,6 +157,7 @@ export async function requestGemini(
           `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
           {
             method: "POST",
+            ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -208,6 +227,18 @@ export async function requestGemini(
         return data;
       } catch (error) {
         if (error instanceof GeminiUnavailableError) throw error;
+        // A timed-out or disconnected review must not turn into approval.
+        // Retry the same model/key only a bounded number of times.
+        const code = transportCode(error);
+        if (code && options.timeoutMs) {
+          if (transportRetries < (options.transportRetries ?? 0)) {
+            transportRetries++;
+            console.warn(`[Gemini] Transport ${code}; retry ${transportRetries}`);
+            await new Promise(resolve => setTimeout(resolve, getCapacityRetryDelayMs(transportRetries)));
+            continue;
+          }
+          throw new Error(`Gemini transport failure (${code})`);
+        }
         // Network or other errors
         const errorMsg = error instanceof Error ? error.message : String(error);
         if (errorMsg.includes("429")) {
