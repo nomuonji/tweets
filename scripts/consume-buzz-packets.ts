@@ -7,7 +7,8 @@
  */
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import { BuzzHarnessPacketSchema } from "@/lib/buzz-harness";
+import { BuzzHarnessPacketSchema, buzzPacketHash } from "@/lib/buzz-harness";
+import { isGeminiTransportFailure } from "@/lib/gemini/client";
 import { getBuzzHarnessRun, submitBuzzHarnessRun, approveBuzzHarnessRun } from "@/lib/services/buzz-harness-service";
 import { createAgentDrafts } from "@/lib/services/draft-service";
 
@@ -25,11 +26,15 @@ async function claim(id: string): Promise<Claimed | null> {
     const data = snapshot.data() ?? {};
     const lockUntil = Date.parse(String(data.lease_until ?? ""));
     if (data.status === "processing" && Number.isFinite(lockUntil) && lockUntil > Date.now()) return null;
-    if (data.status !== "ready_for_harness" && data.status !== "processing") return null;
+    const retry = data.status === "needs_attention" &&
+      isGeminiTransportFailure(data.last_error) &&
+      Number(data.attempt_count ?? 0) < 2;
+    if (data.status !== "ready_for_harness" && data.status !== "processing" && !retry) return null;
     // A packet must be explicitly staged by the scheduled Agent HQ worker.
     if (data.staged_by !== "chatgpt-routine-worker") return null;
     tx.update(ref, {
       status: "processing",
+      ...(retry ? { previous_transport_error: data.last_error } : {}),
       lease_until: DateTime.utc().plus({ minutes: LEASE_MINUTES }).toISO(),
       last_attempt_at: DateTime.utc().toISO(),
       attempt_count: Number(data.attempt_count ?? 0) + 1,
@@ -78,9 +83,19 @@ async function processPacket(item: Claimed): Promise<void> {
       run = await getBuzzHarnessRun(packet.runId);
     }
 
-    if (run.status === "awaiting_review") {
+    if (!run.found || run.packetHash !== buzzPacketHash(packet)) {
+      throw new Error("Existing Harness packet hash mismatch; no draft write attempted.");
+    }
+    const retry = run.status === "review_failed" && isGeminiTransportFailure(run.reviewFailure) &&
+      run.transportReviewRetries < 1;
+    if (run.status === "awaiting_review" || retry) {
       if (!run.reportHash) throw new Error("Harness has no reportHash.");
-      const reviewed = await approveBuzzHarnessRun({ runId: packet.runId, reportHash: run.reportHash });
+      const reviewed = await approveBuzzHarnessRun({
+        runId: packet.runId,
+        reportHash: run.reportHash,
+        retryTransportFailure: retry,
+        expectedPacketHash: buzzPacketHash(packet),
+      });
       if (reviewed.status !== "approved" || !reviewed.approvalHash) {
         await ref.update({
           status: "review_rejected", lease_until: null,
@@ -151,8 +166,8 @@ async function processPacket(item: Claimed): Promise<void> {
     });
     console.log("[Buzz Relay] Approved and saved", JSON.stringify({ packetId: item.id, runId: packet.runId, savedAccounts }));
   } catch (error) {
-    // Permanent state keeps ambiguous review states visible for investigation,
-    // instead of blindly recreating a run or publishing unchecked content.
+    // Preserve failure history. Only bounded, unapproved transport failures
+    // qualify for a new independent review; editorial rejection never does.
     const state = await ref.get();
     const reason = String(error instanceof Error ? error.message : error).slice(0, 1400);
     if (state.data()?.status === "processing") {
@@ -166,6 +181,8 @@ async function processPacket(item: Claimed): Promise<void> {
     // Record the failed review in the research queue, never turn a rejected
     // packet into a draft or retry the same final copy without a new review.
     for (const account of packet.accounts) {
+      // The work stays staged while the exact packet can be retried.
+      if (isGeminiTransportFailure(reason) && Number(state.data()?.attempt_count ?? 0) < 2) continue;
       const workRef = adminDb.collection("buzz_replenishment_work").doc(account.accountId);
       await adminDb.runTransaction(async tx => {
         const work = await tx.get(workRef);
@@ -186,9 +203,16 @@ async function main() {
     .where("status", "in", ["ready_for_harness", "processing"])
     .limit(10)
     .get();
+  const retrySnapshot = await adminDb.collection(COLLECTION)
+    .where("status", "==", "needs_attention")
+    .limit(30)
+    .get();
   let processed = 0;
   let failed = 0;
-  for (const doc of snapshot.docs) {
+  // Recover previously blocked packets before consuming newly staged work.
+  for (const doc of [...retrySnapshot.docs.filter(doc =>
+    isGeminiTransportFailure(doc.get("last_error")) && Number(doc.get("attempt_count") ?? 0) < 2
+  ), ...snapshot.docs]) {
     if (processed >= MAX_PACKETS_PER_RUN) break;
     const item = await claim(doc.id);
     if (!item) continue;
