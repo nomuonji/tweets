@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
 import { hashBlindSourceText } from "@/lib/blind-discovery";
 import {
+  BuzzHarnessPacketSchema,
   buzzDraftTextHash,
   validateBuzzHarnessPacket,
   validateBlindReviewReceipt,
@@ -285,6 +286,29 @@ function main() {
   assert.equal(valid.metrics.postsObserved, 6);
   assert.equal(valid.metrics.uniqueAuthors, 6);
   assert.equal(valid.metrics.mechanismFamilies, 3);
+
+  // Production still requires independent evidence, all quality gates and
+  // three different mechanisms, but not 15 ideas per single-account draft.
+  const prod = fixture();
+  const compact = {
+    ...prod.packet, schemaVersion: 2 as const, writerId: "chatgpt-routine-worker" as const,
+    accounts: prod.packet.accounts.map(a => ({ ...a, platform: "threads" as const })),
+    candidates: prod.packet.candidates.slice(0, 3),
+  };
+  const productionParsed = BuzzHarnessPacketSchema.safeParse(compact);
+  if (!productionParsed.success) throw new Error(productionParsed.error.message);
+  const input = { ...prod, packet: productionParsed.data, existingTextsByAccount: new Map<string, string[]>() };
+  const productionValidation = validateBuzzHarnessPacket(input);
+  assert.equal(productionValidation.passed, true, productionValidation.errors.join("\n"));
+  assert.equal(BuzzHarnessPacketSchema.safeParse({ ...compact, schemaVersion: 1 }).success, false);
+  assert.equal(BuzzHarnessPacketSchema.safeParse({ ...compact, writerId: "other-writer" }).success, false);
+  assert.equal(BuzzHarnessPacketSchema.safeParse({ ...compact, candidates: compact.candidates.slice(0, 2) }).success, false);
+  assert.equal(validateBuzzHarnessPacket({ ...input, sourceObservations: new Map() }).passed, false);
+  const repeated = { ...productionParsed.data, candidates: productionParsed.data.candidates.map(c => ({ ...c, mechanismId: "mechanism-1" })) };
+  assert.equal(validateBuzzHarnessPacket({ ...input, packet: repeated }).passed, false);
+  const badNotes = structuredClone(productionParsed.data);
+  badNotes.drafts[0].editorialGate.B_specificCore.note = badNotes.drafts[0].editorialGate.A_entryAndUnderstanding.note;
+  assert.equal(validateBuzzHarnessPacket({ ...input, packet: badNotes }).passed, false);
 
   const forgedBlindDiscovery = validate("forged-blind-discovery", ({ sourceObservations }) => {
     sourceObservations.clear();
