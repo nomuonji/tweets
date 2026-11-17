@@ -171,7 +171,8 @@ export async function requestGemini(
         try {
           textContent = await response.text();
           data = JSON.parse(textContent);
-        } catch {
+        } catch (error) {
+          if (options.timeoutMs && transportCode(error)) throw error;
           data = { error: { message: textContent || "Non-JSON response received." } };
         }
 
