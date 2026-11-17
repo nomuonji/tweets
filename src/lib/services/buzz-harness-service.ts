@@ -9,6 +9,7 @@ import type { AccountDoc, DraftDoc, ExternalPostDoc, ExternalPostObservationDoc,
 import {
   BuzzHarnessPacketSchema,
   blindReviewItemSchema,
+  blindReviewGateKeys,
   type BlindReviewItem,
   buzzDraftTextHash,
   buzzFinalCopy,
@@ -284,8 +285,44 @@ function getBlindReviewerModels(writerModel: string, alternateGroup: boolean): s
   }
   // A later availability recovery uses models not tried in the first group.
   // With a shorter configured list, allow only one bounded retry of that group.
+  // With no explicit model order, start with the reviewer model confirmed
+  // responsive in the live recovery. Leave the configured order intact.
+  if (!process.env.GEMINI_MODELS?.trim() && !process.env.GEMINI_MODEL?.trim()) {
+    const index = distinct.findIndex(model => normalizeModelId(model) === "gemini-3.5-flash-lite");
+    if (index > 0) distinct.unshift(...distinct.splice(index, 1));
+  }
   const alternate = distinct.slice(3, 6);
   return alternateGroup && alternate.length ? alternate : distinct.slice(0, 3);
+}
+
+function blindReviewResponseSchema(count: number): Record<string, unknown> {
+  const check = {
+    type: "OBJECT", required: ["pass", "note"],
+    properties: {
+      pass: { type: "BOOLEAN" },
+      note: { type: "STRING", description: "40–700 characters; specific reasoning for this check, aim for 60–100 Japanese characters." },
+    },
+  };
+  return {
+    type: "OBJECT", required: ["reviews"],
+    properties: {
+      reviews: {
+        type: "ARRAY", minItems: count, maxItems: count,
+        items: {
+          type: "OBJECT", required: ["textHash", "decision", "note", "checks"],
+          properties: {
+            textHash: { type: "STRING", description: "Copy the supplied 64-character lowercase hexadecimal hash verbatim." },
+            decision: { type: "STRING", enum: ["PASS", "REJECT"] },
+            note: { type: "STRING", description: "30–1200 characters; summarize the actual verdict." },
+            checks: {
+              type: "OBJECT", required: [...blindReviewGateKeys],
+              properties: Object.fromEntries(blindReviewGateKeys.map(key => [key, check])),
+            },
+          },
+        },
+      },
+    },
+  };
 }
 
 function buildBlindReviewPrompt(items: BlindReviewQueueItem[]): string {
@@ -304,6 +341,7 @@ function buildBlindReviewPrompt(items: BlindReviewQueueItem[]): string {
     "G_factsRightsAndSafety: are factual, privacy, rights, harassment, misinformation and platform risks acceptable based only on what can be seen?",
     "Do not reward statistics merely because they are sourced. A research-led or percentage-led hook without immediate human meaning should fail.",
     "Do not rubber-stamp. A PASS requires seven distinct, copy-specific explanations. Generic repeated phrases are invalid.",
+    "Each of the seven check notes must be 40–700 characters after trimming (aim for 60–100 Japanese characters). The overall note must be 30–1200 characters. These are required for REJECT as well as PASS; do not repeat notes, omit fields or invent praise. Keep boolean pass values and verdict consistent.",
     "Return JSON only, with exactly this shape: {\"reviews\":[{\"textHash\":\"...\",\"decision\":\"PASS|REJECT\",\"note\":\"...\",\"checks\":{\"A_entryAndUnderstanding\":{\"pass\":true,\"note\":\"...\"},\"B_specificCore\":{\"pass\":true,\"note\":\"...\"},\"C_readerReward\":{\"pass\":true,\"note\":\"...\"},\"D_shareOrConversationReason\":{\"pass\":true,\"note\":\"...\"},\"E_voiceAndNaturalness\":{\"pass\":true,\"note\":\"...\"},\"F_marketMechanismTransfer\":{\"pass\":true,\"note\":\"...\"},\"G_factsRightsAndSafety\":{\"pass\":true,\"note\":\"...\"}}}]}",
     "Review every item exactly once. Preserve each supplied textHash verbatim. Do not add, omit or rewrite the final copy.",
     JSON.stringify({ reviewsToAssess: items }),
@@ -325,7 +363,7 @@ async function runBlindReviewWithModel(
   // schema failure aborts approval instead of silently skipping a reviewer.
   for (let start = 0; start < queue.length; start += 3) {
     const batch = queue.slice(start, start + 3);
-    const raw = await requestGemini(buildBlindReviewPrompt(batch), reviewerModel, { timeoutMs: 90_000, transportRetries: 0, maxDemandRetries: 0 });
+    const raw = await requestGemini(buildBlindReviewPrompt(batch), reviewerModel, { timeoutMs: 90_000, transportRetries: 0, maxDemandRetries: 0, responseSchema: blindReviewResponseSchema(batch.length) });
     const candidate = raw as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
@@ -345,7 +383,8 @@ async function runBlindReviewWithModel(
     }).strict();
     const validated = batchSchema.safeParse(parsed);
     if (!validated.success) {
-      throw new Error("Independent Gemini reviewer response did not match the required seven-gate schema; no approval was issued.");
+      const issues = validated.error.issues.slice(0, 10).map(issue => `${issue.path.join(".")}:${issue.code}`).join(", ");
+      throw new Error(`Independent Gemini reviewer response did not match the required seven-gate schema (${reviewerModel}; ${issues}); no approval was issued.`);
     }
     const expectedHashes = new Set(batch.map((item) => item.textHash));
     for (const review of validated.data.reviews) {
