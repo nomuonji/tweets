@@ -109,7 +109,7 @@ const draftSchema = z.object({
   editorialGate: editorialGateSchema,
 });
 
-export const BuzzHarnessPacketSchema = z.object({
+const researchPacketSchema = z.object({
   schemaVersion: z.literal(1),
   runId: z.string().regex(/^[a-z0-9][a-z0-9_-]{7,79}$/i),
   writerId: z.string().trim().min(3).max(160),
@@ -127,6 +127,22 @@ export const BuzzHarnessPacketSchema = z.object({
   candidates: z.array(candidateSchema).min(15).max(100),
   drafts: z.array(draftSchema).min(1).max(40),
 }).strict();
+
+// Production consumes released methods rather than repeating a full research
+// divergence run for every replenishment. All evidence, editorial and independent
+// blind review gates remain identical. Legacy research packets retain 15 ideas.
+const productionPacketSchema = researchPacketSchema.extend({
+  schemaVersion: z.literal(2),
+  writerId: z.literal("chatgpt-routine-worker"),
+  accounts: z.array(accountSchema.extend({ platform: z.literal("threads") })).length(1),
+  candidates: z.array(candidateSchema).min(3).max(15),
+  drafts: z.array(draftSchema).min(1).max(3),
+});
+
+export const BuzzHarnessPacketSchema = z.discriminatedUnion("schemaVersion", [
+  researchPacketSchema,
+  productionPacketSchema,
+]);
 
 export type BuzzHarnessPacket = z.infer<typeof BuzzHarnessPacketSchema>;
 
@@ -580,7 +596,15 @@ export function validateBuzzHarnessPacket(input: BuzzHarnessValidationInput): Bu
     if (!observationIds.has(counterexample.externalPostId)) errors.push(`Counterexample ${counterexample.externalPostId} is not backed by a captured external post.`);
   }
 
-  if (packet.candidates.length < 15) errors.push("The divergence stage must contain at least 15 distinct candidate concepts before selection.");
+  const minimumCandidates = packet.schemaVersion === 2 ? 3 : 15;
+  if (packet.candidates.length < minimumCandidates) errors.push(`The divergence stage must contain at least ${minimumCandidates} distinct candidate concepts before selection.`);
+  if (packet.schemaVersion === 2 && (
+    packet.writerId !== "chatgpt-routine-worker" ||
+    packet.accounts.length !== 1 ||
+    packet.accounts.some(account => account.platform !== "threads") ||
+    packet.drafts.length > 3 ||
+    packet.candidates.length > 15
+  )) errors.push("Production replenishment is restricted to one Threads account, the routine writer, and up to three final drafts.");
   const candidateFamilies = unique(packet.candidates.map((candidate) => candidate.mechanismId));
   if (candidateFamilies.length < 3) errors.push("Candidate concepts must come from at least 3 different mechanism families.");
   for (const candidate of packet.candidates) {
