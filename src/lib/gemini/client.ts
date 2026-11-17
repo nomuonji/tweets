@@ -134,7 +134,7 @@ function getCapacityRetryDelayMs(retryNumber: number): number {
 export async function requestGemini(
   prompt: string,
   model = getConfiguredGeminiModels()[0],
-  options: { transportRetries?: number; timeoutMs?: number; maxDemandRetries?: number } = {},
+  options: { transportRetries?: number; timeoutMs?: number; maxDemandRetries?: number; responseSchema?: Record<string, unknown> } = {},
 ): Promise<unknown> {
   let transportRetries = 0;
   const keys = getConfiguredGeminiApiKeys();
@@ -171,7 +171,7 @@ export async function requestGemini(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: [{ role: "user", parts: [{ text: prompt }] }],
-              generationConfig: GENERATION_CONFIG,
+              generationConfig: { ...GENERATION_CONFIG, ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}) },
             }),
           }
         );
