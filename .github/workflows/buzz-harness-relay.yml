@@ -29,6 +29,8 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
+      - name: Test Gemini review transport recovery
+        run: npx tsx scripts/test-gemini-review-transport.ts
       - name: Validate, independently review and save approved Threads drafts
         run: npx tsx scripts/consume-buzz-packets.ts
         env:
