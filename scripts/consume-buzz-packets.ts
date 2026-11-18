@@ -2,8 +2,8 @@
  * Vercel-independent consumer of Agent HQ's reviewed *candidate packets*.
  *
  * Never trusts Firestore's staging status as editorial approval. All draft
- * writes must pass the same live Buzz Harness and server-side Gemini blind
- * review used by the Operator MCP. Do not use this script to author posts.
+ * writes must pass the live Buzz Harness and its exact-copy save authorization.
+ * Production v2 uses writer quality gates; legacy v1 retains blind review. Do not use this script to author posts.
  */
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
@@ -108,7 +108,7 @@ async function processPacket(item: Claimed): Promise<void> {
     }
 
     if (!["approved", "partially_consumed", "consumed"].includes(String(run.status)) || !run.approvalHash) {
-      throw new Error(`Harness state ${run.status} has no valid independent Gemini approval; refusing drafts.`);
+      throw new Error(`Harness state ${run.status} has no valid save authorization; refusing drafts.`);
     }
 
     const savedAccounts: Array<{ accountId: string; count: number }> = [];
