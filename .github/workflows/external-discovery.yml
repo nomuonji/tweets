@@ -43,6 +43,7 @@ jobs:
           DISCOVERY_CACHE_HOURS: "48"
           DISCOVERY_MAX_SOURCES_PER_ACCOUNT: "1"
       - name: Prepare resumable verified research work for Agent HQ
+        if: ${{ !cancelled() }}
         run: npx tsx scripts/prepare-buzz-work.ts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
