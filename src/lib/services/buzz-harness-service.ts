@@ -241,7 +241,9 @@ export async function submitBuzzHarnessRun(rawPacket: unknown) {
     warnings: validation.warnings,
     metrics: validation.metrics,
     nextAction: validation.passed
-      ? "This run is not yet saveable. A separate blind reviewer must read every final text without the author rationale, then call approve_buzz_harness_run with a different reviewerId and reviewerModel. Only that tool returns an approvalHash accepted by create_drafts."
+      ? packet.schemaVersion === 2
+        ? "Production writer quality gates and server validation passed. Call approve_buzz_harness_run to issue a deterministic save authorization without an external reviewer."
+        : "This run is not yet saveable. Call approve_buzz_harness_run for the legacy independent review."
       : "Do not save drafts. Fix the listed failures, create a new runId, and submit a new packet.",
   };
 }
@@ -459,6 +461,30 @@ export async function approveBuzzHarnessRun(args: {
     }
     const queue = Array.isArray(run.blindReviewQueue) ? run.blindReviewQueue as BlindReviewQueueItem[] : [];
     if (queue.length === 0) throw new Error("The pending run has no blind-review queue; no approval was issued.");
+    // Production v2 already requires the writer\'s explicit editorial gates and
+    // live server validation. Authorize the exact validated manifest atomically;
+    // do not claim that a second model reviewed the copy.
+    if (run.schemaVersion === 2) {
+      if (run.writerId !== "chatgpt-routine-worker" || !Array.isArray(run.errors) || run.errors.length !== 0 || run.approvalHash || !Array.isArray(run.consumedAccountIds) || run.consumedAccountIds.length !== 0) {
+        throw new Error("Production run is not eligible for deterministic save authorization.");
+      }
+      const expiresAt = Date.parse(String(run.expiresAt ?? ""));
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("Production run expiry is invalid or expired.");
+      const manifest = (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>;
+      const hashes = Object.values(manifest).flat().map(item => item.textHash).sort();
+      const queueHashes = queue.map(item => item.textHash).sort();
+      if (Object.keys(manifest).length !== 1 || hashes.length < 1 || hashes.length > 3 || new Set(hashes).size !== hashes.length || hashes.some(hash => !/^[a-f0-9]{64}$/.test(hash)) || JSON.stringify(hashes) !== JSON.stringify(queueHashes)) {
+        throw new Error("Production manifest does not match the exact validated final copies.");
+      }
+      const approvalHash = buzzPacketHash({ runId: args.runId, reportHash: args.reportHash, packetHash: run.packetHash, mode: "writer_quality_and_server_validation", hashes });
+      const now = DateTime.utc().toISO();
+      transaction.update(runRef, {
+        status: "approved", approvalHash,
+        reviewerReceipt: { reviewerProvider: "none", reviewerMode: "writer_quality_and_server_validation", independentReview: false, reviewedDraftCount: hashes.length, writerId: run.writerId, writerModel: run.model, errors: [] },
+        reviewCompletedAt: now, updatedAt: now,
+      });
+      return { productionApproval: { status: "approved" as const, runId: args.runId, approvalHash, reviewerProvider: "none", reviewerModel: null, reviewedDraftCount: hashes.length, errors: [] as string[], nextAction: "Production writer quality gates and live server validation passed. Save the exact approved drafts; no independent review was performed." } };
+    }
     transaction.update(runRef, {
       status: "reviewing",
       reviewAvailabilityGroup: retry ? 1 : 0,
@@ -473,6 +499,7 @@ export async function approveBuzzHarnessRun(args: {
       updatedAt: DateTime.utc().toISO(),
     });
     return {
+      productionApproval: null,
       queue,
       alternateGroup: retry,
       writerId: String(run.writerId ?? ""),
@@ -480,6 +507,8 @@ export async function approveBuzzHarnessRun(args: {
       manifest: (run.approvedDraftsByAccount ?? {}) as Record<string, Array<{ textHash: string }>>,
     };
   });
+
+  if (claimed.productionApproval) return claimed.productionApproval;
 
   let review: Awaited<ReturnType<typeof runServerSideBlindReview>>;
   try {
