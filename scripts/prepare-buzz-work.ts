@@ -136,7 +136,7 @@ async function main() {
       const authored = ["research_in_progress", "concepts_ready", "copy_ready"].includes(String(existing.status));
       const ageMs = Date.now() - Date.parse(String(existing.preparedAt ?? ""));
       if (existing.characterVersion === version &&
-          ((authored && existing.progress?.blockedFingerprint !== existing.fingerprint && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 7 * 86_400_000) ||
+          ((authored && (existing.progress?.blockedFingerprint !== existing.fingerprint || existing.fingerprint === fingerprint) && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 7 * 86_400_000) ||
            ["staged", "processing"].includes(String(existing.status)))) {
         return "preserved" as const;
       }
