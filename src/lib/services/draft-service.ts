@@ -53,7 +53,7 @@ export async function createAgentDrafts(
   harnessAuthorization?: BuzzHarnessAuthorization,
 ): Promise<DraftDoc[]> {
   if (!harnessAuthorization?.runId || !/^[a-f0-9]{64}$/.test(harnessAuthorization.approvalHash)) {
-    throw new Error("A separate blind-review approvalHash is mandatory. Submitting an evidence packet alone does not authorize draft saving.");
+    throw new Error("A server-issued Buzz Harness approvalHash is mandatory. Submitting an evidence packet alone does not authorize draft saving.");
   }
   if (inputs.length < 1 || inputs.length > 10) throw new Error("1〜10件の下書きを指定してください。");
   const accountRef = adminDb.collection("accounts").doc(accountId);
@@ -122,7 +122,7 @@ export async function createAgentDrafts(
     if (!harnessSnap.exists) throw new Error("Buzz Harness approval not found.");
     const harness = harnessSnap.data() ?? {};
     if (harness.approvalHash !== harnessAuthorization.approvalHash) throw new Error("Buzz Harness approvalHash mismatch.");
-    if (!["approved", "partially_consumed"].includes(String(harness.status))) throw new Error("Buzz Harness run has not passed the separate blind-review stage.");
+    if (!["approved", "partially_consumed"].includes(String(harness.status))) throw new Error("Buzz Harness run has not passed the save authorization stage.");
     if (Date.parse(String(harness.expiresAt ?? "")) <= Date.now()) throw new Error("Buzz Harness approval expired; rerun the evidence and review stages.");
     const consumedAccountIds = Array.isArray(harness.consumedAccountIds) ? harness.consumedAccountIds as string[] : [];
     if (consumedAccountIds.includes(accountId)) throw new Error("This account has already consumed its drafts from the approved Buzz Harness run.");
