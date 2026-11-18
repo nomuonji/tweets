@@ -1,6 +1,7 @@
 /**
  * Canonical, deterministic evidence preflight for the Agent HQ Threads writer.
- * Research selection is independent of target account personas. This function
+ * Blind discovery stays independent; production selection combines it with only
+ * the target account's own keyword receipts. This function
  * NEVER writes drafts or pretends that a research packet passed editorial review.
  */
 import { createHash } from "node:crypto";
@@ -102,9 +103,12 @@ function key(item: VerifiedEvidence) {
 export function selectResearchEvidence(
   verified: VerifiedEvidence[],
   limit = 15,
+  targetAccountId?: string,
 ): EvidenceSelection {
   const grouped = new Map<string, VerifiedEvidence[]>();
   for (const item of verified) {
+    // Never assign a different account's keyword research to this persona.
+    if (targetAccountId && item.receipt.discovery_origin === "account_keyword" && item.receipt.target_account_id !== targetAccountId) continue;
     const id = key(item);
     grouped.set(id, [...(grouped.get(id) ?? []), item]);
   }
@@ -119,7 +123,12 @@ export function selectResearchEvidence(
   });
   const blind = ranked.filter(g => g[0].receipt.discovery_origin === "blind_discovery");
   const keyword = ranked.filter(g => g[0].receipt.discovery_origin === "account_keyword");
-  const groups = [...blind.slice(0, 3), ...keyword.slice(0, 2)];
+  // Two independent clusters out of five leave enough room for three
+  // persona-specific clusters while preserving the independent 30% gate.
+  // Sparse target evidence is supplemented with genuinely independent groups.
+  const groups = targetAccountId && blind.length >= 2
+    ? [...blind.slice(0, 2), ...keyword.slice(0, 3)]
+    : [...blind.slice(0, 3), ...keyword.slice(0, 2)];
   // When an acquisition lane is sparse, select more independent groups instead
   // of relabeling account-scoped evidence as blind research.
   for (const group of ranked) {

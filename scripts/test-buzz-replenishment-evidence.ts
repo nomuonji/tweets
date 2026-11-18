@@ -37,6 +37,7 @@ for (let cluster = 0; cluster < 5; cluster += 1) {
       discovery_mode: mode, source_type: blind ? "account_independent_query" : "account_keyword_query",
       collector_version: blind ? "blind-discovery-v1" : "external-discovery-v2",
       run_id: `run_${cluster}`, metrics: post.metrics,
+      ...(!blind ? { target_account_id: cluster === 3 ? "account-a" : "account-b" } : {}),
     });
   }
 }
@@ -54,6 +55,21 @@ function main() {
   assert.ok(selected.metrics.highReactionIds.length >= 2);
   assert.ok(selected.metrics.top > 0 && selected.metrics.latest > 0);
   assert.equal(new Set(selected.sources.map(x => x.post.id)).size, selected.sources.length);
+
+  // Regression: both accounts share independent mechanisms, never each other's
+  // account-keyword evidence. The old global selection supplied identical work.
+  const a = selectResearchEvidence(baseline.verified, 15, "account-a");
+  const b = selectResearchEvidence(baseline.verified, 15, "account-b");
+  assert.equal(a.reason, undefined);
+  assert.equal(b.reason, undefined);
+  assert.ok(a.sources.some(x => x.receipt.target_account_id === "account-a"));
+  assert.ok(b.sources.some(x => x.receipt.target_account_id === "account-b"));
+  assert.ok(a.sources.every(x => x.receipt.discovery_origin === "blind_discovery" || x.receipt.target_account_id === "account-a"));
+  assert.ok(b.sources.every(x => x.receipt.discovery_origin === "blind_discovery" || x.receipt.target_account_id === "account-b"));
+  assert.notDeepEqual(a.sources.map(x => x.post.id), b.sources.map(x => x.post.id));
+  const withoutKeywords = selectResearchEvidence(baseline.verified, 15, "discovery-disabled");
+  assert.equal(withoutKeywords.reason, undefined);
+  assert.ok(withoutKeywords.sources.every(x => x.receipt.discovery_origin === "blind_discovery"));
 
   const altered = receipts.map(x => ({ ...x }));
   altered[0].text_hash = "forged";

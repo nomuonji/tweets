@@ -42,37 +42,6 @@ async function main() {
   const [source, accounts, inventory] = await Promise.all([
     collectEvidence(), getAccounts(), getOpenDraftInventory(),
   ]);
-  const sample = selectResearchEvidence(source.verified);
-  const research = {
-    clusters: sample.clusters,
-    // Exact immutable receipts + corresponding public original post; the
-    // scheduled writer can cite sourcePostIds but must not invent sources.
-    sources: sample.sources.map(x => ({
-      post: {
-        id: x.post.id, platform: x.post.platform, platform_post_id: x.post.platform_post_id,
-        text: x.post.text, url: x.post.url, author_handle: x.post.author_handle,
-        author_followers: x.post.author_followers ?? null,
-        created_at: x.post.created_at, fetched_at: x.post.fetched_at,
-        engagement_rate: x.post.engagement_rate, metrics: x.post.metrics,
-        search_keyword: x.post.search_keyword ?? null,
-        discovery_query_id: x.post.discovery_query_id ?? null,
-        discovery_origin: x.post.discovery_origin ?? null,
-        discovery_mode: x.post.discovery_mode ?? null,
-      },
-      receipt: x.receipt,
-    })),
-    metrics: sample.metrics,
-    guard: {
-      passed: !sample.reason,
-      reason: sample.reason ?? null,
-      observationsRead: source.receiptsRead,
-      distinctSourcePostsRead: source.sourcesRead,
-      verifiedSources: source.verified.length,
-      rejected: source.rejected,
-      verifiedAt: startedAt,
-    },
-  };
-  const sourceDigest = digest(sample.sources.map(x => [x.post.id, x.receipt.id, x.receipt.text_hash]).sort());
   const eligible = accounts
     .filter(x => x.platform === "threads" && isPublishingEnabled(x))
     .map(account => {
@@ -109,9 +78,44 @@ async function main() {
     String(a.recentPosts[0]?.createdAt ?? "").localeCompare(String(b.recentPosts[0]?.createdAt ?? "")) ||
     a.account.id.localeCompare(b.account.id));
 
-  const result = { eligibleAccounts: current.length, prepared: 0, preserved: 0, skipped: 0, blocked: 0, ...research.guard };
+  const result = { eligibleAccounts: current.length, prepared: 0, preserved: 0, skipped: 0, blocked: 0, observationsRead: source.receiptsRead, verifiedSources: source.verified.length, accounts: [] as Array<{accountId: string; targetKeywordSources: number; sources: number; reason: string | null}> };
   for (const [index, item] of Array.from(current.entries())) {
     const { account, version, needed, recentPosts } = item;
+    const sample = selectResearchEvidence(source.verified, 15, account.id);
+    const research = {
+      clusters: sample.clusters,
+      // Exact immutable receipts + corresponding public original post; the
+      // scheduled writer can cite sourcePostIds but must not invent sources.
+      sources: sample.sources.map(x => ({
+        post: {
+          id: x.post.id, platform: x.post.platform, platform_post_id: x.post.platform_post_id,
+          text: x.post.text, url: x.post.url, author_handle: x.post.author_handle,
+          author_followers: x.post.author_followers ?? null,
+          created_at: x.post.created_at, fetched_at: x.post.fetched_at,
+          engagement_rate: x.post.engagement_rate, metrics: x.post.metrics,
+          search_keyword: x.post.search_keyword ?? null,
+          discovery_query_id: x.post.discovery_query_id ?? null,
+          discovery_origin: x.post.discovery_origin ?? null,
+          discovery_mode: x.post.discovery_mode ?? null,
+        },
+        receipt: x.receipt,
+      })),
+      metrics: sample.metrics,
+      guard: {
+        passed: !sample.reason,
+        reason: sample.reason ?? null,
+        observationsRead: source.receiptsRead,
+        distinctSourcePostsRead: source.sourcesRead,
+        verifiedSources: source.verified.length,
+        targetKeywordSources: sample.sources.filter(x => x.receipt.discovery_origin === "account_keyword").length,
+        targetAccountId: account.id,
+        rejected: source.rejected,
+        verifiedAt: startedAt,
+      },
+    };
+    const sourceDigest = digest(sample.sources.map(x => [x.post.id, x.receipt.id, x.receipt.text_hash]).sort());
+
+    result.accounts.push({ accountId: account.id, targetKeywordSources: research.guard.targetKeywordSources, sources: sample.sources.length, reason: sample.reason ?? null });
     const ref = adminDb.collection(COLLECTION).doc(account.id);
     const safeAccount = {
       accountId: account.id, handle: account.handle, platform: "threads" as const,
@@ -121,7 +125,7 @@ async function main() {
       maxPostLength: account.maxPostLength ?? null,
       lastPostExecutedAt: account.lastPostExecutedAt ?? null,
     };
-    const fingerprint = digest([sourceDigest, safeAccount.accountId, version, needed, safeAccount.concept]);
+    const fingerprint = digest([3, sourceDigest, safeAccount.accountId, version, needed, safeAccount.concept]);
     const status = sample.reason ? "blocked_evidence" : "research_ready";
     const action = await adminDb.runTransaction(async tx => {
       const snapshot = await tx.get(ref);
@@ -132,12 +136,12 @@ async function main() {
       const authored = ["research_in_progress", "concepts_ready", "copy_ready"].includes(String(existing.status));
       const ageMs = Date.now() - Date.parse(String(existing.preparedAt ?? ""));
       if (existing.characterVersion === version &&
-          ((authored && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 7 * 86_400_000) ||
+          ((authored && (existing.progress?.blockedFingerprint !== existing.fingerprint || existing.fingerprint === fingerprint) && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 7 * 86_400_000) ||
            ["staged", "processing"].includes(String(existing.status)))) {
         return "preserved" as const;
       }
       if (existing.fingerprint === fingerprint && existing.status === status &&
-          existing.preflightVersion === 2 && existing.priority === index &&
+          existing.preflightVersion === 3 && existing.priority === index &&
           existing.recentPosts?.[0]?.createdAt === recentPosts[0]?.createdAt) {
         return "skipped" as const;
       }
@@ -145,7 +149,7 @@ async function main() {
         accountId: account.id,
         characterVersion: version,
         fingerprint,
-        preflightVersion: 2,
+        preflightVersion: 3,
         status,
         priority: index,
         account: safeAccount,
@@ -155,7 +159,7 @@ async function main() {
           stage: status,
           nextStep: sample.reason
             ? "Collect more real independent evidence; do not draft."
-            : "Extract 3 response mechanisms and 15 distinct ideas, then persist concepts_ready with the original work fingerprint.",
+            : "Use target keyword sources for topic discovery, independent sources for transferable mechanisms, and verified primary sources for factual content. Compare 3–5 distinct concepts; persist with original fingerprint.",
           candidateCount: 0,
           draftCount: 0,
         },
@@ -169,7 +173,7 @@ async function main() {
   }
   console.log("[Buzz Prep] " + JSON.stringify(result));
   // Missing evidence is a tracked state, not an excuse to bypass the Harness.
-  if (sample.reason) process.exitCode = 1;
+  if (current.length > 0 && result.accounts.every(x => x.reason !== null)) process.exitCode = 1;
 }
 main().catch(error => {
   console.error("[Buzz Prep] Failed:", error instanceof Error ? error.message : String(error));
