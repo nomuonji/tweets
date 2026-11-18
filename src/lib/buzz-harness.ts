@@ -129,8 +129,8 @@ const researchPacketSchema = z.object({
 }).strict();
 
 // Production consumes released methods rather than repeating a full research
-// divergence run for every replenishment. All evidence, editorial and independent
-// blind review gates remain identical. Legacy research packets retain 15 ideas.
+// divergence run for every replenishment. All evidence and writer editorial gates remain identical;
+// production v2 uses deterministic save authorization without external review. Legacy research packets retain 15 ideas.
 const productionPacketSchema = researchPacketSchema.extend({
   schemaVersion: z.literal(2),
   writerId: z.literal("chatgpt-routine-worker"),
