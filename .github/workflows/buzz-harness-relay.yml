@@ -29,9 +29,7 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
-      - name: Test Gemini review transport recovery
-        run: npx tsx scripts/test-gemini-review-transport.ts
-      - name: Validate, independently review and save approved Threads drafts
+      - name: Validate and save authorized Threads drafts (v2 without external review)
         run: npx tsx scripts/consume-buzz-packets.ts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
