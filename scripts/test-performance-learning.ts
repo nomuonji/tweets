@@ -124,5 +124,32 @@ assert.equal(reachFirstAnalysis.patterns[0].structure, "一つの観察を短く
 assert.equal(reachFirstAnalysis.patterns[0].medianImpressions, 100);
 assert.equal(reachFirstAnalysis.patterns[1].structure, "問いかけで始める");
 assert.equal(reachFirstAnalysis.patterns[1].medianImpressions, 20);
+// Compare only within the same account and fixed-age exposure cohort:
+// [10, 20, 30, 90, 100, 110] => account median 60.
+assert.equal(reachFirstAnalysis.accountMedianImpressions, 60);
+assert.ok(Math.abs((reachFirstAnalysis.patterns[0].medianExposureLift ?? 0) - 100 / 60) < 1e-10);
+assert.ok(Math.abs((reachFirstAnalysis.patterns[1].medianExposureLift ?? 0) - 20 / 60) < 1e-10);
+assert.equal(reachFirstAnalysis.patterns[0].outliersAtLeast3x, 0);
+
+// A one-off 12x breakout is a candidate to inspect, NOT proof that its
+// text structure caused the breakout. Zero/missing exposures cannot distort the baseline.
+const withBreakout = computePatternAnalysis(
+  [
+    makePost("晴れた朝に出かけた。", 10, 1),
+    makePost("昨日の風は冷たかった。", 20, 1),
+    makePost("窓の外を見ていた。", 30, 1),
+    makePost("猫が隣に座った。", 300, 4),
+    makePost("測れていない投稿", 0, 10),
+    makePost("指標が欠落した投稿", null, 10),
+  ],
+  "another-account",
+  "24h",
+  "impressions",
+);
+assert.equal(withBreakout.analyzedPosts, 4);
+assert.equal(withBreakout.accountMedianImpressions, 25);
+assert.equal(withBreakout.patterns[0].maxExposureLift, 12);
+assert.equal(withBreakout.patterns[0].medianExposureLift, 1);
+assert.equal(withBreakout.patterns[0].outliersAtLeast3x, 1);
 
 console.log("Performance-learning tests passed.");
