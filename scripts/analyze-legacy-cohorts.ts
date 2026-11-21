@@ -1,6 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { DateTime } from "luxon";
-import { getCharacterVersion } from "@/lib/character-version";
+import { belongsToCharacterVersion, getCharacterVersion } from "@/lib/character-version";
 import { isPerformanceLearningEnabled } from "@/lib/account-gates";
 import { adminDb } from "@/lib/firebase/admin";
 import { computePatternAnalysis } from "@/lib/pattern";
@@ -62,16 +62,57 @@ async function main() {
       analysis.measurementBasis = cohort.measurementBasis;
       analysis.cohortAgeHours = cohort.cohortAgeHours;
 
-      // Existing content insights were generated from a different or unknown
-      // measurement basis. Remove them rather than pairing them with new stats.
-      await adminDb.collection("pattern_stats").doc(account.id).set(
-        {
-          ...analysis,
-          content_insights: FieldValue.delete(),
-          cohortSelectionCounts: cohort.counts,
-        },
-        { merge: true },
-      );
+      // A valid fixed-age 72h sample has stronger timing evidence than a
+      // fetched-at approximate cohort. The two GitHub workflows can race on
+      // the same push, so precedence must be enforced at commit time.
+      const exact72Count = posts.filter((post) => {
+        if (!belongsToCharacterVersion(post, characterVersion)) return false;
+        const snapshot = post.performance_snapshots?.["72h"];
+        return Boolean(
+          snapshot &&
+          snapshot.age_hours >= 72 &&
+          snapshot.age_hours < 78 &&
+          typeof snapshot.metrics.impressions === "number" &&
+          Number.isFinite(snapshot.metrics.impressions) &&
+          snapshot.metrics.impressions > 0,
+        );
+      }).length;
+
+      let preservedExact = false;
+      const statsRef = adminDb.collection("pattern_stats").doc(account.id);
+      await adminDb.runTransaction(async (transaction) => {
+        const current = (await transaction.get(statsRef)).data();
+        if (
+          exact72Count >= MIN_POSTS &&
+          current?.measurementBasis === "fixed_age_snapshot" &&
+          current?.measurementWindow === "72h" &&
+          current?.character_version === characterVersion &&
+          typeof current?.analyzedPosts === "number" &&
+          current.analyzedPosts >= MIN_POSTS
+        ) {
+          preservedExact = true;
+          return;
+        }
+
+        // Legacy remains a fallback when no current-version fixed-age result
+        // exists. Transaction retries guard against a concurrent exact write.
+        transaction.set(
+          statsRef,
+          {
+            ...analysis,
+            content_insights: FieldValue.delete(),
+            cohortSelectionCounts: cohort.counts,
+          },
+          { merge: true },
+        );
+      });
+      if (preservedExact) {
+        console.log(
+          `[LegacyCohort] ${account.handle ?? account.id} v${characterVersion}: preserved fixed-age 72h analysis (${exact72Count} valid exact snapshots); legacy fallback skipped.`,
+        );
+        skipped += 1;
+        continue;
+      }
 
       const sourceCounts = cohort.posts.reduce(
         (counts, post) => {
