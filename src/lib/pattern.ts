@@ -12,6 +12,12 @@ export interface PatternStat {
   avgEngagementRate: number;
   medianEngagementRate: number;
   medianImpressions: number;
+  /** Same-account, same-age exposure median for this structure / account median. */
+  medianExposureLift?: number | null;
+  /** Maximum observed exposure / same-account median; descriptive, not causal. */
+  maxExposureLift?: number | null;
+  /** Count of posts observed at >=3x the account baseline (screening only). */
+  outliersAtLeast3x?: number;
   totalImpressions: number;
   totalLikes: number;
   totalReplies: number;
@@ -137,23 +143,35 @@ export function computePatternAnalysis(
     groups.set(key, group);
   }
 
-  const patterns: PatternStat[] = Array.from(groups.entries()).map(
-    ([structure, group]) => ({
-      structure,
-      count: group.length,
-      avgEngagementRate:
-        group.reduce((sum, item) => sum + item.rate, 0) / group.length,
-      medianEngagementRate: median(group.map((item) => item.rate)),
-      medianImpressions: median(group.map((item) => item.impressions)),
-      totalImpressions: group.reduce((sum, item) => sum + item.impressions, 0),
-      totalLikes: group.reduce((sum, item) => sum + item.likes, 0),
-      totalReplies: group.reduce((sum, item) => sum + item.replies, 0),
-      totalReposts: group.reduce((sum, item) => sum + item.reposts, 0),
-    }),
-  );
-
   const impressions = measuredPosts.map(
     (post) => post.metrics.impressions as number,
+  );
+  // Each caller already supplies one account, character version and fixed-age
+  // snapshot window. Never normalize against a different account or post age.
+  const accountMedianImpressions = impressions.length > 0 ? median(impressions) : null;
+  const patterns: PatternStat[] = Array.from(groups.entries()).map(
+    ([structure, group]) => {
+      const groupImpressions = group.map((item) => item.impressions);
+      const groupMedian = median(groupImpressions);
+      const validBaseline = accountMedianImpressions !== null && accountMedianImpressions > 0;
+      return {
+        structure,
+        count: group.length,
+        avgEngagementRate:
+          group.reduce((sum, item) => sum + item.rate, 0) / group.length,
+        medianEngagementRate: median(group.map((item) => item.rate)),
+        medianImpressions: groupMedian,
+        medianExposureLift: validBaseline ? groupMedian / accountMedianImpressions : null,
+        maxExposureLift: validBaseline ? Math.max(...groupImpressions) / accountMedianImpressions : null,
+        outliersAtLeast3x: validBaseline
+          ? groupImpressions.filter((value) => value >= accountMedianImpressions * 3).length
+          : 0,
+        totalImpressions: group.reduce((sum, item) => sum + item.impressions, 0),
+        totalLikes: group.reduce((sum, item) => sum + item.likes, 0),
+        totalReplies: group.reduce((sum, item) => sum + item.replies, 0),
+        totalReposts: group.reduce((sum, item) => sum + item.reposts, 0),
+      };
+    },
   );
   const rates = measuredPosts
     .map((post) => engagementRate(post.metrics))
@@ -162,8 +180,7 @@ export function computePatternAnalysis(
   return {
     account_id: accountId,
     accountMedianEngagementRate: rates.length > 0 ? median(rates) : null,
-    accountMedianImpressions:
-      impressions.length > 0 ? median(impressions) : null,
+    accountMedianImpressions,
     measurementWindow,
     exposureMetric,
     patterns: patterns.sort(
