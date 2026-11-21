@@ -9,6 +9,7 @@ on:
     paths:
       - ".github/workflows/pattern-analysis.yml"
       - "scripts/analyze-patterns.ts"
+      - "scripts/analyze-legacy-cohorts.ts"
       - "src/lib/pattern.ts"
       - "src/lib/character-version.ts"
   schedule:
