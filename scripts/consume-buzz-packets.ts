@@ -18,6 +18,40 @@ const MAX_PACKETS_PER_RUN = 3;
 
 type Claimed = { id: string; packet: unknown };
 
+// A completed Harness transaction may precede the packet's completion update.
+// Reconcile the durable draft documents on every attempt, including recovery.
+async function readBackSavedDraftIds(
+  accountId: string,
+  runId: string,
+  expected: Array<{ candidateId: string; text: string; characterVersion: number; sourcePostIds: string[] }>,
+): Promise<string[]> {
+  const snapshot = await adminDb.collection("drafts").where("target_account_id", "==", accountId).get();
+  const matches = snapshot.docs.filter(doc => doc.get("provenance.buzzRunId") === runId);
+  if (matches.length !== expected.length) {
+    throw new Error(`Relay readback count mismatch for ${accountId}: expected ${expected.length}, found ${matches.length}.`);
+  }
+  const byCandidate = new Map(expected.map(draft => [draft.candidateId, draft]));
+  if (byCandidate.size !== expected.length) throw new Error("Duplicate candidate IDs in relay packet.");
+  for (const doc of matches) {
+    const candidateId = String(doc.get("provenance.candidateId") ?? "");
+    const expectedDraft = byCandidate.get(candidateId);
+    const actualSources = doc.get("provenance.externalPostIds");
+    if (
+      !expectedDraft ||
+      String(doc.get("text") ?? "").trim() !== expectedDraft.text.trim() ||
+      Number(doc.get("character_version")) !== expectedDraft.characterVersion ||
+      doc.get("target_account_id") !== accountId ||
+      !Array.isArray(actualSources) ||
+      JSON.stringify([...actualSources].sort()) !== JSON.stringify([...expectedDraft.sourcePostIds].sort())
+    ) {
+      throw new Error(`Relay readback content/provenance mismatch for ${accountId}/${doc.id}.`);
+    }
+    byCandidate.delete(candidateId);
+  }
+  if (byCandidate.size !== 0) throw new Error(`Relay readback is missing approved candidates for ${accountId}.`);
+  return matches.map(doc => doc.id).sort();
+}
+
 async function claim(id: string): Promise<Claimed | null> {
   const ref = adminDb.collection(COLLECTION).doc(id);
   return adminDb.runTransaction(async (tx) => {
@@ -111,26 +145,29 @@ async function processPacket(item: Claimed): Promise<void> {
       throw new Error(`Harness state ${run.status} has no valid save authorization; refusing drafts.`);
     }
 
-    const savedAccounts: Array<{ accountId: string; count: number }> = [];
+    const savedAccounts: Array<{ accountId: string; count: number; draftIds: string[] }> = [];
     for (const account of packet.accounts) {
-      if (run.consumedAccountIds?.includes(account.accountId)) continue;
       const drafts = packet.drafts.filter(d => d.accountId === account.accountId);
       if (drafts.length === 0) throw new Error(`No reviewed drafts for ${account.accountId}`);
-      const saved = await createAgentDrafts(account.accountId, account.characterVersion, drafts.map(d => ({
-        text: d.text,
-        hashtags: d.hashtags ?? [],
-        ...(d.topicTag ? { topicTag: d.topicTag } : {}),
-        createdBy: "agent",
-        generatedBy: `agent-hq:${packet.model}`,
-        provenance: {
-          buzzRunId: packet.runId,
-          candidateId: d.candidateId,
-          externalPostIds: d.sourcePostIds,
-          batchId: packet.runId,
-        },
-      })), { runId: packet.runId, approvalHash: run.approvalHash });
-      savedAccounts.push({ accountId: account.accountId, count: saved.length });
-      run = await getBuzzHarnessRun(packet.runId);
+      if (!run.consumedAccountIds?.includes(account.accountId)) {
+        await createAgentDrafts(account.accountId, account.characterVersion, drafts.map(d => ({
+          text: d.text,
+          hashtags: d.hashtags ?? [],
+          ...(d.topicTag ? { topicTag: d.topicTag } : {}),
+          createdBy: "agent",
+          generatedBy: `agent-hq:${packet.model}`,
+          provenance: {
+            buzzRunId: packet.runId,
+            candidateId: d.candidateId,
+            externalPostIds: d.sourcePostIds,
+            batchId: packet.runId,
+          },
+        })), { runId: packet.runId, approvalHash: run.approvalHash });
+        run = await getBuzzHarnessRun(packet.runId);
+      }
+      // Also covers an interrupted prior run that already consumed this account.
+      const draftIds = await readBackSavedDraftIds(account.accountId, packet.runId, drafts);
+      savedAccounts.push({ accountId: account.accountId, count: draftIds.length, draftIds });
     }
 
     // Atomically complete the isolated packet and its corresponding
