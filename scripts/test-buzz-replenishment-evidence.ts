@@ -72,6 +72,13 @@ function main() {
   const withoutKeywords = selectResearchEvidence(baseline.verified, 15, "discovery-disabled");
   assert.match(withoutKeywords.reason ?? "", /no verified account-specific keyword sources/);
   assert.equal(withoutKeywords.metrics.targetKeywordObservations, 0);
+  // Explicitly opted-out accounts may still learn generic mechanisms,
+  // provided the editorial worker independently verifies topic facts.
+  const optedOut = selectResearchEvidence(baseline.verified, 15, "discovery-disabled", {
+    requireAccountKeywordEvidence: false,
+  });
+  assert.equal(optedOut.reason, undefined);
+  assert.equal(optedOut.metrics.targetKeywordObservations, 0);
   assert.ok(withoutKeywords.sources.every(x => x.receipt.discovery_origin === "blind_discovery"));
 
   const altered = receipts.map(x => ({ ...x }));
