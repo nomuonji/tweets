@@ -227,6 +227,7 @@ export async function syncExternalDiscovery(
   options: { runId?: string } = {},
 ): Promise<{
   synced: string[];
+  emptySources: string[];
   cached: number;
   budget: RapidApiBudgetState;
   stoppedByBudget: boolean;
@@ -236,11 +237,12 @@ export async function syncExternalDiscovery(
   const runId = options.runId ?? `external_${jstDate.replace(/-/g, "")}`;
   const initialBudget = await getRapidApiBudgetState();
   const synced: string[] = [];
+  const emptySources: string[] = [];
   const keywords = account.discoveryKeywords ?? [];
   const referenceIds = account.referenceAccountIds ?? [];
 
   if (initialBudget.budget === null || initialBudget.remaining === null || initialBudget.exhausted) {
-    return { synced, cached: 0, budget: initialBudget, stoppedByBudget: true };
+    return { synced, emptySources, cached: 0, budget: initialBudget, stoppedByBudget: true };
   }
 
   // Freshness comes from one small state doc per source. It used to be derived
@@ -279,7 +281,7 @@ export async function syncExternalDiscovery(
     // Two monthly-budget slots are protected for the Blind Top + Latest pair.
     const currentBudget = await getRapidApiBudgetState();
     if (currentBudget.remaining === null || currentBudget.remaining <= 2) {
-      return { synced, cached: fresh, budget: currentBudget, stoppedByBudget: true };
+      return { synced, emptySources, cached: fresh, budget: currentBudget, stoppedByBudget: true };
     }
 
     if (source.kind === "keyword") {
@@ -289,6 +291,7 @@ export async function syncExternalDiscovery(
         reserveRequests: 2,
       });
       const fetchedAt = DateTime.utc().toISO()!;
+      let storedPosts = 0;
       for (const post of posts) {
         if (TEXT_ONLY && post.media_type !== "text") continue;
         const sourceInfo = {
@@ -301,9 +304,13 @@ export async function syncExternalDiscovery(
         const external = toExternalPost(post, fetchedAt, sourceInfo);
         await appendExternalObservation(external, sourceInfo, runId, fetchedAt);
         await upsertExternalPost(external);
+        storedPosts++;
       }
+      // Cache an empty paid response to avoid another identical charge inside
+      // the window, but never label it a successful source sync.
       await saveDiscoveryState(account.id, source.key, now.toISO()!);
-      synced.push(`keyword:${source.key}:${discoveryMode}`);
+      if (storedPosts > 0) synced.push(`keyword:${source.key}:${discoveryMode}:${storedPosts}`);
+      else emptySources.push(`keyword:${source.key}:${discoveryMode}`);
       continue;
     }
 
@@ -318,6 +325,7 @@ export async function syncExternalDiscovery(
       { limit: POSTS_PER_SOURCE, reserveRequests: 2 },
     );
     const fetchedAt = DateTime.utc().toISO()!;
+    let storedPosts = 0;
     for (const post of posts.posts) {
       if (TEXT_ONLY && post.media_type !== "text") continue;
       const sourceInfo = {
@@ -329,11 +337,13 @@ export async function syncExternalDiscovery(
       const external = toExternalPost(post, fetchedAt, sourceInfo);
       await appendExternalObservation(external, sourceInfo, runId, fetchedAt);
       await upsertExternalPost(external);
+      storedPosts++;
     }
     await saveDiscoveryState(account.id, source.key, now.toISO()!);
-    synced.push(`account:${reference.handle}`);
+    if (storedPosts > 0) synced.push(`account:${reference.handle}:${storedPosts}`);
+    else emptySources.push(`account:${reference.handle}`);
   }
 
   const finalBudget = await getRapidApiBudgetState();
-  return { synced, cached: fresh, budget: finalBudget, stoppedByBudget: false };
+  return { synced, emptySources, cached: fresh, budget: finalBudget, stoppedByBudget: false };
 }
