@@ -27,6 +27,7 @@ export type EvidenceSelection = {
     clusters: number;
     blindObservations: number;
     blindClusters: number;
+    targetKeywordObservations: number;
     top: number;
     latest: number;
     lowReactionIds: string[];
@@ -171,18 +172,26 @@ export function selectResearchEvidence(
   const quartile = Math.max(1, Math.ceil(sorted.length / 4));
   const blindObservations = sources.filter(x => x.receipt.discovery_origin === "blind_discovery").length;
   const blindClusters = clusters.filter(x => x.origin === "blind_discovery").length;
+  const targetKeywordObservations = sources.filter(x =>
+    x.receipt.discovery_origin === "account_keyword" &&
+    (!targetAccountId || x.receipt.target_account_id === targetAccountId)).length;
   const metrics: EvidenceSelection["metrics"] = {
     observations: sources.length,
     authors: new Set(sources.map(x => x.post.author_handle.toLowerCase())).size,
     clusters: clusters.length,
     blindObservations,
     blindClusters,
+    targetKeywordObservations,
     top: sources.filter(x => x.receipt.discovery_mode === "Top").length,
     latest: sources.filter(x => x.receipt.discovery_mode === "Latest").length,
     lowReactionIds: sorted.slice(0, quartile).map(x => x.post.id),
     highReactionIds: sorted.slice(-quartile).map(x => x.post.id),
   };
   const reasons = [
+    // Blind research is useful for transferable mechanisms, but it is not
+    // evidence that a specific persona's subject was actually observed.
+    Boolean(targetAccountId) && targetKeywordObservations === 0 &&
+      "no verified account-specific keyword sources; blind-only research cannot ground account topics",
     sources.length < 6 && "fewer than six verified posts",
     metrics.authors < 4 && "fewer than four authors",
     clusters.length < 3 && "fewer than three independent search clusters",
