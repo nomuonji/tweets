@@ -19,7 +19,7 @@ async function main() {
   const claim = await adminDb.runTransaction(async (tx) => {
     const snapshot = await tx.get(stateRef);
     const state = snapshot.data() ?? {};
-    if (state.last_completed_jst_date === jstDate) return "completed" as const;
+    if (state.last_completed_jst_date === jstDate || state.last_attempted_jst_date === jstDate) return "completed" as const;
     const activeUntil = typeof state.lease_until === "string"
       ? DateTime.fromISO(state.lease_until).toMillis()
       : 0;
@@ -60,6 +60,7 @@ async function main() {
   const accountResults: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
   const blindResults: unknown[] = [];
+  let consecutiveEmptyBlindRuns = 0;
 
   try {
     // Independent sources first: account-specific searches must never exhaust
@@ -73,7 +74,18 @@ async function main() {
         const result = await runBlindExternalDiscovery();
         blindResults.push(result);
         console.log(`[Discovery] Blind lane ${i + 1}/${dailyTarget}:`, JSON.stringify(result));
-        if (result.status === "completed") continue;
+        if (result.status === "completed") {
+          consecutiveEmptyBlindRuns = 0;
+          continue;
+        }
+        if (result.status === "empty") {
+          consecutiveEmptyBlindRuns++;
+          if (consecutiveEmptyBlindRuns >= 2) {
+            errors.push("blind_discovery: two consecutive zero-source searches; stopped to preserve RapidAPI budget. Check search.php parsing and query results.");
+            break;
+          }
+          continue;
+        }
         if (result.status === "locked" || /budget/i.test(result.reason ?? "")) {
           errors.push(`blind_discovery: ${result.reason ?? result.status}`);
         }
@@ -145,6 +157,7 @@ async function main() {
         throw new Error("Unified discovery lease changed before completion.");
       }
       tx.set(stateRef, {
+        last_attempted_jst_date: jstDate,
         ...(errors.length === 0 ? {
           last_completed_jst_date: jstDate,
           last_completed_run_id: runId,
@@ -173,6 +186,7 @@ async function main() {
         tx.set(stateRef, {
           lease_run_id: null,
           lease_until: null,
+          last_attempted_jst_date: jstDate,
           updated_at: failedAt,
         }, { merge: true });
       }
