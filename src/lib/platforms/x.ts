@@ -903,8 +903,31 @@ export async function fetchXSearchPosts(
   );
 
   const debug: string[] = [];
-  const posts = extractSimpleTimeline(response.data, "search", debug);
-  return posts.slice(0, options.limit ?? 20);
+  const simple = extractSimpleTimeline(response.data, "search", debug);
+  if (simple.length > 0) return simple.slice(0, options.limit ?? 20);
+
+  // /search.php sometimes returns the richer timeline instructions format.
+  // Do not silently treat a changed provider envelope as a real empty search.
+  const record = toRecord(response.data);
+  const recognized = Boolean(record && (
+    Array.isArray(record.timeline) || toRecord(record.pinned) ||
+    collectEntries(response.data).length > 0 ||
+    toRecord(getNested(response.data, ["globalObjects", "tweets"])) ||
+    Array.isArray(record.result) || Array.isArray(record.data)
+  ));
+  if (!recognized) {
+    const keys = record ? Object.keys(record).slice(0, 12).join(",") : typeof response.data;
+    throw new Error("RapidAPI search returned an unrecognized response schema; keys: " + keys);
+  }
+  const fallback = transformResponseToTweets(response.data, "search", debug);
+  // A generic search is not an account; don't mint fake author URLs for
+  // legacy entries whose original handle was unavailable.
+  return fallback.map(post => ({
+    ...post,
+    url: post.url?.includes("/search/status/")
+      ? `https://x.com/i/web/status/${post.platform_post_id}`
+      : post.url,
+  })).slice(0, options.limit ?? 20);
 }
 
 function buildXClient(account: AccountDoc) {
