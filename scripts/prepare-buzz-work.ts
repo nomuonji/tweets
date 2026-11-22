@@ -87,6 +87,9 @@ async function main() {
       // Exact immutable receipts + corresponding public original post; the
       // scheduled writer can cite sourcePostIds but must not invent sources.
       sources: sample.sources.map(x => ({
+        // An independent observation teaches a transferable mechanism only;
+        // only target-account keyword evidence may ground the post's subject.
+        evidenceRole: x.receipt.discovery_origin === "account_keyword" ? "topic_source" : "mechanism_only",
         post: {
           id: x.post.id, platform: x.post.platform, platform_post_id: x.post.platform_post_id,
           text: x.post.text, url: x.post.url, author_handle: x.post.author_handle,
@@ -107,7 +110,9 @@ async function main() {
         observationsRead: source.receiptsRead,
         distinctSourcePostsRead: source.sourcesRead,
         verifiedSources: source.verified.length,
-        targetKeywordSources: sample.sources.filter(x => x.receipt.discovery_origin === "account_keyword").length,
+        targetKeywordSources: sample.metrics.targetKeywordObservations,
+        topicSourceIds: sample.sources.filter(x => x.receipt.discovery_origin === "account_keyword").map(x => x.post.id),
+        mechanismOnlySourceIds: sample.sources.filter(x => x.receipt.discovery_origin === "blind_discovery").map(x => x.post.id),
         targetAccountId: account.id,
         rejected: source.rejected,
         verifiedAt: startedAt,
@@ -158,8 +163,8 @@ async function main() {
         progress: {
           stage: status,
           nextStep: sample.reason
-            ? "Collect more real independent evidence; do not draft."
-            : "Use target keyword sources for topic discovery, independent sources for transferable mechanisms, and verified primary sources for factual content. Compare 3–5 distinct concepts; persist with original fingerprint.",
+            ? "Collect verified original posts about this account's topic, using account keyword collection. Blind-only sources are not a substitute; do not draft."
+            : "Use only account-keyword topicSourceIds as topic grounding. Independent mechanismOnlySourceIds teach transferable mechanisms, never factual support for unrelated topics. For each candidate check that cited source text actually supports its specific angle; otherwise reject or label an explicitly hypothetical scenario with no invented real-world claims. Compare 3–5 distinct concepts; persist with original fingerprint.",
           candidateCount: 0,
           draftCount: 0,
         },
