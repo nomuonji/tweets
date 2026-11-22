@@ -125,7 +125,7 @@ async function releaseLease(
 }
 
 export interface BlindDiscoveryRunResult {
-  status: "completed" | "skipped" | "locked";
+  status: "completed" | "empty" | "skipped" | "locked";
   runId?: string;
   seedId?: string;
   query?: string;
@@ -320,8 +320,10 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
 
     const completedAt = DateTime.utc().toISO()!;
     const finalBudget = await getRapidApiBudgetState();
+    const empty = uniquePosts === 0;
     await runRef.set({
-      status: "completed",
+      status: empty ? "empty" : "completed",
+      ...(empty ? { reason: "Top and Latest yielded no usable source posts; zero is not a completed discovery." } : {}),
       top_result_count: counts.Top,
       latest_result_count: counts.Latest,
       unique_post_upserts: uniquePosts,
@@ -352,7 +354,8 @@ export async function runBlindExternalDiscovery(): Promise<BlindDiscoveryRunResu
     });
 
     return {
-      status: "completed",
+      status: empty ? "empty" : "completed",
+      ...(empty ? { reason: "Both search lanes yielded zero usable source posts." } : {}),
       runId: plan.runId,
       seedId: plan.seed.id,
       query: plan.seed.query,
