@@ -105,6 +105,7 @@ export function selectResearchEvidence(
   verified: VerifiedEvidence[],
   limit = 15,
   targetAccountId?: string,
+  options: { requireAccountKeywordEvidence?: boolean } = {},
 ): EvidenceSelection {
   const grouped = new Map<string, VerifiedEvidence[]>();
   for (const item of verified) {
@@ -190,7 +191,7 @@ export function selectResearchEvidence(
   const reasons = [
     // Blind research is useful for transferable mechanisms, but it is not
     // evidence that a specific persona's subject was actually observed.
-    Boolean(targetAccountId) && targetKeywordObservations === 0 &&
+    Boolean(targetAccountId) && (options.requireAccountKeywordEvidence ?? true) && targetKeywordObservations === 0 &&
       "no verified account-specific keyword sources; blind-only research cannot ground account topics",
     sources.length < 6 && "fewer than six verified posts",
     metrics.authors < 4 && "fewer than four authors",
