@@ -63,12 +63,22 @@ function main() {
   assert.equal(a.reason, undefined);
   assert.equal(b.reason, undefined);
   assert.ok(a.sources.some(x => x.receipt.target_account_id === "account-a"));
+  assert.ok(a.metrics.targetKeywordObservations > 0);
+  assert.ok(b.metrics.targetKeywordObservations > 0);
   assert.ok(b.sources.some(x => x.receipt.target_account_id === "account-b"));
   assert.ok(a.sources.every(x => x.receipt.discovery_origin === "blind_discovery" || x.receipt.target_account_id === "account-a"));
   assert.ok(b.sources.every(x => x.receipt.discovery_origin === "blind_discovery" || x.receipt.target_account_id === "account-b"));
   assert.notDeepEqual(a.sources.map(x => x.post.id), b.sources.map(x => x.post.id));
   const withoutKeywords = selectResearchEvidence(baseline.verified, 15, "discovery-disabled");
-  assert.equal(withoutKeywords.reason, undefined);
+  assert.match(withoutKeywords.reason ?? "", /no verified account-specific keyword sources/);
+  assert.equal(withoutKeywords.metrics.targetKeywordObservations, 0);
+  // Explicitly opted-out accounts may still learn generic mechanisms,
+  // provided the editorial worker independently verifies topic facts.
+  const optedOut = selectResearchEvidence(baseline.verified, 15, "discovery-disabled", {
+    requireAccountKeywordEvidence: false,
+  });
+  assert.equal(optedOut.reason, undefined);
+  assert.equal(optedOut.metrics.targetKeywordObservations, 0);
   assert.ok(withoutKeywords.sources.every(x => x.receipt.discovery_origin === "blind_discovery"));
 
   const altered = receipts.map(x => ({ ...x }));

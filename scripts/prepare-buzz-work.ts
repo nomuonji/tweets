@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAccounts, getOpenDraftInventory } from "@/lib/services/firestore.server";
-import { isPublishingEnabled } from "@/lib/account-gates";
+import { isDiscoveryEnabled, isPublishingEnabled } from "@/lib/account-gates";
 import { getCharacterVersion, belongsToCharacterVersion } from "@/lib/character-version";
 import { selectResearchEvidence, verifyEvidenceSources } from "@/lib/buzz-replenishment-evidence";
 import type { ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
@@ -81,12 +81,20 @@ async function main() {
   const result = { eligibleAccounts: current.length, prepared: 0, preserved: 0, skipped: 0, blocked: 0, observationsRead: source.receiptsRead, verifiedSources: source.verified.length, accounts: [] as Array<{accountId: string; targetKeywordSources: number; sources: number; reason: string | null}> };
   for (const [index, item] of Array.from(current.entries())) {
     const { account, version, needed, recentPosts } = item;
-    const sample = selectResearchEvidence(source.verified, 15, account.id);
+    // Respect explicit discoveryEnabled=false. The independent blind corpus
+    // can teach creative mechanics, but cannot prove dictionary/legal facts.
+    const accountDiscoveryEnabled = isDiscoveryEnabled(account);
+    const sample = selectResearchEvidence(source.verified, 15, account.id, {
+      requireAccountKeywordEvidence: accountDiscoveryEnabled,
+    });
     const research = {
       clusters: sample.clusters,
       // Exact immutable receipts + corresponding public original post; the
       // scheduled writer can cite sourcePostIds but must not invent sources.
       sources: sample.sources.map(x => ({
+        // An independent observation teaches a transferable mechanism only;
+        // only target-account keyword evidence may ground the post's subject.
+        evidenceRole: x.receipt.discovery_origin === "account_keyword" ? "topic_source" : "mechanism_only",
         post: {
           id: x.post.id, platform: x.post.platform, platform_post_id: x.post.platform_post_id,
           text: x.post.text, url: x.post.url, author_handle: x.post.author_handle,
@@ -107,7 +115,12 @@ async function main() {
         observationsRead: source.receiptsRead,
         distinctSourcePostsRead: source.sourcesRead,
         verifiedSources: source.verified.length,
-        targetKeywordSources: sample.sources.filter(x => x.receipt.discovery_origin === "account_keyword").length,
+        targetKeywordSources: sample.metrics.targetKeywordObservations,
+        topicEvidenceMode: accountDiscoveryEnabled ? "account_keyword" : "independent_primary_sources_required",
+        topicSourcesVerified: accountDiscoveryEnabled && sample.metrics.targetKeywordObservations > 0,
+        independentPrimarySourcesRequired: !accountDiscoveryEnabled,
+        topicSourceIds: sample.sources.filter(x => x.receipt.discovery_origin === "account_keyword").map(x => x.post.id),
+        mechanismOnlySourceIds: sample.sources.filter(x => x.receipt.discovery_origin === "blind_discovery").map(x => x.post.id),
         targetAccountId: account.id,
         rejected: source.rejected,
         verifiedAt: startedAt,
@@ -158,8 +171,10 @@ async function main() {
         progress: {
           stage: status,
           nextStep: sample.reason
-            ? "Collect more real independent evidence; do not draft."
-            : "Use target keyword sources for topic discovery, independent sources for transferable mechanisms, and verified primary sources for factual content. Compare 3–5 distinct concepts; persist with original fingerprint.",
+            ? "Collect verified original posts about this account's topic if discovery is enabled; otherwise verify independent primary sources. Blind-only observations are not topic facts; do not draft."
+            : accountDiscoveryEnabled
+              ? "Use only account-keyword topicSourceIds to ground topic claims. Blind mechanismOnlySourceIds teach creative mechanisms only. Check each proposed angle against the actual primary text; reject mismatches. Explicit hypotheses must not make invented factual claims."
+              : "External discovery is explicitly disabled for this account. Preserve that setting. Use blind mechanismOnlySourceIds for transferable creative mechanics ONLY; verify each proposed learning/legal/technical fact against real independently fetched original primary sources (e.g. authoritative dictionaries or official materials), recording URL, check time, verified fact and limitation in candidateBriefs.primarySources. No primary sources = no factual brief and no draft.",
           candidateCount: 0,
           draftCount: 0,
         },
