@@ -119,13 +119,17 @@ async function main() {
           accountId: account.id,
           handle: account.handle,
           synced: result.synced.length,
+          emptySources: result.emptySources,
           cached: result.cached,
           stoppedByBudget: result.stoppedByBudget,
         });
         console.log(
-          `[Discovery] ${account.handle}: ${result.synced.join(", ") || "cache fresh"}; ` +
+          `[Discovery] ${account.handle}: ${result.synced.join(", ") || "no new source"}; empty=${result.emptySources.length}, cached=${result.cached}; ` +
           `budget ${result.budget.count}/${result.budget.budget ?? "unset"}`,
         );
+        if (result.emptySources.length > 0) {
+          errors.push(`${account.handle}: source query returned zero usable posts (${result.emptySources.join(", ")})`);
+        }
         if (result.stoppedByBudget) {
           console.log("[Discovery] Account acquisition paused to preserve two Blind Discovery requests.");
           break;
