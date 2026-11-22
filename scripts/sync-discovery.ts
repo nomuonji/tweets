@@ -86,13 +86,20 @@ async function main() {
       }
     }
 
-    const accounts = await getAccounts();
+    const accounts = (await getAccounts()).filter(account =>
+      isDiscoveryEnabled(account) &&
+      ((account.discoveryKeywords?.length ?? 0) > 0 || (account.referenceAccountIds?.length ?? 0) > 0));
+    // Keep the exact existing per-account request cap and shared budget; spend
+    // scarce requests on accounts with no verified topic evidence first.
+    const workDocs = accounts.length ? await adminDb.getAll(
+      ...accounts.map(account => adminDb.collection("buzz_replenishment_work").doc(account.id))) : [];
+    const topicCounts = new Map(workDocs.map((doc, index) => [
+      accounts[index].id, Number(doc.get("research.guard.targetKeywordSources") ?? 0),
+    ]));
+    accounts.sort((a, b) =>
+      (topicCounts.get(a.id) ?? 0) - (topicCounts.get(b.id) ?? 0) ||
+      a.id.localeCompare(b.id));
     for (const account of accounts) {
-      if (!isDiscoveryEnabled(account)) continue;
-      if (
-        (account.discoveryKeywords?.length ?? 0) === 0 &&
-        (account.referenceAccountIds?.length ?? 0) === 0
-      ) continue;
 
       try {
         const result = await syncExternalDiscovery(account, { runId });
