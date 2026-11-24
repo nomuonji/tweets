@@ -56,6 +56,20 @@ function main() {
   assert.ok(selected.metrics.top > 0 && selected.metrics.latest > 0);
   assert.equal(new Set(selected.sources.map(x => x.post.id)).size, selected.sources.length);
 
+  // Valid receipts that contain only a tracking URL have no usable
+  // topical text. They must not satisfy the writer's six-observation gate.
+  const linkOnly = baseline.verified.map(x => x.post.id === "post_3_1"
+    ? { ...x, post: { ...x.post, text: "https://t.co/example" } }
+    : x);
+  const withoutLink = selectResearchEvidence(linkOnly, 15, "account-a");
+  assert.ok(!withoutLink.sources.some(x => x.post.id === "post_3_1"),
+    "pure link text must not count as a usable writer observation");
+  const allLinks = selectResearchEvidence(baseline.verified.map(x => ({
+    ...x, post: { ...x.post, text: "https://t.co/example" },
+  })));
+  assert.equal(allLinks.sources.length, 0);
+  assert.match(allLinks.reason ?? "", /fewer than six verified posts/);
+
   // Regression: both accounts share independent mechanisms, never each other's
   // account-keyword evidence. The old global selection supplied identical work.
   const a = selectResearchEvidence(baseline.verified, 15, "account-a");
