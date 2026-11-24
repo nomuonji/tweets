@@ -8,6 +8,15 @@ import { runBlindExternalDiscovery } from "@/lib/services/blind-discovery-servic
 
 const PIPELINE_LEASE_MINUTES = 45;
 
+// A provider 429 is a shared outage/quota signal, not an account-level
+// editorial failure. Stop the current collection pass rather than repeating
+// the same paid failing request for every account.
+function isProvider429(error: unknown): boolean {
+  const e = error as { response?: { status?: number }; status?: number; message?: string };
+  return e?.response?.status === 429 || e?.status === 429 ||
+    /\b429\b/.test(String(e?.message ?? error));
+}
+
 async function main() {
   const now = DateTime.utc();
   const jstDate = now.setZone("Asia/Tokyo").toISODate()!;
@@ -61,6 +70,7 @@ async function main() {
   const errors: string[] = [];
   const blindResults: unknown[] = [];
   let consecutiveEmptyBlindRuns = 0;
+  let providerRateLimited = false;
 
   try {
     // Independent sources first: account-specific searches must never exhaust
@@ -93,7 +103,9 @@ async function main() {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         errors.push(`blind_discovery: ${message}`);
-        console.error("[Discovery] Independent acquisition failed:", error);
+        providerRateLimited = isProvider429(error);
+        console.error("[Discovery] Independent acquisition failed:", message,
+          providerRateLimited ? "(shared provider 429; skipping account calls)" : "");
         break;
       }
     }
@@ -111,7 +123,7 @@ async function main() {
     accounts.sort((a, b) =>
       (topicCounts.get(a.id) ?? 0) - (topicCounts.get(b.id) ?? 0) ||
       a.id.localeCompare(b.id));
-    for (const account of accounts) {
+    for (const account of (providerRateLimited ? [] : accounts)) {
 
       try {
         const result = await syncExternalDiscovery(account, { runId });
@@ -137,7 +149,12 @@ async function main() {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         errors.push(`${account.handle}: ${message}`);
-        console.error(`[Discovery] Account source failed for ${account.handle}:`, error);
+        providerRateLimited = isProvider429(error);
+        console.error(`[Discovery] Account source failed for ${account.handle}:`, message);
+        if (providerRateLimited) {
+          console.error("[Discovery] Provider 429; stop remaining account requests for this run.");
+          break;
+        }
       }
     }
 
