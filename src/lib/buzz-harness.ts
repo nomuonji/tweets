@@ -255,7 +255,7 @@ export function assembleCompactBuzzWriter(
   }
   const searchClusters: z.infer<typeof searchClusterSchema>[] = [];
   const observations: z.infer<typeof observationSchema>[] = [];
-  for (const [key, group] of groups) {
+  for (const [key, group] of Array.from(groups.entries())) {
     const receipt = group[0].receipt;
     const lanes = new Set(group.map(x => x.receipt.discovery_mode));
     if (group.some(x => x.receipt.search_keyword !== receipt.search_keyword)) {
