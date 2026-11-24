@@ -146,6 +146,171 @@ export const BuzzHarnessPacketSchema = z.discriminatedUnion("schemaVersion", [
 
 export type BuzzHarnessPacket = z.infer<typeof BuzzHarnessPacketSchema>;
 
+/**
+ * Compact authoring input, NOT an approval or a replacement for Harness v2.
+ * Writer supplies all creative/evidence judgments; Relay only hydrates the
+ * canonical source/receipt and account fields and serializes the same gates.
+ * No editorial brief, preparation checkpoint or external API is required.
+ */
+const compactGateNotesSchema = z.array(passNote.shape.note).length(17).refine(
+  notes => new Set(notes.map(n => n.normalize("NFKC").replace(/\s+/g, " ").trim())).size === 17,
+  "Each of the seventeen writer gate explanations must be distinct.",
+);
+export const CompactBuzzWriterSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: researchPacketSchema.shape.runId,
+  model: researchPacketSchema.shape.model,
+  createdAt: isoDate,
+  initialSeed: researchPacketSchema.shape.initialSeed,
+  accountId: accountSchema.shape.accountId,
+  characterVersion: accountSchema.shape.characterVersion,
+  expectedConcept: accountSchema.shape.concept,
+  sources: z.array(z.object({
+    externalPostId: observationSchema.shape.externalPostId,
+    receiptId: z.string().trim().min(8).max(240).regex(/^[a-zA-Z0-9_-]+$/),
+    whyItMatters: observationSchema.shape.whyItMatters.max(300),
+  }).strict()).min(6).max(15),
+  mechanisms: productionPacketSchema.shape.mechanisms,
+  counterexamples: productionPacketSchema.shape.counterexamples,
+  candidates: z.array(candidateSchema.omit({accountId: true}).strict()).min(3).max(15),
+  drafts: z.array(draftSchema.omit({
+    accountId: true, characterVersion: true, mechanismId: true, authoredAt: true,
+    bakaGate: true, resonanceGate: true, editorialGate: true,
+  }).extend({
+    allGatesPassed: z.literal(true),
+    gateNotes: compactGateNotesSchema,
+  }).strict()).min(1).max(3),
+  // For discovery-disabled educational/legal accounts these are actual
+  // independently read primary-source references, not proof from blind posts.
+  // They stay with the compact audit record; the final Harness schema is unchanged.
+  primarySources: z.array(z.object({
+    url: z.string().url().startsWith("https://"),
+    checkedAt: isoDate,
+    verifiedFact: z.string().trim().min(20).max(1000),
+    limitation: z.string().trim().min(8).max(500),
+  }).strict()).max(8).optional(),
+}).strict();
+
+export type CompactBuzzWriter = z.infer<typeof CompactBuzzWriterSchema>;
+type CompactSource = { post: ExternalPostDoc; receipt: ExternalPostObservationDoc };
+type CompactAccount = z.infer<typeof accountSchema> & {
+  discoveryEnabled: boolean;
+  minPostLength?: number | null;
+  maxPostLength?: number | null;
+};
+
+/** Mechanical assembly only. Caller must supply live, independently verified
+ * receipt/post pairs. The unchanged submitBuzzHarnessRun rechecks them and
+ * every other production gate before issuing any save authorization. */
+export function assembleCompactBuzzWriter(
+  raw: unknown,
+  account: CompactAccount,
+  sources: CompactSource[],
+  nowMs = Date.now(),
+): BuzzHarnessPacket {
+  const input = CompactBuzzWriterSchema.parse(raw);
+  if (input.accountId !== account.accountId || input.characterVersion !== account.characterVersion ||
+      input.expectedConcept !== account.concept || account.platform !== "threads") {
+    throw new Error("Compact Writer character snapshot is stale; read the live account again.");
+  }
+  const age = nowMs - Date.parse(input.createdAt);
+  if (!Number.isFinite(age) || age < 0 || age > 86400000) throw new Error("Compact Writer packet expired or future-dated.");
+  if (input.drafts.length > account.neededDraftCount) throw new Error("Compact Writer drafts exceed live inventory gap.");
+  if (!account.discoveryEnabled && !input.primarySources?.length) {
+    throw new Error("Discovery-disabled account requires independently read primary sources.");
+  }
+  for (const primary of input.primarySources ?? []) {
+    const checkedAge = nowMs - Date.parse(primary.checkedAt);
+    if (!Number.isFinite(checkedAge) || checkedAge < 0 || checkedAge > 86400000) {
+      throw new Error("Compact Writer primary-source check is stale or future-dated.");
+    }
+  }
+
+  const byPost = new Map(sources.map(x => [x.post.id, x]));
+  if (new Set(input.sources.map(x => x.externalPostId)).size !== input.sources.length ||
+      new Set(input.sources.map(x => x.receiptId)).size !== input.sources.length ||
+      byPost.size !== input.sources.length) {
+    throw new Error("Compact Writer source references must be unique and fully verified.");
+  }
+  const topicIds = new Set<string>();
+  const groups = new Map<string, Array<{ post: ExternalPostDoc; receipt: ExternalPostObservationDoc; note: string }>>();
+  for (const source of input.sources) {
+    const pair = byPost.get(source.externalPostId);
+    if (!pair || pair.receipt.id !== source.receiptId || pair.receipt.external_post_id !== source.externalPostId) {
+      throw new Error("Compact Writer cannot resolve verified original/receipt: " + source.externalPostId);
+    }
+    if (!pair.post.text.replace(/https?:\/\/\S+/g, "").trim()) {
+      throw new Error("Compact Writer cannot cite URL-only source: " + source.externalPostId);
+    }
+    if (pair.receipt.discovery_origin === "account_keyword") {
+      if (pair.receipt.target_account_id !== account.accountId) {
+        throw new Error("Compact Writer cannot use another account's topic evidence.");
+      }
+      topicIds.add(source.externalPostId);
+    } else if (pair.receipt.discovery_origin !== "blind_discovery") {
+      throw new Error("Compact Writer unsupported discovery origin.");
+    }
+    const key = pair.receipt.discovery_origin + "|" + pair.receipt.discovery_query_id;
+    groups.set(key, [...(groups.get(key) ?? []), { ...pair, note: source.whyItMatters }]);
+  }
+  const searchClusters: z.infer<typeof searchClusterSchema>[] = [];
+  const observations: z.infer<typeof observationSchema>[] = [];
+  for (const [key, group] of groups) {
+    const receipt = group[0].receipt;
+    const lanes = new Set(group.map(x => x.receipt.discovery_mode));
+    if (group.some(x => x.receipt.search_keyword !== receipt.search_keyword)) {
+      throw new Error("Compact Writer source cluster has inconsistent query keywords.");
+    }
+    const clusterId = "cl_" + createHash("sha256").update(key).digest("hex").slice(0, 14);
+    const acquisitionLane = lanes.size === 2 ? "mixed" : receipt.discovery_mode;
+    searchClusters.push({
+      id: clusterId, searchKeyword: receipt.search_keyword,
+      discoveryQueryId: receipt.discovery_query_id,
+      query: "Collected search keyword: " + receipt.search_keyword,
+      acquisitionLane,
+      origin: receipt.discovery_origin === "blind_discovery" ? "blind_discovery" : "seed_followup",
+      sourcePostIds: group.map(x => x.post.id),
+      observation: group.map(x => x.note).join(" ").slice(0, 1200),
+    });
+    for (const entry of group) observations.push({
+      externalPostId: entry.post.id, clusterId, whyItMatters: entry.note,
+    });
+  }
+  const candidates = input.candidates.map(x => ({ ...x, accountId: account.accountId }));
+  const drafts = input.drafts.map(draft => {
+    const candidate = candidates.find(x => x.id === draft.candidateId);
+    if (!candidate) throw new Error("Compact Writer draft has no originating candidate.");
+    if (account.discoveryEnabled && !draft.sourcePostIds.some(id => topicIds.has(id))) {
+      throw new Error("Compact Writer draft needs a verified target-account topic source; blind evidence is mechanism-only.");
+    }
+    if ((account.minPostLength != null && draft.text.length < account.minPostLength) ||
+        (account.maxPostLength != null && draft.text.length > account.maxPostLength)) {
+      throw new Error("Compact Writer draft violates live character length limits.");
+    }
+    const { gateNotes, allGatesPassed, ...copy } = draft;
+    let i = 0;
+    const build = (keys: string[]) => Object.fromEntries(keys.map(key => [key, {
+      pass: allGatesPassed, note: gateNotes[i++],
+    }]));
+    return {
+      ...copy, accountId: account.accountId, characterVersion: account.characterVersion,
+      mechanismId: candidate.mechanismId, authoredAt: input.createdAt,
+      bakaGate: build(Object.keys(gateSetSchema.shape)),
+      resonanceGate: build(Object.keys(resonanceSetSchema.shape)),
+      editorialGate: build(Object.keys(editorialGateSchema.shape)),
+    };
+  });
+  const { discoveryEnabled, minPostLength, maxPostLength, ...profile } = account;
+  return productionPacketSchema.parse({
+    schemaVersion: 2, runId: input.runId, writerId: "chatgpt-routine-worker",
+    model: input.model, createdAt: input.createdAt, initialSeed: input.initialSeed,
+    accounts: [profile], searchClusters, observations,
+    mechanisms: input.mechanisms, counterexamples: input.counterexamples,
+    candidates, drafts,
+  });
+}
+
+
 export interface BuzzHarnessValidationInput {
   packet: BuzzHarnessPacket;
   liveAccounts: Map<string, {
