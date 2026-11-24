@@ -14,7 +14,7 @@ const PIPELINE_LEASE_MINUTES = 45;
 function isProvider429(error: unknown): boolean {
   const e = error as { response?: { status?: number }; status?: number; message?: string };
   return e?.response?.status === 429 || e?.status === 429 ||
-    /\\b429\\b/.test(String(e?.message ?? error));
+    /\b429\b/.test(String(e?.message ?? error));
 }
 
 async function main() {
