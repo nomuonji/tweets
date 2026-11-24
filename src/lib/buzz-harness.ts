@@ -262,7 +262,10 @@ export function assembleCompactBuzzWriter(
       throw new Error("Compact Writer source cluster has inconsistent query keywords.");
     }
     const clusterId = "cl_" + createHash("sha256").update(key).digest("hex").slice(0, 14);
-    const acquisitionLane = lanes.size === 2 ? "mixed" : receipt.discovery_mode;
+    if (group.some(x => x.receipt.discovery_mode !== "Top" && x.receipt.discovery_mode !== "Latest")) {
+      throw new Error("Compact Writer source has no verified Top/Latest acquisition lane.");
+    }
+    const acquisitionLane = lanes.size === 2 ? "mixed" : receipt.discovery_mode === "Top" ? "Top" : "Latest";
     searchClusters.push({
       id: clusterId, searchKeyword: receipt.search_keyword,
       discoveryQueryId: receipt.discovery_query_id,
