@@ -7,16 +7,22 @@
  */
 import { DateTime } from "luxon";
 import { adminDb } from "@/lib/firebase/admin";
-import { BuzzHarnessPacketSchema, buzzPacketHash } from "@/lib/buzz-harness";
+import { BuzzHarnessPacketSchema, CompactBuzzWriterSchema, assembleCompactBuzzWriter, buzzPacketHash } from "@/lib/buzz-harness";
+import { getCharacterVersion } from "@/lib/character-version";
+import { isDiscoveryEnabled, isPublishingEnabled } from "@/lib/account-gates";
+import { getUsableDraftsByAccountId } from "@/lib/services/firestore.server";
+import { verifyEvidenceSources } from "@/lib/buzz-replenishment-evidence";
+import type { AccountDoc, ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
 import { isGeminiReviewAvailabilityFailure } from "@/lib/gemini/client";
 import { getBuzzHarnessRun, submitBuzzHarnessRun, approveBuzzHarnessRun } from "@/lib/services/buzz-harness-service";
 import { createAgentDrafts } from "@/lib/services/draft-service";
 
 const COLLECTION = "buzz_fallback_packets";
 const LEASE_MINUTES = 45;
-const MAX_PACKETS_PER_RUN = 3;
+// Four packets match the existing four-account HQ Writer contract.
+const MAX_PACKETS_PER_RUN = 4;
 
-type Claimed = { id: string; packet: unknown };
+type Claimed = { id: string; packet: unknown; compact: unknown };
 
 // A completed Harness transaction may precede the packet's completion update.
 // Reconcile the durable draft documents on every attempt, including recovery.
@@ -73,13 +79,71 @@ async function claim(id: string): Promise<Claimed | null> {
       last_attempt_at: DateTime.utc().toISO(),
       attempt_count: Number(data.attempt_count ?? 0) + 1,
     });
-    return { id, packet: data.buzzHarnessPacket };
+    return { id, packet: data.buzzHarnessPacket, compact: data.compactWriterPacket };
+  });
+}
+
+// Hydrate exact source documents in batches, rather than asking the language
+// model to copy receipt fields, timestamps, account snapshots and gate keys.
+// Persist the assembled packet before submit, so recovery uses the same hash.
+async function hydrateCompact(item: Claimed): Promise<unknown> {
+  const input = CompactBuzzWriterSchema.parse(item.compact);
+  if (input.runId !== item.id) throw new Error("Compact Writer runId differs from staging document ID.");
+  const age = Date.now() - Date.parse(input.createdAt);
+  if (!Number.isFinite(age) || age < 0 || age > 86400000) throw new Error("Compact Writer input expired or future-dated.");
+  const accountSnapshot = await adminDb.collection("accounts").doc(input.accountId).get();
+  if (!accountSnapshot.exists) throw new Error("Compact Writer target account not found.");
+  const account = { id: accountSnapshot.id, ...accountSnapshot.data() } as AccountDoc;
+  if (account.platform !== "threads" || !isPublishingEnabled(account)) throw new Error("Compact Writer target is not publishing-enabled Threads.");
+  const version = getCharacterVersion(account);
+  const [openDrafts, postSnapshots, receiptSnapshots] = await Promise.all([
+    getUsableDraftsByAccountId(account.id, version),
+    adminDb.getAll(...input.sources.map(x => adminDb.collection("external_posts").doc(x.externalPostId))),
+    adminDb.getAll(...input.sources.map(x => adminDb.collection("external_post_observations").doc(x.receiptId))),
+  ]);
+  const posts = new Map(postSnapshots.filter(x => x.exists).map(x =>
+    [x.id, { ...x.data(), id: x.id } as ExternalPostDoc] as const));
+  const receipts = receiptSnapshots.filter(x => x.exists).map(x =>
+    ({ ...x.data(), id: x.id } as ExternalPostObservationDoc));
+  const verified = verifyEvidenceSources(receipts, posts);
+  if (verified.verified.length !== input.sources.length) {
+    throw new Error("Compact Writer source readback failed: " + JSON.stringify(verified.rejected));
+  }
+  const packet = assembleCompactBuzzWriter(input, {
+    accountId: account.id, handle: account.handle, platform: "threads",
+    characterVersion: version, concept: account.concept ?? "",
+    capturedAt: new Date().toISOString(), neededDraftCount: Math.max(0, 5 - openDrafts.length),
+    discoveryEnabled: isDiscoveryEnabled(account),
+    minPostLength: account.minPostLength, maxPostLength: account.maxPostLength,
+  }, verified.verified);
+  const ref = adminDb.collection(COLLECTION).doc(item.id);
+  return adminDb.runTransaction(async tx => {
+    const current = await tx.get(ref);
+    if (current.get("status") !== "processing") throw new Error("Compact Writer staging lease lost.");
+    const existing = current.get("buzzHarnessPacket");
+    if (existing) return existing;
+    if (buzzPacketHash(current.get("compactWriterPacket")) !== buzzPacketHash(item.compact)) {
+      throw new Error("Compact Writer input changed during hydration.");
+    }
+    tx.update(ref, { buzzHarnessPacket: packet, assembled_at: DateTime.utc().toISO() });
+    return packet;
   });
 }
 
 async function processPacket(item: Claimed): Promise<void> {
   const ref = adminDb.collection(COLLECTION).doc(item.id);
-  const parsed = BuzzHarnessPacketSchema.safeParse(item.packet);
+  let raw = item.packet;
+  if (!raw && item.compact) {
+    try {
+      raw = await hydrateCompact(item);
+    } catch (error) {
+      // Rejection remains visible and never grants a draft save permission.
+      const message = String(error instanceof Error ? error.message : error).slice(0, 1400);
+      await ref.update({ status: "invalid_packet", lease_until: null, last_error: message, updated_at: DateTime.utc().toISO() });
+      throw error;
+    }
+  }
+  const parsed = BuzzHarnessPacketSchema.safeParse(raw);
   if (!parsed.success) {
     await ref.update({
       status: "invalid_packet",
