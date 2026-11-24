@@ -113,7 +113,7 @@ export function selectResearchEvidence(
     // captured post contains words that can support a reader-facing idea.
     // Keep the receipt in the audit corpus, but never select a URL-only post
     // as one of the six evidence-bearing observations for authoring.
-    if (!item.post.text.replace(/https?:\\/\\/\\S+/g, "").trim()) continue;
+    if (!item.post.text.replace(/https?:\/\/\S+/g, "").trim()) continue;
     // Never assign a different account's keyword research to this persona.
     if (targetAccountId && item.receipt.discovery_origin === "account_keyword" && item.receipt.target_account_id !== targetAccountId) continue;
     const id = key(item);
