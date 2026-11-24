@@ -314,7 +314,7 @@ function main() {
 
   // A compact production submission needs no brief or prepared packet.
   // Its final shape still passes the unchanged canonical evidence and quality gates.
-  const sourcePairs = [...prod.sourcePosts.values()].map(post => {
+  const sourcePairs = Array.from(prod.sourcePosts.values()).map(post => {
     const receipt = prod.sourceObservations.get(post.id)![0];
     if (receipt.discovery_origin === "account_keyword") receipt.target_account_id = "account-1";
     return { post, receipt };
