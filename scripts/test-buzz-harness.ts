@@ -3,6 +3,8 @@ import type { ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
 import { hashBlindSourceText } from "@/lib/blind-discovery";
 import {
   BuzzHarnessPacketSchema,
+  assembleCompactBuzzWriter,
+  CompactBuzzWriterSchema,
   buzzDraftTextHash,
   validateBuzzHarnessPacket,
   validateBlindReviewReceipt,
@@ -309,6 +311,63 @@ function main() {
   const badNotes = structuredClone(productionParsed.data);
   badNotes.drafts[0].editorialGate.B_specificCore.note = badNotes.drafts[0].editorialGate.A_entryAndUnderstanding.note;
   assert.equal(validateBuzzHarnessPacket({ ...input, packet: badNotes }).passed, false);
+
+  // A compact production submission needs no brief or prepared packet.
+  // Its final shape still passes the unchanged canonical evidence and quality gates.
+  const sourcePairs = Array.from(prod.sourcePosts.values()).map(post => {
+    const receipt = prod.sourceObservations.get(post.id)![0];
+    if (receipt.discovery_origin === "account_keyword") receipt.target_account_id = "account-1";
+    return { post, receipt };
+  });
+  const account = { ...prod.packet.accounts[0], discoveryEnabled: true };
+  const final = prod.packet.drafts[0];
+  const shortInput = {
+    schemaVersion: 1 as const,
+    runId: "compact_writer_test_0001",
+    model: prod.packet.model,
+    createdAt: isoNow,
+    initialSeed: prod.packet.initialSeed,
+    accountId: account.accountId,
+    characterVersion: account.characterVersion,
+    expectedConcept: account.concept,
+    sources: prod.packet.observations.map(x => ({
+      externalPostId: x.externalPostId,
+      receiptId: prod.sourceObservations.get(x.externalPostId)![0].id,
+      whyItMatters: x.whyItMatters,
+    })),
+    mechanisms: prod.packet.mechanisms,
+    counterexamples: prod.packet.counterexamples,
+    candidates: prod.packet.candidates.slice(0, 3).map(({ accountId: _unused, ...candidate }) => candidate),
+    drafts: [{
+      candidateId: final.candidateId, sourcePostIds: final.sourcePostIds,
+      objective: final.objective, text: final.text,
+      allGatesPassed: true as const,
+      gateNotes: [final.bakaGate, final.resonanceGate, final.editorialGate]
+        .flatMap(g => Object.values(g).map(v => v.note)),
+    }],
+  };
+  const assembled = assembleCompactBuzzWriter(shortInput, account, sourcePairs, now.getTime());
+  assert.equal(assembled.schemaVersion, 2);
+  assert.equal(assembled.drafts[0].text, final.text);
+  assert.deepEqual(assembled.drafts[0].editorialGate, final.editorialGate);
+  const compactValidation = validateBuzzHarnessPacket({ ...input, packet: assembled });
+  assert.equal(compactValidation.passed, true, compactValidation.errors.join("\n"));
+  assert.throws(() => assembleCompactBuzzWriter(shortInput, { ...account, characterVersion: 3 }, sourcePairs, now.getTime()), /stale/);
+  assert.throws(() => assembleCompactBuzzWriter(shortInput, { ...account, neededDraftCount: 0 }, sourcePairs, now.getTime()), /inventory/);
+  assert.throws(() => assembleCompactBuzzWriter(shortInput, { ...account, discoveryEnabled: false }, sourcePairs, now.getTime()), /primary sources/);
+  assert.throws(() => assembleCompactBuzzWriter(shortInput, account, sourcePairs.slice(1), now.getTime()), /fully verified/);
+  assert.throws(() => assembleCompactBuzzWriter(shortInput, account, sourcePairs.map((p, i) => i === 0 ? {
+    ...p, receipt: { ...p.receipt, target_account_id: "different-account" },
+  } : p), now.getTime()), /another account/);
+  assert.throws(() => assembleCompactBuzzWriter(shortInput, account, sourcePairs.map((p, i) => i === 0 ? {
+    ...p, post: { ...p.post, text: "https://t.co/example" },
+  } : p), now.getTime()), /URL-only/);
+  const incomplete = structuredClone(shortInput);
+  incomplete.drafts[0].gateNotes.pop();
+  assert.equal(CompactBuzzWriterSchema.safeParse(incomplete).success, false);
+  const repeatedCompact = structuredClone(shortInput);
+  repeatedCompact.drafts[0].gateNotes[1] = repeatedCompact.drafts[0].gateNotes[0];
+  assert.equal(CompactBuzzWriterSchema.safeParse(repeatedCompact).success, false);
 
   const forgedBlindDiscovery = validate("forged-blind-discovery", ({ sourceObservations }) => {
     sourceObservations.clear();
