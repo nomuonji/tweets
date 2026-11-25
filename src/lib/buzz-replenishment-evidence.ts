@@ -101,6 +101,27 @@ function key(item: VerifiedEvidence) {
   return item.receipt.discovery_origin + "|" + item.receipt.discovery_query_id;
 }
 
+// Collection provenance is not semantic relevance. For plain Japanese
+// keyword queries, prefer actual query-term overlap before engagement.
+// Structured X queries and other languages remain unmodified.
+function topicOverlap(item: VerifiedEvidence): number {
+  if (item.receipt.discovery_origin !== "account_keyword") return 0;
+  const query = item.receipt.search_keyword.normalize("NFKC").trim();
+  if (!/[ぁ-んァ-ヶ一-龯]/u.test(query) || /[":()]/.test(query)) return 0;
+  const terms = [...new Set(query.split(/\s+/).filter(term => term.length >= 2))];
+  if (terms.length < 2) return 0;
+  const body = item.post.text.normalize("NFKC").replace(/https?:\/\/\S+/g, "");
+  return terms.filter(term => body.includes(term)).length / terms.length;
+}
+
+function isExplicitPromotion(text: string): boolean {
+  return /(?:【\s*(?:広告|PR|宣伝|アフィリエイト)(?:[】・：:\s])|(?:^|\s)#(?:PR|広告|アフィリエイト)(?:\s|$))/i.test(text);
+}
+
+function evidenceTextKey(text: string): string {
+  return text.normalize("NFKC").replace(/https?:\/\/\S+/g, "").replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
+}
+
 export function selectResearchEvidence(
   verified: VerifiedEvidence[],
   limit = 15,
@@ -113,7 +134,7 @@ export function selectResearchEvidence(
     // captured post contains words that can support a reader-facing idea.
     // Keep the receipt in the audit corpus, but never select a URL-only post
     // as one of the six evidence-bearing observations for authoring.
-    if (!item.post.text.replace(/https?:\/\/\S+/g, "").trim()) continue;
+    if (!item.post.text.replace(/https?:\/\/\S+/g, "").trim() || isExplicitPromotion(item.post.text)) continue;
     // Never assign a different account's keyword research to this persona.
     if (targetAccountId && item.receipt.discovery_origin === "account_keyword" && item.receipt.target_account_id !== targetAccountId) continue;
     const id = key(item);
@@ -125,7 +146,8 @@ export function selectResearchEvidence(
       new Set(items.map(x => x.post.author_handle.toLowerCase())).size * 3 +
       (new Set(items.map(x => x.receipt.discovery_mode)).size === 2 ? 6 : 0) +
       Math.min(items.length, 12);
-    return score(b) - score(a) ||
+    const relevance = (items: VerifiedEvidence[]) => Math.max(...items.map(topicOverlap));
+    return relevance(b) - relevance(a) || score(b) - score(a) ||
       (a[0].receipt.discovery_query_id.localeCompare(b[0].receipt.discovery_query_id));
   });
   const blind = ranked.filter(g => g[0].receipt.discovery_origin === "blind_discovery");
@@ -146,18 +168,23 @@ export function selectResearchEvidence(
   const sources: VerifiedEvidence[] = [];
   const clusters: EvidenceSelection["clusters"] = [];
   const capped = Math.min(Math.max(6, limit), 30);
+  const chosenTexts = new Set<string>();
   for (const group of groups) {
     const byRate = [...group].sort((a, b) =>
-      (b.post.engagement_rate ?? 0) - (a.post.engagement_rate ?? 0));
+      topicOverlap(b) - topicOverlap(a) || (b.post.engagement_rate ?? 0) - (a.post.engagement_rate ?? 0));
     const top = byRate.find(x => x.receipt.discovery_mode === "Top");
     const latest = [...group].filter(x => x.receipt.discovery_mode === "Latest")
-      .sort((a, b) => b.receipt.fetched_at.localeCompare(a.receipt.fetched_at))[0];
-    const low = byRate[byRate.length - 1];
+      .sort((a, b) => topicOverlap(b) - topicOverlap(a) || b.receipt.fetched_at.localeCompare(a.receipt.fetched_at))[0];
+    const low = [...group].sort((a, b) => topicOverlap(b) - topicOverlap(a) ||
+      (a.post.engagement_rate ?? 0) - (b.post.engagement_rate ?? 0))[0];
     const choices = [top, latest, low, ...byRate].filter((x): x is VerifiedEvidence => Boolean(x));
     const chosen: VerifiedEvidence[] = [];
     for (const item of choices) {
       if (chosen.length >= 3 || sources.length + chosen.length >= capped) break;
-      if (!chosen.some(x => x.post.id === item.post.id)) chosen.push(item);
+      const normalized = evidenceTextKey(item.post.text);
+      if (!normalized || chosenTexts.has(normalized) || chosen.some(x => x.post.id === item.post.id)) continue;
+      chosen.push(item);
+      chosenTexts.add(normalized);
     }
     if (chosen.length === 0) continue;
     sources.push(...chosen);
