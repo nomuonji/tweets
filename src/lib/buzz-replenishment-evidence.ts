@@ -107,8 +107,8 @@ function key(item: VerifiedEvidence) {
 function topicOverlap(item: VerifiedEvidence): number {
   if (item.receipt.discovery_origin !== "account_keyword") return 0;
   const query = item.receipt.search_keyword.normalize("NFKC").trim();
-  if (!/[ぁ-んァ-ヶ一-龯]/u.test(query) || /[":()]/.test(query)) return 0;
-  const terms = [...new Set(query.split(/\s+/).filter(term => term.length >= 2))];
+  if (!/[ぁ-んァ-ヶ一-龯]/.test(query) || /[":()]/.test(query)) return 0;
+  const terms = Array.from(new Set(query.split(/\s+/).filter(term => term.length >= 2)));
   if (terms.length < 2) return 0;
   const body = item.post.text.normalize("NFKC").replace(/https?:\/\/\S+/g, "");
   return terms.filter(term => body.includes(term)).length / terms.length;
@@ -119,7 +119,7 @@ function isExplicitPromotion(text: string): boolean {
 }
 
 function evidenceTextKey(text: string): string {
-  return text.normalize("NFKC").replace(/https?:\/\/\S+/g, "").replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
+  return text.normalize("NFKC").replace(/https?:\/\/\S+/g, "").replace(/[\s、。！？!?.,，．「」『』（）()【】…・:：;；"'“”‘’—〜～-]/g, "").toLowerCase();
 }
 
 export function selectResearchEvidence(
