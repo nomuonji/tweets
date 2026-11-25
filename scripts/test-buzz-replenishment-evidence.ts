@@ -95,6 +95,33 @@ function main() {
   assert.equal(optedOut.metrics.targetKeywordObservations, 0);
   assert.ok(withoutKeywords.sources.every(x => x.receipt.discovery_origin === "blind_discovery"));
 
+  // Reproduce the live failure: a high-engagement unrelated post and an
+  // explicit ad were previously selected ahead of relevant dating observations.
+  const template = baseline.verified.find(x => x.post.id === "post_3_0")!;
+  const fixture = (id: string, text: string, rate: number, mode: "Top" | "Latest") => ({
+    post: { ...template.post, id, text, engagement_rate: rate, author_handle: id },
+    receipt: { ...template.receipt, search_keyword: "デート 財布 会計", discovery_mode: mode },
+  });
+  const topical = selectResearchEvidence([
+    ...baseline.verified.filter(x => x.receipt.discovery_origin === "blind_discovery"),
+    fixture("unrelated", "簿記の会計処理について", 0.9, "Top"),
+    fixture("advertisement", "【広告】デートの財布と会計はこちら", 0.8, "Top"),
+    fixture("relevant-top", "デートの会計で財布を出すタイミングが難しい", 0.1, "Top"),
+    fixture("relevant-latest", "デートの会計が終わるまで財布をしまったまま", 0.05, "Latest"),
+    fixture("relevant-low", "デートの会計は財布を出す前に話し合いたい", 0.01, "Latest"),
+  ], 15, "account-a");
+  assert.equal(topical.reason, undefined);
+  assert.ok(topical.sources.some(x => x.post.id === "relevant-top"));
+  assert.ok(topical.sources.some(x => x.post.id === "relevant-latest"));
+  assert.ok(topical.sources.some(x => x.post.id === "relevant-low"));
+  assert.ok(!topical.sources.some(x => ["unrelated", "advertisement"].includes(x.post.id)));
+  const duplicate = selectResearchEvidence([
+    ...baseline.verified,
+    fixture("copy-1", "デートの会計で財布を出すタイミング", 0.2, "Top"),
+    fixture("copy-2", "デートの会計で財布を出すタイミング！", 0.1, "Latest"),
+  ], 15, "account-a");
+  assert.ok(duplicate.sources.filter(x => ["copy-1", "copy-2"].includes(x.post.id)).length <= 1);
+
   const altered = receipts.map(x => ({ ...x }));
   altered[0].text_hash = "forged";
   const mismatched = verifyEvidenceSources(altered, posts, now);
