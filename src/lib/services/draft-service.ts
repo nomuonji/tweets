@@ -47,12 +47,28 @@ export type NewDraftInput = {
 };
 
 export async function createAgentDrafts(
+  accountId: string, expectedCharacterVersion: number, inputs: NewDraftInput[],
+  harnessAuthorization?: BuzzHarnessAuthorization,
+): Promise<DraftDoc[]> {
+  return createDrafts(accountId, expectedCharacterVersion, inputs, harnessAuthorization);
+}
+
+// Owner-authorized replenishment: no editorial approval required, but only the
+// existing claimed Relay packet can authorize this separate save path.
+export async function createLightweightRelayDrafts(
+  accountId: string, expectedCharacterVersion: number, inputs: NewDraftInput[], packetId: string,
+): Promise<DraftDoc[]> {
+  return createDrafts(accountId, expectedCharacterVersion, inputs, undefined, packetId);
+}
+
+async function createDrafts(
   accountId: string,
   expectedCharacterVersion: number,
   inputs: NewDraftInput[],
   harnessAuthorization?: BuzzHarnessAuthorization,
+  lightweightPacketId?: string,
 ): Promise<DraftDoc[]> {
-  if (!harnessAuthorization?.runId || !/^[a-f0-9]{64}$/.test(harnessAuthorization.approvalHash)) {
+  if (!lightweightPacketId && (!harnessAuthorization?.runId || !/^[a-f0-9]{64}$/.test(harnessAuthorization.approvalHash))) {
     throw new Error("A server-issued Buzz Harness approvalHash is mandatory. Submitting an evidence packet alone does not authorize draft saving.");
   }
   if (inputs.length < 1 || inputs.length > 10) throw new Error("1〜10件の下書きを指定してください。");
@@ -117,6 +133,20 @@ export async function createAgentDrafts(
     // The harness record is written only by submit_buzz_harness_run after live
     // account + canonical external-post readback and all editorial gates pass.
     // Bind this save to the exact approved text hashes; no edits after review.
+    let completeSave: (drafts: DraftDoc[], now: string) => void;
+    if (lightweightPacketId) {
+      const packetRef = adminDb.collection("buzz_fallback_packets").doc(lightweightPacketId);
+      const packetSnap = await transaction.get(packetRef);
+      const packet = packetSnap.get("lightweightWriterPacket");
+      if (account.platform !== "threads" || packetSnap.get("status") !== "processing" || packetSnap.get("staged_by") !== "chatgpt-routine-worker" || !packet || packet.runId !== lightweightPacketId || packet.accountId !== accountId || packet.characterVersion !== version || !Array.isArray(packet.drafts) || JSON.stringify(packet.drafts.map((d: {text: string}) => d.text)) !== JSON.stringify(inputs.map(d => d.text)) || inputs.some(d => d.overwriteSimilar || d.affiliate || d.ownedContent || d.topicTag || (d.hashtags?.length ?? 0) > 0)) {
+        throw new Error("Lightweight Relay packet authorization mismatch.");
+      }
+      completeSave = (drafts, now) => transaction.update(packetRef, {
+        status: "completed", completed_at: now, updated_at: now, lease_until: null,
+        save_mode: "lightweight", saved_accounts: [{ accountId, count: drafts.length, draftIds: drafts.map(d => d.id) }],
+      });
+    } else {
+    if (!harnessAuthorization) throw new Error("Missing Harness authorization.");
     const harnessRef = adminDb.collection("buzz_harness_runs").doc(harnessAuthorization.runId);
     const harnessSnap = await transaction.get(harnessRef);
     if (!harnessSnap.exists) throw new Error("Buzz Harness approval not found.");
@@ -183,6 +213,13 @@ export async function createAgentDrafts(
     }
     if (expectedByHash.size > 0) throw new Error("One or more approved drafts were omitted from this account save.");
 
+    completeSave = (_drafts, now) => {
+      const updatedConsumed = [...consumedAccountIds, accountId];
+      const fullyConsumed = Object.keys(approvedDraftsByAccount).every(id => updatedConsumed.includes(id));
+      transaction.update(harnessRef, { consumedAccountIds: updatedConsumed, status: fullyConsumed ? "consumed" : "partially_consumed", updatedAt: now });
+    };
+    }
+
     const latestPosts = await transaction.get(
       adminDb.collection("posts").where("account_id", "==", accountId).limit(100),
     );
@@ -245,14 +282,7 @@ export async function createAgentDrafts(
       const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(topicTag ? { topic_tag: topicTag } : {}), ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
       transaction.set(ref, draft); existing.push(draft); return draft;
     });
-    const updatedConsumed = [...consumedAccountIds, accountId];
-    const approvedAccountIds = Object.keys(approvedDraftsByAccount);
-    const fullyConsumed = approvedAccountIds.every((id) => updatedConsumed.includes(id));
-    transaction.update(harnessRef, {
-      consumedAccountIds: updatedConsumed,
-      status: fullyConsumed ? "consumed" : "partially_consumed",
-      updatedAt: now,
-    });
+    completeSave(drafts, now);
     return drafts;
   });
 }
