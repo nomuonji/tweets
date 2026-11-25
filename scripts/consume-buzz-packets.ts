@@ -6,6 +6,7 @@
  * Production v2 uses writer quality gates; legacy v1 retains blind review. Do not use this script to author posts.
  */
 import { DateTime } from "luxon";
+import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { BuzzHarnessPacketSchema, CompactBuzzWriterSchema, assembleCompactBuzzWriter, buzzPacketHash } from "@/lib/buzz-harness";
 import { getCharacterVersion } from "@/lib/character-version";
@@ -15,14 +16,19 @@ import { verifyEvidenceSources } from "@/lib/buzz-replenishment-evidence";
 import type { AccountDoc, ExternalPostDoc, ExternalPostObservationDoc } from "@/lib/types";
 import { isGeminiReviewAvailabilityFailure } from "@/lib/gemini/client";
 import { getBuzzHarnessRun, submitBuzzHarnessRun, approveBuzzHarnessRun } from "@/lib/services/buzz-harness-service";
-import { createAgentDrafts } from "@/lib/services/draft-service";
+import { createAgentDrafts, createLightweightRelayDrafts } from "@/lib/services/draft-service";
 
 const COLLECTION = "buzz_fallback_packets";
 const LEASE_MINUTES = 45;
 // Four packets match the existing four-account HQ Writer contract.
 const MAX_PACKETS_PER_RUN = 4;
 
-type Claimed = { id: string; packet: unknown; compact: unknown };
+type Claimed = { id: string; packet: unknown; compact: unknown; lightweight: unknown };
+const LightweightWriterSchema = z.object({
+  schemaVersion: z.literal(1), runId: z.string().min(8).max(80).regex(/^[a-zA-Z0-9_-]+$/),
+  accountId: z.string().min(1), characterVersion: z.number().int().positive(),
+  drafts: z.array(z.object({ text: z.string().trim().min(1).max(500) })).min(1).max(5),
+}).strict();
 
 // A completed Harness transaction may precede the packet's completion update.
 // Reconcile the durable draft documents on every attempt, including recovery.
@@ -79,7 +85,7 @@ async function claim(id: string): Promise<Claimed | null> {
       last_attempt_at: DateTime.utc().toISO(),
       attempt_count: Number(data.attempt_count ?? 0) + 1,
     });
-    return { id, packet: data.buzzHarnessPacket, compact: data.compactWriterPacket };
+    return { id, packet: data.buzzHarnessPacket, compact: data.compactWriterPacket, lightweight: data.lightweightWriterPacket };
   });
 }
 
@@ -132,6 +138,24 @@ async function hydrateCompact(item: Claimed): Promise<unknown> {
 
 async function processPacket(item: Claimed): Promise<void> {
   const ref = adminDb.collection(COLLECTION).doc(item.id);
+  if (item.lightweight) {
+    try {
+      if (item.packet || item.compact) throw new Error("Mixed Relay packet modes are not allowed.");
+      const packet = LightweightWriterSchema.parse(item.lightweight);
+      if (packet.runId !== item.id) throw new Error("Lightweight packet ID mismatch.");
+      const drafts = await createLightweightRelayDrafts(packet.accountId, packet.characterVersion, packet.drafts.map(d => ({
+        text: d.text, createdBy: "agent", generatedBy: "agent-hq:lightweight", provenance: { batchId: item.id },
+      })), item.id);
+      const snapshots = await adminDb.getAll(...drafts.map(d => adminDb.collection("drafts").doc(d.id)));
+      if (snapshots.length !== drafts.length || snapshots.some((s, i) => !s.exists || s.get("text") !== drafts[i].text || s.get("target_account_id") !== packet.accountId || s.get("character_version") !== packet.characterVersion || s.get("provenance.batchId") !== item.id)) throw new Error("Lightweight draft readback mismatch.");
+      console.log("[Buzz Relay] Lightweight drafts saved", JSON.stringify({ packetId: item.id, draftIds: drafts.map(d => d.id) }));
+    } catch (error) {
+      const state = await ref.get();
+      if (state.get("status") === "processing") await ref.update({ status: "needs_attention", lease_until: null, last_error: String(error).slice(0, 1400), updated_at: DateTime.utc().toISO() });
+      throw error;
+    }
+    return;
+  }
   let raw = item.packet;
   if (!raw && item.compact) {
     try {
