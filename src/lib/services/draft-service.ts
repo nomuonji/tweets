@@ -83,7 +83,7 @@ async function createDrafts(
     const draftSnap = await transaction.get(adminDb.collection("drafts").where("target_account_id", "==", accountId));
     const usable = draftSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as DraftDoc)
       .filter((draft) => (draft.status === "draft" || draft.status === "scheduled") && (draft.character_version ?? 1) === version);
-    if (usable.length + inputs.length > MAX_AGENT_DRAFTS) throw new Error(`Current character version inventory is capped at ${MAX_AGENT_DRAFTS}.`);
+    if (!lightweightPacketId && usable.length + inputs.length > MAX_AGENT_DRAFTS) throw new Error(`Current character version inventory is capped at ${MAX_AGENT_DRAFTS}.`);
     const existing = draftSnap.docs.map((doc) => doc.data() as DraftDoc);
     const affiliateProductIds = Array.from(new Set(inputs.map((input) => input.affiliate?.productId?.trim().toUpperCase()).filter((value): value is string => Boolean(value))));
     for (const productId of affiliateProductIds) {
@@ -133,6 +133,7 @@ async function createDrafts(
     // The harness record is written only by submit_buzz_harness_run after live
     // account + canonical external-post readback and all editorial gates pass.
     // Bind this save to the exact approved text hashes; no edits after review.
+    const skippedDrafts: Array<{ index: number; reason: string }> = [];
     let completeSave: (drafts: DraftDoc[], now: string) => void;
     if (lightweightPacketId) {
       const packetRef = adminDb.collection("buzz_fallback_packets").doc(lightweightPacketId);
@@ -142,8 +143,9 @@ async function createDrafts(
         throw new Error("Lightweight Relay packet authorization mismatch.");
       }
       completeSave = (drafts, now) => transaction.update(packetRef, {
-        status: "completed", completed_at: now, updated_at: now, lease_until: null,
+        status: drafts.length > 0 ? "completed" : "needs_attention", completed_at: now, updated_at: now, lease_until: null,
         save_mode: "lightweight", saved_accounts: [{ accountId, count: drafts.length, draftIds: drafts.map(d => d.id) }],
+        skipped_drafts: skippedDrafts, last_error: drafts.length ? null : "No eligible draft: " + skippedDrafts.map(d => d.reason).join(", "),
       });
     } else {
     if (!harnessAuthorization) throw new Error("Missing Harness authorization.");
@@ -226,7 +228,7 @@ async function createDrafts(
     const latestPostTexts = latestPosts.docs
       .map((doc) => String(doc.data().text ?? ""))
       .filter(Boolean);
-    for (const input of inputs) {
+    if (!lightweightPacketId) for (const input of inputs) {
       const normalizedInput = buzzFinalCopy(input.text, input.hashtags ?? []);
       for (const priorText of latestPostTexts) {
         if (trigramSimilarity(normalizedInput, priorText) >= 0.82) {
@@ -236,8 +238,23 @@ async function createDrafts(
     }
 
     const now = DateTime.utc().toISO()!;
-    const drafts = inputs.map((input) => {
+    const drafts: DraftDoc[] = [];
+    const selectedInputs = lightweightPacketId ? inputs.filter((input, index) => {
+      const text = input.text.trim();
+      const normalized = normalizedDraftText(text);
+      const min = typeof account.minPostLength === "number" && account.minPostLength > 0 ? account.minPostLength : 0;
+      const max = Math.min(typeof account.maxPostLength === "number" && account.maxPostLength > 0 ? account.maxPostLength : 500, 500);
+      const reason = !text || text.length < min || text.length > max ? "length" :
+        existing.some(d => normalizedDraftText(draftTextWithHashtags(d.text, d.hashtags)) === normalized) || latestPostTexts.some(t => normalizedDraftText(t) === normalized) ? "exact_duplicate" : null;
+      if (reason) { skippedDrafts.push({ index, reason }); return false; }
+      return true;
+    }) : inputs;
+    for (const input of selectedInputs) {
       const text = input.text.trim(); const hashtags = input.hashtags ?? [];
+      const index = inputs.indexOf(input);
+      if (lightweightPacketId && drafts.length >= Math.max(0, MAX_AGENT_DRAFTS - usable.length)) {
+        skippedDrafts.push({ index, reason: "inventory_full" }); continue;
+      }
       if (!text) throw new Error("Draft text is required.");
       if (input.topicTag !== undefined && account.platform !== "threads") {
         throw new Error("topicTag is only supported for Threads drafts.");
@@ -275,13 +292,17 @@ async function createDrafts(
       }
       const normalized = normalizedDraftText(fullText);
       const duplicate = existing.find((candidate) => normalizedDraftText(draftTextWithHashtags(candidate.text, candidate.hashtags)) === normalized);
-      if (duplicate) throw new Error("An identical draft already exists.");
+      if (duplicate) {
+        if (lightweightPacketId) { skippedDrafts.push({ index, reason: "exact_duplicate" }); continue; }
+        throw new Error("An identical draft already exists.");
+      }
       const similar = existing.find((candidate) => trigramSimilarity(fullText, draftTextWithHashtags(candidate.text, candidate.hashtags)) >= 0.82);
-      if (similar && !input.overwriteSimilar) throw new Error("A too-similar draft already exists; set overwriteSimilar only after reviewing it.");
+      const similarPublished = !!lightweightPacketId && latestPostTexts.some(t => trigramSimilarity(fullText, t) >= 0.82);
+      if (similar && !input.overwriteSimilar && !lightweightPacketId) throw new Error("A too-similar draft already exists; set overwriteSimilar only after reviewing it.");
       const ref = adminDb.collection("drafts").doc();
-      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar), character_version: version, generatedBy: input.generatedBy ?? "agent", ...(topicTag ? { topic_tag: topicTag } : {}), ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
-      transaction.set(ref, draft); existing.push(draft); return draft;
-    });
+      const draft: DraftDoc = { id: ref.id, target_platform: account.platform as "x" | "threads", target_account_id: accountId, base_post_id: null, text, hashtags, status: "scheduled", schedule_time: null, published_at: null, created_by: input.createdBy ?? "agent", created_at: now, updated_at: now, similarity_warning: Boolean(similar) || similarPublished, character_version: version, generatedBy: input.generatedBy ?? "agent", ...(topicTag ? { topic_tag: topicTag } : {}), ...(input.affiliate ? { affiliate_product_id: input.affiliate.productId.trim().toUpperCase(), ...(input.affiliate.creativeAssetId?.trim() ? { affiliate_creative_id: input.affiliate.creativeAssetId.trim() } : {}) } : {}), ...(ownedContent ? { owned_content_item_id: ownedContent.itemId, owned_content_source_id: ownedContent.sourceId, owned_content_url: ownedContent.canonicalUrl, owned_content_source_type: ownedContent.sourceType } : {}), pattern: extractPattern(text), ...(input.provenance ? { provenance: input.provenance } : {}) };
+      transaction.set(ref, draft); existing.push(draft); drafts.push(draft);
+    }
     completeSave(drafts, now);
     return drafts;
   });

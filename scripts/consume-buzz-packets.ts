@@ -27,7 +27,7 @@ type Claimed = { id: string; packet: unknown; compact: unknown; lightweight: unk
 const LightweightWriterSchema = z.object({
   schemaVersion: z.literal(1), runId: z.string().min(8).max(80).regex(/^[a-zA-Z0-9_-]+$/),
   accountId: z.string().min(1), characterVersion: z.number().int().positive(),
-  drafts: z.array(z.object({ text: z.string().trim().min(1).max(500) })).min(1).max(5),
+  drafts: z.array(z.object({ text: z.string() })).min(1).max(5),
 }).strict();
 
 // A completed Harness transaction may precede the packet's completion update.
@@ -146,6 +146,7 @@ async function processPacket(item: Claimed): Promise<void> {
       const drafts = await createLightweightRelayDrafts(packet.accountId, packet.characterVersion, packet.drafts.map(d => ({
         text: d.text, createdBy: "agent", generatedBy: "agent-hq:lightweight", provenance: { batchId: item.id },
       })), item.id);
+      if (drafts.length === 0) throw new Error("No eligible lightweight draft; see skipped_drafts on packet.");
       const snapshots = await adminDb.getAll(...drafts.map(d => adminDb.collection("drafts").doc(d.id)));
       if (snapshots.length !== drafts.length || snapshots.some((s, i) => !s.exists || s.get("text") !== drafts[i].text || s.get("target_account_id") !== packet.accountId || s.get("character_version") !== packet.characterVersion || s.get("provenance.batchId") !== item.id)) throw new Error("Lightweight draft readback mismatch.");
       console.log("[Buzz Relay] Lightweight drafts saved", JSON.stringify({ packetId: item.id, draftIds: drafts.map(d => d.id) }));
